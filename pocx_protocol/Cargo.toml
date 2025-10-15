@@ -1,0 +1,30 @@
+[package]
+name = "pocx_protocol"
+version = "1.0.0"
+license = "MIT"
+authors = [
+    "Proof of Capacity Consortium",
+]
+description = "JSON-RPC 2.0 protocol implementation for PoCX mining operations"
+keywords = ["poc", "cryptocurrency", "mining", "jsonrpc", "protocol"]
+categories = ["cryptography", "network-programming", "web-programming"]
+readme = "README.md"
+edition = "2021"
+rust-version = "1.91.0"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+mockito = { workspace = true }

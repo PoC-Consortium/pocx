@@ -1,0 +1,43 @@
+[package]
+name = "pocx_plotfile"
+version = "1.0.0"
+license = "MIT"
+authors = [
+    "Proof of Capacity Consortium",
+]
+description = "A high-performance, safe, and cross-platform library for reading and writing PoC cryptocurrency plot files"
+keywords = ["poc", "cryptocurrency", "mining", "plotfile", "shabal256"]
+categories = ["cryptography", "filesystem", "parsing"]
+readme = "README.md"
+edition = "2021"
+rust-version = "1.91.0"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+hex = { workspace = true }
+pocx_address = { path = "../pocx_address" }
+filetime = { workspace = true }
+cfg-if = { workspace = true }
+indicatif = { workspace = true }
+rand = { workspace = true }
+
+[dev-dependencies]
+# Testing infrastructure
+tempfile = { workspace = true }
+proptest = { workspace = true }
+quickcheck = { workspace = true }
+quickcheck_macros = { workspace = true }
+arbitrary = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+winapi = { workspace = true }
+
+[target.'cfg(not(windows))'.dependencies]
+fs2 = "0.4"
+
+[features]
+opencl = []
+simd = []

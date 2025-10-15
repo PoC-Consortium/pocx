@@ -1,0 +1,22 @@
+[package]
+name = "pocx_address"
+version = "1.0.0"
+authors = ["Proof of Capacity Consortium"]
+description = "Address encoding/decoding library for PoCX with Base58Check and Bech32 support"
+edition = "2021"
+rust-version = "1.91.0"
+license = "MIT"
+keywords = ["cryptocurrency", "address", "base58", "bech32", "poc"]
+categories = ["cryptography"]
+
+[dependencies]
+rand = { workspace = true }
+bs58 = { workspace = true }
+bech32 = { workspace = true }
+secp256k1 = { workspace = true }
+sha2 = { workspace = true }
+ripemd = { workspace = true }
+hex = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

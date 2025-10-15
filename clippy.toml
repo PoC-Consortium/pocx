@@ -1,0 +1,3 @@
+# Clippy configuration for PoC Mining Library
+avoid-breaking-exported-api = false
+msrv = "1.91"

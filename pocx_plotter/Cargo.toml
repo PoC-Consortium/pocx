@@ -1,0 +1,67 @@
+[package]
+name = "pocx_plotter"
+version = "1.0.0"
+license = "MIT"
+authors = [
+    "Proof of Capacity Consortium",
+]
+description = """
+Universal Proof-of-Capacity plotting tool for any PoC cryptocurrency.
+CPU and GPU acceleration with OpenCL, SIMD optimizations, and memory-mapped I/O.
+"""
+documentation = "https://docs.rs/pocx_plotter"
+keywords = ["poc", "proof-of-capacity", "plotter", "rust", "cryptocurrency"]
+categories = ["cryptography", "algorithms", "command-line-utilities"]
+readme = "README.md"
+edition = "2021"
+rust-version = "1.91.0"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lib]
+name = "pocx_plotter"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pocx_plotter"
+path = "src/main.rs"
+
+[features]
+default = ["simd"]
+opencl = ["ocl-core"]
+simd = []
+
+[dependencies]
+crossbeam-channel = { workspace = true }
+ocl-core = { version = "0.11", optional = true } 
+clap = { workspace = true }
+raw-cpuid = "11.0"
+sys-info = "0.9"
+cfg-if = { workspace = true }
+indicatif = { workspace = true }
+bytesize = "2.0.1"
+libc = { workspace = true }
+rayon = "1.10"
+core_affinity = "0.8"
+fs2 = "0.4"
+page_size = { workspace = true }
+hex = { workspace = true }
+rand = { workspace = true }
+pocx_hashlib = {path= "../pocx_hashlib"}
+pocx_plotfile = {path= "../pocx_plotfile"}
+pocx_address = {path = "../pocx_address"}
+
+[target.'cfg(linux)'.dependencies]
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["std","fileapi","securitybaseapi"] }
+
+# Profiles moved to workspace root
+
+[dev-dependencies]
+sha2 = { workspace = true }
+tempfile = "3.8"
+proptest = "1.4"
+quickcheck = "1.0"

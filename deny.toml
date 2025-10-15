@@ -1,0 +1,95 @@
+# cargo-deny configuration for PoCX project
+# Modern configuration format for cargo-deny
+
+[graph]
+# Dependency resolution targets
+targets = [
+    { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "x86_64-pc-windows-msvc" },
+    { triple = "x86_64-apple-darwin" },
+]
+
+[advisories]
+# Security vulnerability database checks
+version = 2
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+
+# Security policy
+ignore = [
+    # Add specific advisories to ignore if needed (with justification)
+    # "RUSTSEC-YYYY-NNNN", # Example: temporary ignore with ticket number
+]
+
+[licenses]
+# License compliance for cryptocurrency project  
+version = 2
+confidence-threshold = 0.8
+
+# Allowed licenses for the project
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception", 
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "Zlib",
+    "0BSD",
+    "CDLA-Permissive-2.0",
+    "LGPL-3.0",
+    "MPL-2.0",
+]
+
+# Specific license exceptions
+[[licenses.exceptions]]
+allow = ["Unicode-DFS-2016"]
+name = "unicode-ident"
+# Justification: Safe unicode handling library with permissive license
+
+[bans]
+# Dependency restrictions for security and quality
+multiple-versions = "warn"
+wildcards = "allow" # Allow for compatibility during development
+highlight = "all"
+
+# Banned crates due to security or compatibility concerns
+deny = [
+    # Security-problematic crates  
+    { name = "openssl", reason = "Use rustls instead for better security" },
+    { name = "native-tls", reason = "Use rustls for consistent behavior" },
+    
+    # Memory-unsafe or deprecated crates
+    { name = "aligned_alloc", reason = "Yanked crate, use std::alloc instead" },
+    
+    # Cryptocurrency-specific security concerns
+    { name = "rand_os", reason = "Deprecated, use getrandom instead" },
+]
+
+# Skip certain crates from version checking
+skip = [
+    # System dependencies that may have multiple versions
+    { name = "windows-sys" },
+    { name = "windows_x86_64_msvc" },
+    { name = "windows_x86_64_gnu" },
+]
+
+# Tree of allowed duplicate dependencies  
+skip-tree = [
+    # Allow duplicates in the dependency tree for compatibility
+    { name = "syn", version = "1.0" }, # proc-macro compatibility
+]
+
+[sources]
+# Source repository restrictions for supply chain security
+unknown-registry = "deny"
+unknown-git = "deny" 
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+allow-git = [
+    # Allow specific trusted git repositories if needed
+    # "https://github.com/rust-lang/git2-rs",
+]

@@ -1,0 +1,136 @@
+# Rust
+target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+debug/
+*.profraw
+*.profdata
+
+# Build artifacts
+build/
+dist/
+/bin/
+/obj/
+
+# IDE
+.idea/
+.vscode/
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/tasks.json
+/.vs/
+*.swp
+*.swo
+.vim/
+.nvim/
+rust-project.json
+.cquery_cached_index
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Environment and configuration
+.env
+.env.local
+.env.*.local
+config.local.toml
+settings.local.json
+
+# Logs
+*.log
+*.log*
+/log
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*~
+*.seed
+*.pid
+/temp/
+
+# Plot files - IMPORTANT
+*.pocx
+*.bpoc
+*.plot
+plots/
+test-plots/
+pocx_plotfile_tests_*/
+
+# Test and coverage
+/coverage/
+coverage/
+coverage_output/
+lcov.info
+/test_files/
+/test_output/
+proptest-regressions/
+
+# Performance and profiling
+perf.data*
+flamegraph.svg
+*.bench
+benchmark-results/
+
+# Security
+security-scan-results/
+audit-results.json
+
+# Fuzz testing
+/fuzz/artifacts/
+/fuzz/corpus/
+
+# Documentation
+/docs/
+/doc
+
+# Cache
+.cache/
+
+# OpenCL build artifacts (but not .cl source files!)
+*.cl.h
+opencl_build.log
+
+# Executables
+*.exe
+*.dll
+*.bat
+
+# Node (if any JS tooling)
+node_modules/
+package-lock.json
+yarn.lock
+
+# Development
+dev-scripts/
+local-tools/
+scripts/test_output/
+ci/
+wiki/
+scripts/
+
+# Docker
+.dockerignore.bak
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+*.db-journal
+
+# Mockchain specific
+mockchain.db
+mockchain.log
+mockchain_testnet.db

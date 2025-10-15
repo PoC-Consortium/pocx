@@ -1,0 +1,76 @@
+[package]
+name = "pocx_miner"
+version = "1.0.0"
+license = "MIT"
+authors = ["Proof of Capacity Consortium"]
+description = "High-performance PoCX cryptocurrency miner with SIMD optimizations"
+edition = "2021"
+rust-version = "1.91.0"
+
+[dependencies]
+# Memory management
+page_size = { workspace = true }
+libc = { workspace = true }
+cfg-if = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+tokio-stream = "0.1"
+futures = { workspace = true }
+
+# Data structures
+priority-queue = "2.5"
+crossbeam-channel = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+
+# HTTP client
+reqwest = { workspace = true }
+
+# CLI and logging
+clap = { workspace = true }
+log = "0.4"
+log4rs = { workspace = true }
+
+# Utilities
+url = { workspace = true }
+hex = "0.4"
+indicatif = "0.18"  # Better than pbr for progress bars
+
+# Performance
+core_affinity = "0.8"
+rayon = "1.10"
+num_cpus = "1.16"
+raw-cpuid = "11.2"
+rand = { workspace = true }
+
+# Time utilities
+bytesize = "2.0.1"
+
+# Internal dependencies
+pocx_hashlib = { path = "../pocx_hashlib" }
+pocx_plotfile = { path = "../pocx_plotfile" }
+pocx_protocol = { path = "../pocx_protocol" }
+
+[target.'cfg(windows)'.dependencies]
+winapi = { workspace = true }
+
+[features]
+default = ["simd"]
+simd = []
+neon = []
+
+[dev-dependencies]
+proptest = { workspace = true }
+tempfile = { workspace = true }
+criterion = { workspace = true }
+
+
+[[bench]]
+name = "compression_benchmark"
+harness = false
+
+

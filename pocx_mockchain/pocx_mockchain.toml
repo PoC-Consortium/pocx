@@ -1,0 +1,41 @@
+# PoCX Mockchain Configuration
+
+[network]
+name = "PoCX Mockchain"
+
+# Network ID determines address format
+# Bech32 (modern): { Bech32 = "tpocx" }  
+# Base58 (legacy): { Base58 = 127 }
+network_id = { Bech32 = "tpocx" }
+
+# Examples: { Bech32 = "pocx" }, { Bech32 = "mychain" }, { Base58 = 85 }
+
+# Block time in seconds (genesis base target = 2^42 / block_time)
+block_time_seconds = 120
+
+# Compression level requirements (1-32)
+minimum_compression_level = 1
+target_compression_level = 1
+
+# Genesis block signature (64 hex chars)
+genesis_signature = "0000000000000000000000000000000000000000000000000000000000000000"
+
+# Difficulty adjustment
+[network.difficulty_adjustment]
+lookback_blocks = 24       # Blocks to analyze
+min_adjustment_ratio = 0.8 # Max 20% decrease
+max_adjustment_ratio = 1.2 # Max 20% increase
+
+[server]
+host = "127.0.0.1"  # Use "0.0.0.0" for all interfaces
+port = 8081
+enable_cors = true
+
+[database]
+url = "mockchain.db"
+
+# Environment variable overrides:
+# POCX_NETWORK_NAME, POCX_NETWORK_ID, POCX_HOST, POCX_PORT, POCX_DATABASE_URL
+# POCX_MINIMUM_COMPRESSION_LEVEL, POCX_TARGET_COMPRESSION_LEVEL
+#
+# Example: POCX_NETWORK_ID="Bech32:custom" ./pocx_mockchain

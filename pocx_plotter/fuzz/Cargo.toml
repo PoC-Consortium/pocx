@@ -1,0 +1,43 @@
+[package]
+name = "pocx_plotter-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+rust-version = "1.91.0"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.pocx_plotter]
+path = ".."
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "fuzz_poc_id_validation"
+path = "fuzz_targets/fuzz_poc_id_validation.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_seed_validation"
+path = "fuzz_targets/fuzz_seed_validation.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_compression"
+path = "fuzz_targets/fuzz_compression.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_buffer_allocation"
+path = "fuzz_targets/fuzz_buffer_allocation.rs"
+test = false
+doc = false
