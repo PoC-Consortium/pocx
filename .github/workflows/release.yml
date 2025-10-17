@@ -245,37 +245,37 @@ jobs:
           rm SHA256SUMS-*.txt
 
           # Create a README for the release
-          cat > README.txt << 'EOF'
-PoCX Release Binaries
-=====================
+          cat > README.txt << 'HEREDOC_EOF'
+          PoCX Release Binaries
+          =====================
 
-This release contains pre-built binaries for multiple platforms.
+          This release contains pre-built binaries for multiple platforms.
 
-Platform Support:
-- Linux x86_64 (with/without OpenCL)
-- Linux ARM64
-- Windows x86_64
-- macOS x86_64 (with/without OpenCL)
-- macOS ARM64 (with/without OpenCL)
+          Platform Support:
+          - Linux x86_64 (with/without OpenCL)
+          - Linux ARM64
+          - Windows x86_64
+          - macOS x86_64 (with/without OpenCL)
+          - macOS ARM64 (with/without OpenCL)
 
-Binaries Included:
-- pocx_miner: Mining client
-- pocx_plotter: Plot file generator
-- pocx_verifier: Plot file verification tool
-- pocx_mockchain: Mock blockchain for testing
+          Binaries Included:
+          - pocx_miner: Mining client
+          - pocx_plotter: Plot file generator
+          - pocx_verifier: Plot file verification tool
+          - pocx_mockchain: Mock blockchain for testing
 
-Verification:
-All binaries can be verified using SHA256SUMS.txt
+          Verification:
+          All binaries can be verified using SHA256SUMS.txt
 
-Installation:
-1. Download the binary for your platform
-2. Verify checksum: sha256sum -c SHA256SUMS.txt
-3. Make executable (Linux/macOS): chmod +x pocx_*
-4. Run: ./pocx_miner --help
+          Installation:
+          1. Download the binary for your platform
+          2. Verify checksum: sha256sum -c SHA256SUMS.txt
+          3. Make executable (Linux/macOS): chmod +x pocx_*
+          4. Run: ./pocx_miner --help
 
-For source code and documentation, visit:
-https://github.com/PoC-Consortium/pocx
-EOF
+          For source code and documentation, visit:
+          https://github.com/PoC-Consortium/pocx
+          HEREDOC_EOF
 
           ls -lh
 
