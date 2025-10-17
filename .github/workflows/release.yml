@@ -179,14 +179,6 @@ jobs:
           # Create archive
           ARCHIVE_NAME="pocx-${VERSION}-${{ matrix.target }}${SUFFIX}.tar.gz"
           tar -czf "release-artifacts/${ARCHIVE_NAME}" -C staging .
-
-          # Generate checksum
-          cd release-artifacts
-          if command -v sha256sum &> /dev/null; then
-            sha256sum "${ARCHIVE_NAME}" > "${ARCHIVE_NAME}.sha256"
-          else
-            shasum -a 256 "${ARCHIVE_NAME}" > "${ARCHIVE_NAME}.sha256"
-          fi
         shell: bash
 
       - name: Prepare release artifacts (Windows)
@@ -212,11 +204,6 @@ jobs:
           # Create archive
           $ARCHIVE_NAME = "pocx-${VERSION}-${{ matrix.target }}.zip"
           Compress-Archive -Path staging/* -DestinationPath "release-artifacts/$ARCHIVE_NAME"
-
-          # Generate checksum
-          cd release-artifacts
-          $hash = (Get-FileHash -Algorithm SHA256 $ARCHIVE_NAME).Hash.ToLower()
-          "$hash  $ARCHIVE_NAME" | Out-File -Encoding ASCII "${ARCHIVE_NAME}.sha256"
         shell: powershell
 
       - name: Upload release artifacts
@@ -298,4 +285,4 @@ jobs:
             .\pocx_miner.exe --version
             ```
 
-            Each archive includes a `.sha256` file for verification.
+            SHA256 checksums are shown by GitHub for each file.
