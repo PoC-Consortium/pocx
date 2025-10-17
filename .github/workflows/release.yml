@@ -177,9 +177,13 @@ jobs:
 
           chmod +x release-artifacts/*
 
-          # Generate checksums
+          # Generate checksums (use shasum on macOS, sha256sum on Linux)
           cd release-artifacts
-          sha256sum * > SHA256SUMS-${{ matrix.target }}${SUFFIX}.txt
+          if command -v sha256sum &> /dev/null; then
+            sha256sum * > SHA256SUMS-${{ matrix.target }}${SUFFIX}.txt
+          else
+            shasum -a 256 * > SHA256SUMS-${{ matrix.target }}${SUFFIX}.txt
+          fi
         shell: bash
 
       - name: Prepare release artifacts (Windows)
