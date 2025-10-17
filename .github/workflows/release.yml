@@ -158,8 +158,10 @@ jobs:
           # Get version from tag or input
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             VERSION="${{ github.event.inputs.tag }}"
-          else
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
             VERSION="${GITHUB_REF#refs/tags/}"
+          else
+            VERSION="v0.0.1-test"
           fi
 
           SUFFIX=""
@@ -188,8 +190,10 @@ jobs:
           # Get version from tag or input
           if ("${{ github.event_name }}" -eq "workflow_dispatch") {
             $VERSION = "${{ github.event.inputs.tag }}"
+          } elseif ($env:GITHUB_REF -like "refs/tags/*") {
+            $VERSION = $env:GITHUB_REF -replace 'refs/tags/', ''
           } else {
-            $VERSION = "$env:GITHUB_REF" -replace 'refs/tags/', ''
+            $VERSION = "v0.0.1-test"
           }
 
           # Copy and rename binaries with version
@@ -279,8 +283,10 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-          else
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
             echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=v0.0.1-test" >> $GITHUB_OUTPUT
           fi
 
       - name: Create Release
