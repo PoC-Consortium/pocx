@@ -20,8 +20,9 @@ Tag-based releases are **disabled** until testing is complete.
 
 ### 2. What Gets Tested
 
-- ✅ All 8 platform builds (32 binaries total)
-- ✅ Checksum generation (SHA256SUMS.txt)
+- ✅ All 8 platform builds (8 archives total)
+- ✅ Each archive contains 4 binaries (miner, plotter, verifier, mockchain)
+- ✅ Checksum generation (individual .sha256 files)
 - ✅ Artifact naming with version
 - ✅ Draft release creation
 - ✅ All files uploaded correctly
@@ -32,18 +33,16 @@ After the workflow completes (~10-15 minutes):
 
 1. Go to **Releases** → Find draft release `v0.0.1-test`
 2. Check that all files are present:
-   - 32 binaries (4 programs × 8 platforms)
-   - 1 SHA256SUMS.txt file
-   - 1 README.txt file
-3. Download a binary and verify:
+   - 8 archives (.tar.gz for Unix, .zip for Windows)
+   - 8 checksum files (.sha256)
+3. Download an archive and verify:
    ```bash
-   # Download binary + SHA256SUMS.txt
-   sha256sum -c SHA256SUMS.txt
-   ```
-4. Test the binary works:
-   ```bash
-   chmod +x pocx_miner-v0.0.1-test-x86_64-unknown-linux-gnu
-   ./pocx_miner-v0.0.1-test-x86_64-unknown-linux-gnu --version
+   # Download archive + .sha256 file
+   sha256sum -c pocx-v0.0.1-test-x86_64-unknown-linux-gnu.tar.gz.sha256
+
+   # Extract and test
+   tar -xzf pocx-v0.0.1-test-x86_64-unknown-linux-gnu.tar.gz
+   ./pocx_miner --version
    ```
 
 ### 4. Clean Up Test Release

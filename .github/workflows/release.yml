@@ -153,7 +153,7 @@ jobs:
       - name: Prepare release artifacts (Unix)
         if: runner.os != 'Windows'
         run: |
-          mkdir -p release-artifacts
+          mkdir -p staging release-artifacts
 
           # Get version from tag or input
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
@@ -169,27 +169,30 @@ jobs:
             SUFFIX="-opencl"
           fi
 
-          # Copy and rename binaries with version
-          cp target/${{ matrix.target }}/release/pocx_miner release-artifacts/pocx_miner-${VERSION}-${{ matrix.target }}${SUFFIX}
-          cp target/${{ matrix.target }}/release/pocx_plotter release-artifacts/pocx_plotter-${VERSION}-${{ matrix.target }}${SUFFIX}
-          cp target/${{ matrix.target }}/release/pocx_verifier release-artifacts/pocx_verifier-${VERSION}-${{ matrix.target }}${SUFFIX}
-          cp target/${{ matrix.target }}/release/pocx_mockchain release-artifacts/pocx_mockchain-${VERSION}-${{ matrix.target }}${SUFFIX}
+          # Copy binaries to staging
+          cp target/${{ matrix.target }}/release/pocx_miner staging/
+          cp target/${{ matrix.target }}/release/pocx_plotter staging/
+          cp target/${{ matrix.target }}/release/pocx_verifier staging/
+          cp target/${{ matrix.target }}/release/pocx_mockchain staging/
+          chmod +x staging/*
 
-          chmod +x release-artifacts/*
+          # Create archive
+          ARCHIVE_NAME="pocx-${VERSION}-${{ matrix.target }}${SUFFIX}.tar.gz"
+          tar -czf "release-artifacts/${ARCHIVE_NAME}" -C staging .
 
-          # Generate checksums (use shasum on macOS, sha256sum on Linux)
+          # Generate checksum
           cd release-artifacts
           if command -v sha256sum &> /dev/null; then
-            sha256sum * > SHA256SUMS-${{ matrix.target }}${SUFFIX}.txt
+            sha256sum "${ARCHIVE_NAME}" > "${ARCHIVE_NAME}.sha256"
           else
-            shasum -a 256 * > SHA256SUMS-${{ matrix.target }}${SUFFIX}.txt
+            shasum -a 256 "${ARCHIVE_NAME}" > "${ARCHIVE_NAME}.sha256"
           fi
         shell: bash
 
       - name: Prepare release artifacts (Windows)
         if: runner.os == 'Windows'
         run: |
-          mkdir release-artifacts
+          New-Item -ItemType Directory -Path staging, release-artifacts -Force
 
           # Get version from tag or input
           if ("${{ github.event_name }}" -eq "workflow_dispatch") {
@@ -200,18 +203,20 @@ jobs:
             $VERSION = "v0.0.1-test"
           }
 
-          # Copy and rename binaries with version
-          Copy-Item target/${{ matrix.target }}/release/pocx_miner.exe release-artifacts/pocx_miner-${VERSION}-${{ matrix.target }}.exe
-          Copy-Item target/${{ matrix.target }}/release/pocx_plotter.exe release-artifacts/pocx_plotter-${VERSION}-${{ matrix.target }}.exe
-          Copy-Item target/${{ matrix.target }}/release/pocx_verifier.exe release-artifacts/pocx_verifier-${VERSION}-${{ matrix.target }}.exe
-          Copy-Item target/${{ matrix.target }}/release/pocx_mockchain.exe release-artifacts/pocx_mockchain-${VERSION}-${{ matrix.target }}.exe
+          # Copy binaries to staging
+          Copy-Item target/${{ matrix.target }}/release/pocx_miner.exe staging/
+          Copy-Item target/${{ matrix.target }}/release/pocx_plotter.exe staging/
+          Copy-Item target/${{ matrix.target }}/release/pocx_verifier.exe staging/
+          Copy-Item target/${{ matrix.target }}/release/pocx_mockchain.exe staging/
 
-          # Generate checksums
+          # Create archive
+          $ARCHIVE_NAME = "pocx-${VERSION}-${{ matrix.target }}.zip"
+          Compress-Archive -Path staging/* -DestinationPath "release-artifacts/$ARCHIVE_NAME"
+
+          # Generate checksum
           cd release-artifacts
-          Get-ChildItem -File -Exclude "*.txt" | ForEach-Object {
-            $hash = (Get-FileHash -Algorithm SHA256 $_.Name).Hash.ToLower()
-            "$hash  $($_.Name)" | Out-File -Append -Encoding ASCII SHA256SUMS-${{ matrix.target }}.txt
-          }
+          $hash = (Get-FileHash -Algorithm SHA256 $ARCHIVE_NAME).Hash.ToLower()
+          "$hash  $ARCHIVE_NAME" | Out-File -Encoding ASCII "${ARCHIVE_NAME}.sha256"
         shell: powershell
 
       - name: Upload release artifacts
@@ -242,44 +247,7 @@ jobs:
           mkdir -p release-assets
           find all-artifacts -type f -exec cp {} release-assets/ \;
 
-          # Combine all SHA256SUMS into one master file
           cd release-assets
-          cat SHA256SUMS-*.txt | sort > SHA256SUMS.txt
-          rm SHA256SUMS-*.txt
-
-          # Create a README for the release
-          cat > README.txt << 'HEREDOC_EOF'
-          PoCX Release Binaries
-          =====================
-
-          This release contains pre-built binaries for multiple platforms.
-
-          Platform Support:
-          - Linux x86_64 (with/without OpenCL)
-          - Linux ARM64
-          - Windows x86_64
-          - macOS x86_64 (with/without OpenCL)
-          - macOS ARM64 (with/without OpenCL)
-
-          Binaries Included:
-          - pocx_miner: Mining client
-          - pocx_plotter: Plot file generator
-          - pocx_verifier: Plot file verification tool
-          - pocx_mockchain: Mock blockchain for testing
-
-          Verification:
-          All binaries can be verified using SHA256SUMS.txt
-
-          Installation:
-          1. Download the binary for your platform
-          2. Verify checksum: sha256sum -c SHA256SUMS.txt
-          3. Make executable (Linux/macOS): chmod +x pocx_*
-          4. Run: ./pocx_miner --help
-
-          For source code and documentation, visit:
-          https://github.com/PoC-Consortium/pocx
-          HEREDOC_EOF
-
           ls -lh
 
       - name: Get version
@@ -300,42 +268,34 @@ jobs:
           name: Release ${{ steps.version.outputs.tag }}
           draft: true  # Always create as draft - publish manually after verification
           prerelease: ${{ contains(steps.version.outputs.tag, '-beta') || contains(steps.version.outputs.tag, '-rc') || contains(steps.version.outputs.tag, '-alpha') }}
-          generate_release_notes: true
+          generate_release_notes: false
           files: |
             release-assets/*
           body: |
             ## PoCX ${{ steps.version.outputs.tag }}
 
-            Multi-platform release with pre-built binaries for all supported platforms.
+            Pre-built binaries for all supported platforms.
 
-            ### 📦 Binary Packages
+            **Platforms:**
+            - Linux x86_64 / ARM64 (with/without OpenCL)
+            - Windows x86_64
+            - macOS x86_64 / ARM64 (with/without OpenCL)
 
-            This release includes 32 binary packages:
-            - 4 programs (miner, plotter, verifier, mockchain)
-            - 8 platform variants (Linux x86_64/ARM64, Windows x86_64, macOS x86_64/ARM64, with/without OpenCL)
+            **Binaries:**
+            - `pocx_miner` - Mining client
+            - `pocx_plotter` - Plot file generator
+            - `pocx_verifier` - Plot verification tool
+            - `pocx_mockchain` - Mock blockchain for testing
 
-            ### ✅ Verification
-
-            All binaries include SHA256 checksums in `SHA256SUMS.txt`
-
+            **Installation:**
             ```bash
-            # Verify download
-            sha256sum -c SHA256SUMS.txt
+            # Linux/macOS
+            tar -xzf pocx-*.tar.gz
+            ./pocx_miner --version
+
+            # Windows
+            # Extract pocx-*.zip
+            .\pocx_miner.exe --version
             ```
 
-            ### 📋 Installation
-
-            **Linux/macOS:**
-            ```bash
-            # Download and make executable
-            chmod +x pocx_miner-*
-            ./pocx_miner-* --version
-            ```
-
-            **Windows:**
-            ```powershell
-            # Download and run
-            .\pocx_miner-*.exe --version
-            ```
-
-            See `README.txt` in the release assets for detailed instructions.
+            Each archive includes a `.sha256` file for verification.
