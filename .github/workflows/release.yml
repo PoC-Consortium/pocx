@@ -1,14 +1,9 @@
 name: Release
 
-# TESTING MODE: workflow_dispatch enabled for manual testing
-# PRODUCTION MODE: Uncomment 'push.tags' section below after testing
 on:
   push:
-    branches:
-      - add-release-workflow  # TEMPORARY: for testing on this branch
-  # push:
-  #   tags:
-  #     - 'v[0-9]+.[0-9]+.[0-9]+*'  # v1.0.0, v1.0.0-beta, v1.0.0-rc1, etc.
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'  # v1.0.0, v1.0.0-beta, v1.0.0-rc1, etc.
 
   workflow_dispatch:
     inputs:
@@ -284,5 +279,3 @@ jobs:
             # Extract pocx-*.zip
             .\pocx_miner.exe --version
             ```
-
-            SHA256 checksums are shown by GitHub for each file.
