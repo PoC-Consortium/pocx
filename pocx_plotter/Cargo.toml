@@ -35,10 +35,9 @@ simd = []
 
 [dependencies]
 crossbeam-channel = { workspace = true }
-ocl-core = { version = "0.11", optional = true } 
+ocl-core = { version = "0.11", optional = true }
 clap = { workspace = true }
-raw-cpuid = "11.0"
-sys-info = "0.9"
+sysinfo = "0.32"
 cfg-if = { workspace = true }
 indicatif = { workspace = true }
 bytesize = "2.0.1"

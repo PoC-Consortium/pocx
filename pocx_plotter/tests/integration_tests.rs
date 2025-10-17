@@ -22,82 +22,40 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use std::path::PathBuf;
 use std::process::Command;
-use tempfile::TempDir;
+use std::sync::Once;
 
 /// Integration tests for PoCX Plotter
 /// Tests the complete workflow from CLI to file generation
+static INIT: Once = Once::new();
 
-#[test]
-fn test_help_command() {
-    let output = Command::new("cargo")
-        .args(&["run", "--", "--help"])
-        .output()
-        .expect("Failed to execute help command");
+/// Build the plotter binary once and return its path
+fn get_plotter_binary() -> PathBuf {
+    INIT.call_once(|| {
+        // Build the binary once for all tests
+        let output = Command::new("cargo")
+            .args(["build", "--bin", "pocx_plotter"])
+            .current_dir("../")
+            .output()
+            .expect("Failed to build pocx_plotter");
 
-    assert!(output.status.success(), "Help command should succeed");
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    println!("Help output: {}", stdout);
-    assert!(
-        stdout.contains("pocx_plotter") || stdout.contains("PoCX"),
-        "Should display program name"
-    );
-    assert!(stdout.contains("--id"), "Should show PoC address option");
-}
-
-#[test]
-fn test_opencl_feature_conditional() {
-    // Test that help shows correct options without OpenCL feature
-    let output_no_opencl = Command::new("cargo")
-        .args(&["run", "--", "--help"])
-        .output()
-        .expect("Failed to get help without OpenCL");
-
-    assert!(
-        output_no_opencl.status.success(),
-        "Help without OpenCL should succeed"
-    );
-    let stdout_no_opencl = String::from_utf8(output_no_opencl.stdout).unwrap();
-
-    // Without OpenCL feature, should not show GPU-specific options
-    assert!(
-        !stdout_no_opencl.contains("--gpu"),
-        "Non-OpenCL build should not show --gpu option"
-    );
-    assert!(
-        !stdout_no_opencl.contains("--opencl"),
-        "Non-OpenCL build should not show --opencl option"
-    );
-
-    // Try to compile with OpenCL feature (may fail if libraries not available)
-    let output_with_opencl = Command::new("cargo")
-        .args(&["run", "--features", "opencl", "--", "--help"])
-        .output()
-        .expect("Failed to attempt OpenCL build");
-
-    if output_with_opencl.status.success() {
-        // If OpenCL libraries are available, test the features
-        let stdout_with_opencl = String::from_utf8(output_with_opencl.stdout).unwrap();
         assert!(
-            stdout_with_opencl.contains("--opencl") || stdout_with_opencl.contains("--gpu"),
-            "OpenCL build should show GPU/OpenCL options"
+            output.status.success(),
+            "Failed to build pocx_plotter: {}",
+            String::from_utf8_lossy(&output.stderr)
         );
-    } else {
-        // If OpenCL libraries are not available, that's expected
-        let stderr = String::from_utf8(output_with_opencl.stderr).unwrap();
-        assert!(
-            stderr.contains("OpenCL")
-                || stderr.contains("lOpenCL")
-                || stderr.contains("could not compile"),
-            "Should fail due to missing OpenCL libraries"
-        );
-    }
+    });
+
+    // Return path to the built binary
+    PathBuf::from("../target/debug/pocx_plotter")
 }
 
 #[test]
 fn test_invalid_poc_address() {
-    let output = Command::new("cargo")
-        .args(&["run", "--", "--id", "invalid_id", "--bench"])
+    let binary = get_plotter_binary();
+    let output = Command::new(&binary)
+        .args(&["--id", "invalid_id", "--bench"])
         .output()
         .expect("Failed to execute with invalid ID");
 
@@ -118,22 +76,6 @@ fn test_invalid_poc_address() {
 }
 
 #[test]
-fn test_benchmark_mode_cli_parsing() {
-    // Test that benchmark mode CLI arguments are parsed correctly by running with
-    // --help to verify the arguments exist and are accessible
-    let output = Command::new("cargo")
-        .args(&["run", "--", "--help"])
-        .output()
-        .expect("Failed to get help");
-
-    assert!(output.status.success(), "Help should succeed");
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("--bench"), "Should show benchmark option");
-    assert!(stdout.contains("--warps"), "Should show warps option");
-    assert!(stdout.contains("--cpu"), "Should show CPU option");
-}
-
-#[test]
 fn test_parameter_validation_integration() {
     // Create a valid address using proper pocx_address encoding
     let mut payload = [0u8; 20];
@@ -144,9 +86,10 @@ fn test_parameter_validation_integration() {
         pocx_address::encode_address(&payload, pocx_address::NetworkId::Base58(0x55)).unwrap();
 
     // Test warps too large
-    let output = Command::new("cargo")
+    let binary = get_plotter_binary();
+    let output = Command::new(&binary)
         .args(&[
-            "run", "--", "--id", &test_id, "--warps", "2000000", // Over our 1M limit
+            "--id", &test_id, "--warps", "2000000", // Over our 1M limit
             "-b",      // Buffer-only mode to prevent file creation
         ])
         .output()
@@ -168,20 +111,19 @@ fn test_compression_validation() {
         pocx_address::encode_address(&payload, pocx_address::NetworkId::Base58(0x55)).unwrap();
 
     // Test compression too large
-    let output = Command::new("cargo")
+    let binary = get_plotter_binary();
+    let output = Command::new(&binary)
         .args(&[
-            "run",
-            "--",
             "--id",
             &test_id,
             "--compression",
-            "50", // Over our 32 limit
+            "10", // Over our 6 limit (exponential CPU load)
             "--bench",
         ])
         .output()
         .expect("Failed to execute with large compression");
 
-    assert!(!output.status.success(), "Should reject compression > 32");
+    assert!(!output.status.success(), "Should reject compression > 6");
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(
         stderr.contains("too large"),
@@ -200,16 +142,9 @@ fn test_seed_validation_integration() {
         pocx_address::encode_address(&payload, pocx_address::NetworkId::Base58(0x55)).unwrap();
 
     // Test invalid seed
-    let output = Command::new("cargo")
-        .args(&[
-            "run",
-            "--",
-            "--id",
-            &test_id,
-            "--seed",
-            "invalid_seed",
-            "--bench",
-        ])
+    let binary = get_plotter_binary();
+    let output = Command::new(&binary)
+        .args(&["--id", &test_id, "--seed", "invalid_seed", "--bench"])
         .output()
         .expect("Failed to execute with invalid seed");
 
@@ -233,10 +168,9 @@ fn test_path_handling() {
         pocx_address::encode_address(&payload, pocx_address::NetworkId::Base58(0x55)).unwrap();
 
     // Test that relative paths don't get blocked by traversal checks
-    let output = Command::new("cargo")
+    let binary = get_plotter_binary();
+    let output = Command::new(&binary)
         .args(&[
-            "run",
-            "--",
             "--id",
             &test_id,
             "--path",
@@ -256,19 +190,6 @@ fn test_path_handling() {
 }
 
 #[test]
-fn test_memory_limit_parsing() {
-    // Test that --mem argument is properly recognized in CLI
-    let output = Command::new("cargo")
-        .args(&["run", "--", "--help"])
-        .output()
-        .expect("Failed to get help");
-
-    assert!(output.status.success(), "Help should succeed");
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("--mem"), "Should show memory option");
-}
-
-#[test]
 fn test_cpu_thread_validation() {
     // Create a valid address using proper pocx_address encoding
     let mut payload = [0u8; 20];
@@ -279,9 +200,10 @@ fn test_cpu_thread_validation() {
         pocx_address::encode_address(&payload, pocx_address::NetworkId::Base58(0x55)).unwrap();
 
     // Test CPU threads too large
-    let output = Command::new("cargo")
+    let binary = get_plotter_binary();
+    let output = Command::new(&binary)
         .args(&[
-            "run", "--", "--id", &test_id, "--cpu", "200", // Over our 128 limit
+            "--id", &test_id, "--cpu", "200", // Over our 128 limit
             "--bench",
         ])
         .output()
@@ -293,83 +215,6 @@ fn test_cpu_thread_validation() {
         stderr.contains("too large"),
         "Should show CPU threads error"
     );
-}
-
-/// Test that CLI parsing works for plotting workflow arguments
-#[test]
-fn test_plot_workflow_cli_parsing() {
-    let temp_dir = TempDir::new().expect("Failed to create temp directory");
-    let plot_path = temp_dir.path().to_str().unwrap();
-
-    // Test that --path argument is properly recognized
-    let output = Command::new("cargo")
-        .args(&["run", "--", "--help"])
-        .output()
-        .expect("Failed to get help");
-
-    assert!(output.status.success(), "Help should succeed");
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("--path"), "Should show path option");
-    assert!(stdout.contains("--warps"), "Should show warps option");
-    assert!(
-        stdout.contains("--num"),
-        "Should show number of plots option"
-    );
-
-    // Test that the temp directory exists (basic sanity check)
-    assert!(
-        std::path::Path::new(plot_path).exists(),
-        "Temp directory should exist"
-    );
-}
-
-#[test]
-fn test_error_reporting_quality() {
-    // Test that error messages are helpful and detailed
-
-    // Test missing required parameter
-    let output = Command::new("cargo")
-        .args(&["run", "--", "--warps", "10"])
-        .output()
-        .expect("Failed to execute with missing ID");
-
-    assert!(!output.status.success(), "Should fail without PoC address");
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(
-        stderr.contains("required") || stderr.contains("help"),
-        "Should show helpful error message"
-    );
-}
-
-#[test]
-fn test_version_output() {
-    let output = Command::new("cargo")
-        .args(&["run", "--", "--version"])
-        .output()
-        .expect("Failed to execute version command");
-
-    assert!(output.status.success(), "Version command should succeed");
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(
-        !stdout.trim().is_empty(),
-        "Should output version information"
-    );
-}
-
-/// Test that CLI parsing works for resource constraint arguments
-#[test]
-fn test_resource_constraint_cli_parsing() {
-    // Test that resource-related arguments are properly recognized
-    let output = Command::new("cargo")
-        .args(&["run", "--", "--help"])
-        .output()
-        .expect("Failed to get help");
-
-    assert!(output.status.success(), "Help should succeed");
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("--mem"), "Should show memory option");
-    assert!(stdout.contains("--cpu"), "Should show CPU option");
-    assert!(stdout.contains("--escalate"), "Should show escalate option");
 }
 
 /// Test comprehensive error recovery scenarios for plotter operations

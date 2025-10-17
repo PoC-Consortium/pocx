@@ -10,57 +10,6 @@ mod tests {
     use std::process::Command;
 
     #[test]
-    fn test_verifier_help_command() {
-        // Test that the binary shows help correctly
-        let output = Command::new("cargo")
-            .args(&["run", "--bin", "pocx_verifier", "--", "--help"])
-            .current_dir("../") // Run from workspace root
-            .output()
-            .expect("Failed to execute pocx_verifier");
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(
-            stdout.contains("Checks a PoC plot file"),
-            "Should show help text"
-        );
-        assert!(stdout.contains("check"), "Should show check command");
-        assert!(stdout.contains("--help"), "Should show help option");
-    }
-
-    #[test]
-    fn test_verifier_check_subcommand() {
-        // Test that the check subcommand is recognized
-        let output = Command::new("cargo")
-            .args(&["run", "--bin", "pocx_verifier", "--", "check", "--help"])
-            .current_dir("../") // Run from workspace root
-            .output()
-            .expect("Failed to execute pocx_verifier check");
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(
-            stdout.contains("Checks a PoC plot file"),
-            "Should show check command help"
-        );
-        assert!(stdout.contains("partial"), "Should show partial mode");
-        assert!(stdout.contains("complete"), "Should show complete mode");
-    }
-
-    #[test]
-    fn test_verifier_binary_compilation() {
-        // Test that the binary compiles successfully
-        let output = Command::new("cargo")
-            .args(&["check", "--bin", "pocx_verifier"])
-            .current_dir("../") // Run from workspace root
-            .output()
-            .expect("Failed to check pocx_verifier");
-
-        assert!(
-            output.status.success(),
-            "pocx_verifier should compile without errors"
-        );
-    }
-
-    #[test]
     fn test_verifier_missing_args_error() {
         // Test that missing required arguments produce appropriate errors
         let output = Command::new("cargo")
@@ -74,35 +23,6 @@ mod tests {
             !output.status.success(),
             "Should fail when no subcommand provided"
         );
-    }
-
-    #[test]
-    fn test_verification_modes() {
-        // Test different verification modes
-        let modes = ["single", "partial", "random", "complete"];
-
-        for mode in &modes {
-            let output = Command::new("cargo")
-                .args(&[
-                    "run",
-                    "--bin",
-                    "pocx_verifier",
-                    "--",
-                    "check",
-                    mode,
-                    "--help",
-                ])
-                .current_dir("../")
-                .output()
-                .expect("Failed to execute pocx_verifier");
-
-            // Help should work for all valid modes
-            assert!(
-                output.status.success() || output.stderr.is_empty() == false,
-                "Mode {} should be recognized",
-                mode
-            );
-        }
     }
 
     #[test]

@@ -292,11 +292,17 @@ fn validate_compression_setup(cfg: &Cfg) -> Result<u32, String> {
 
 impl Miner {
     pub fn new(cfg: Cfg) -> Miner {
-        let cpuid = raw_cpuid::CpuId::new();
-        let cpu_name = cpuid
-            .get_processor_brand_string()
-            .map(|pbs| pbs.as_str().trim().to_string())
-            .unwrap_or_else(|| "Unknown CPU".to_string());
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        let cpu_name = {
+            let cpuid = raw_cpuid::CpuId::new();
+            cpuid
+                .get_processor_brand_string()
+                .map(|pbs| pbs.as_str().trim().to_string())
+                .unwrap_or_else(|| "Unknown CPU".to_string())
+        };
+
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+        let cpu_name = "ARM/Other CPU".to_string();
 
         let cpu_threads = if cfg.cpu_threads == 0 {
             num_cpus::get()

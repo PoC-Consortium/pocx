@@ -22,12 +22,12 @@ use bytesize::ByteSize;
 use crossbeam_channel::bounded;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use pocx_plotfile::PoCXPlotFile;
-use raw_cpuid::CpuId;
 use std::cmp::min;
 use std::path::Path;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
+use sysinfo::System;
 
 use crate::error::{PoCXPlotterError, Result};
 
@@ -87,16 +87,17 @@ impl Plotter {
     }
 
     pub fn run(self, mut task: PlotterTask) -> Result<()> {
-        let cpuid = CpuId::new();
-        let binding = cpuid.get_processor_brand_string().ok_or_else(|| {
-            PoCXPlotterError::Hardware("Failed to get CPU brand string".to_string())
-        })?;
-        let cpu_name = binding.as_str().trim();
-        let cores = sys_info::cpu_num()
-            .map_err(|e| PoCXPlotterError::SystemInfo(format!("Failed to get CPU count: {}", e)))?;
-        let memory = sys_info::mem_info().map_err(|e| {
-            PoCXPlotterError::SystemInfo(format!("Failed to get memory info: {}", e))
-        })?;
+        let mut sys = System::new_all();
+        sys.refresh_cpu_all();
+        sys.refresh_memory();
+
+        let cpu_name = sys
+            .cpus()
+            .first()
+            .map(|cpu| cpu.brand().trim().to_string())
+            .unwrap_or_else(|| "Unknown CPU".to_string());
+
+        let cores = sys.cpus().len() as u32;
 
         let simd_ext = init_simd();
 
@@ -251,7 +252,7 @@ impl Plotter {
             .as_u64();
 
         // Security: Validate memory limits and prevent excessive memory usage
-        let available_mem = get_avail_mem(&memory);
+        let available_mem = sys.available_memory();
 
         let max_mem_usage = if mem_limit > 0 {
             // Validate that user-specified memory limit is reasonable
@@ -282,8 +283,8 @@ impl Plotter {
         if maximum_mem_for_writing < minimum_mem_for_writing {
             return Err(PoCXPlotterError::Memory(format!(
                 "Insufficient host memory for plotting!\n\nRAM: Total={:.2} GiB, Available={:.2} GiB\nPlotter requirement: {:.2} GiB x{} (escalation)\nWriter requirement: {:.2} GiB x{} (escalation)\nGPU requirement: {:.2} GiB\nTOTAL requirement: {:.2} GiB",
-                get_total_mem(&memory) as f64 / 1024.0 / 1024.0 / 1024.0,
-                get_avail_mem(&memory) as f64 / 1024.0 / 1024.0 / 1024.0,
+                sys.total_memory() as f64 / 1024.0 / 1024.0 / 1024.0,
+                sys.available_memory() as f64 / 1024.0 / 1024.0 / 1024.0,
                 (u64::pow(2, task.compress) * DIM * NONCE_SIZE) as f64 / 1024.0 / 1024.0 / 1024.0,
                 task.escalate,
                 WARP_SIZE as f64 / 1024.0 / 1024.0 / 1024.0,
@@ -330,8 +331,8 @@ impl Plotter {
         if !task.quiet {
             println!(
                 "RAM: Total={:.2} GiB, Available={:.2} GiB, Usage={:.2} GiB",
-                get_total_mem(&memory) as f64 / 1024.0 / 1024.0 / 1024.0,
-                get_avail_mem(&memory) as f64 / 1024.0 / 1024.0 / 1024.0,
+                sys.total_memory() as f64 / 1024.0 / 1024.0 / 1024.0,
+                sys.available_memory() as f64 / 1024.0 / 1024.0 / 1024.0,
                 (mem_plot + (mem_write * num_write_buffers) + mem_gpu) as f64
                     / 1024.0
                     / 1024.0
@@ -567,21 +568,6 @@ impl Plotter {
 
         Ok(())
     }
-}
-
-// sys_info sucks, displays 0 avail on win
-#[cfg(not(windows))]
-fn get_avail_mem(memory: &sys_info::MemInfo) -> u64 {
-    memory.avail * 1024
-}
-
-#[cfg(windows)]
-fn get_avail_mem(memory: &sys_info::MemInfo) -> u64 {
-    memory.free * 1024
-}
-
-fn get_total_mem(memory: &sys_info::MemInfo) -> u64 {
-    memory.total * 1024
 }
 
 #[cfg(test)]

@@ -233,6 +233,11 @@ fn run() -> Result<()> {
             let value = s.parse::<u64>().map_err(|e| {
                 PoCXPlotterError::InvalidInput(format!("Invalid warps value: {}", e))
             })?;
+            if value > 1_000_000 {
+                return Err(PoCXPlotterError::InvalidInput(
+                    "Warps value too large: maximum 1,000,000 allowed".to_string(),
+                ));
+            }
             Ok::<u64, PoCXPlotterError>(value)
         })
         .transpose()?
@@ -271,6 +276,12 @@ fn run() -> Result<()> {
             if value == 0 {
                 return Err(PoCXPlotterError::InvalidInput(
                     "Compression value must be at least 1".to_string(),
+                ));
+            }
+            if value > 6 {
+                return Err(PoCXPlotterError::InvalidInput(
+                    "Compression value too large: maximum 6 allowed (exponential CPU load)"
+                        .to_string(),
                 ));
             }
             Ok(value)
@@ -375,6 +386,11 @@ fn run() -> Result<()> {
             let value = s.parse::<u8>().map_err(|e| {
                 PoCXPlotterError::InvalidInput(format!("Invalid cpu threads value: {}", e))
             })?;
+            if value > 128 {
+                return Err(PoCXPlotterError::InvalidInput(
+                    "CPU threads value too large: maximum 128 allowed".to_string(),
+                ));
+            }
             Ok::<u8, PoCXPlotterError>(value)
         })
         .transpose()?
@@ -389,9 +405,9 @@ fn run() -> Result<()> {
     let gpus: Option<Vec<String>> = None;
 
     // work out number of cpu threads to use
-    let cores = sys_info::cpu_num()
-        .map_err(|e| PoCXPlotterError::SystemInfo(format!("Failed to get CPU count: {}", e)))?
-        as u8;
+    let mut sys = sysinfo::System::new_all();
+    sys.refresh_cpu_all();
+    let cores = sys.cpus().len() as u8;
     let cpu_threads = if cpu_threads == 0 {
         cores
     } else {
