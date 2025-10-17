@@ -22,12 +22,20 @@ use crate::error::{PoCXHashError, Result};
 use std::alloc::{alloc_zeroed, dealloc, Layout};
 
 #[derive(Debug)]
+#[cfg_attr(
+    not(any(target_arch = "x86", target_arch = "x86_64")),
+    allow(dead_code)
+)]
 pub struct PageAlignedByteBuffer {
     data: Option<Vec<u8>>,
     pointer: *mut u8,
     layout: Layout,
 }
 
+#[cfg_attr(
+    not(any(target_arch = "x86", target_arch = "x86_64")),
+    allow(dead_code)
+)]
 impl PageAlignedByteBuffer {
     /// Creates a new page-aligned buffer with the specified size.
     ///

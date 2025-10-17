@@ -1606,75 +1606,110 @@ mod tests {
     }
 
     #[test]
-    fn test_read_nonce_functionality() {
-        let test_dir = std::path::Path::new("test_output");
-        let _ = fs::create_dir_all(test_dir);
-        let test_file = test_dir.join("0000000000000000000000000000000000000000_0000000000000000000000000000000000000000000000000000000000000000_1_X1.pocx");
+    fn test_read_nonce_functionality() -> Result<()> {
+        let temp_dir = setup_test_dir();
+        let (account, seed) = create_test_account_and_seed();
 
-        if !test_file.exists() && fs::write(&test_file, vec![0u8; WARP_SIZE as usize]).is_ok() {
-            let mut plotfile = PoCXPlotFile::open(&test_file, AccessType::Read, false).unwrap();
-            let result = plotfile.read_nonce(0, 0);
-            assert!(result.is_ok());
-            let nonce_data = result.unwrap();
-            assert_eq!(nonce_data.len(), 64);
-        }
+        let mut plotfile = PoCXPlotFile::new(
+            temp_dir.to_str().unwrap(),
+            &account,
+            &seed,
+            1, // 1 warp
+            1,
+            false,
+            false, // Don't create file
+        )?;
+
+        plotfile.access = AccessType::Dummy;
+
+        let result = plotfile.read_nonce(0, 0);
+        assert!(result.is_ok());
+        let nonce_data = result.unwrap();
+        assert_eq!(nonce_data.len(), 64);
+
+        cleanup_test_dir();
+        Ok(())
     }
 
     #[test]
-    fn test_read_functionality() {
-        let test_dir = std::path::Path::new("test_output");
-        let _ = fs::create_dir_all(test_dir);
-        let test_file = test_dir.join("0000000000000000000000000000000000000000_0000000000000000000000000000000000000000000000000000000000000000_1_X1.pocx");
+    fn test_read_functionality() -> Result<()> {
+        let temp_dir = setup_test_dir();
+        let (account, seed) = create_test_account_and_seed();
 
-        if !test_file.exists() && fs::write(&test_file, vec![0u8; WARP_SIZE as usize]).is_ok() {
-            let mut plotfile = PoCXPlotFile::open(&test_file, AccessType::Read, false).unwrap();
-            let mut buffer = vec![0u8; 1024];
-            let result = plotfile.read(&mut buffer, 0);
-            assert!(result.is_ok());
-        }
+        let mut plotfile = PoCXPlotFile::new(
+            temp_dir.to_str().unwrap(),
+            &account,
+            &seed,
+            1, // 1 warp
+            1,
+            false,
+            false, // Don't create file
+        )?;
+
+        plotfile.access = AccessType::Dummy;
+
+        let mut buffer = vec![0u8; 1024];
+        let result = plotfile.read(&mut buffer, 0);
+        assert!(result.is_ok());
+
+        cleanup_test_dir();
+        Ok(())
     }
 
     #[test]
     fn test_write_optimised_buffer() {
-        let test_dir = std::path::Path::new("test_output");
-        let _ = fs::create_dir_all(test_dir);
-        let test_file = test_dir.join("0000000000000000000000000000000000000000_0000000000000000000000000000000000000000000000000000000000000000_1_X1.pocx");
+        let temp_dir = setup_test_dir();
+        let (account, seed) = create_test_account_and_seed();
 
-        if !test_file.exists() && fs::write(&test_file, vec![0u8; WARP_SIZE as usize]).is_ok() {
-            let mut plotfile =
-                PoCXPlotFile::open(&test_file, AccessType::ReadWrite, false).unwrap();
-            let buffer = vec![0u8; 1024];
-            let start_nonce = 0u64;
-            let warps_to_write = 1u64;
-            let pb: Option<std::sync::Arc<indicatif::ProgressBar>> = None;
-            let result = plotfile.write_optimised_buffer_into_plotfile(
-                &buffer,
-                start_nonce,
-                warps_to_write,
-                &pb,
-            );
-            assert!(result.is_ok() || matches!(result, Err(PoCXPlotFileError::Io(_))));
-        }
+        // Use dummy mode to avoid 1GB disk write
+        let mut plotfile = PoCXPlotFile::new(
+            temp_dir.to_str().unwrap(),
+            &account,
+            &seed,
+            1, // 1 warp
+            1,
+            false,
+            false, // Don't create file
+        )
+        .unwrap();
+
+        plotfile.access = AccessType::Dummy;
+
+        let buffer = vec![0u8; WARP_SIZE as usize];
+        let result = plotfile.write_optimised_buffer_into_plotfile(&buffer, 0, 1, &None);
+        assert!(result.is_ok());
+
+        cleanup_test_dir();
     }
 
     #[test]
-    fn test_resume_info_functionality() {
-        let test_dir = std::path::Path::new("test_output");
-        let _ = fs::create_dir_all(test_dir);
-        let test_file = test_dir.join("0000000000000000000000000000000000000000_0000000000000000000000000000000000000000000000000000000000000000_1_X1.pocx");
+    fn test_resume_info_functionality() -> Result<()> {
+        let temp_dir = setup_test_dir();
+        let (account, seed) = create_test_account_and_seed();
 
-        if !test_file.exists() && fs::write(&test_file, vec![0u8; WARP_SIZE as usize]).is_ok() {
-            let mut plotfile =
-                PoCXPlotFile::open(&test_file, AccessType::ReadWrite, false).unwrap();
+        let mut plotfile = PoCXPlotFile::new(
+            temp_dir.to_str().unwrap(),
+            &account,
+            &seed,
+            1, // 1 warp
+            1,
+            false,
+            false, // Don't create file
+        )?;
 
-            // Test writing resume info
-            let write_result = plotfile.write_resume_info(500);
-            assert!(write_result.is_ok() || matches!(write_result, Err(PoCXPlotFileError::Io(_))));
+        plotfile.access = AccessType::Dummy;
 
-            // Test reading resume info
-            let read_result = plotfile.read_resume_info();
-            assert!(read_result.is_ok() || matches!(read_result, Err(PoCXPlotFileError::Io(_))));
-        }
+        // Test writing resume info
+        let write_result = plotfile.write_resume_info(500);
+        assert!(write_result.is_ok());
+
+        // Test reading resume info
+        let read_result = plotfile.read_resume_info();
+        assert!(read_result.is_ok());
+        assert_eq!(read_result.unwrap(), 0); // Dummy mode returns 0
+
+        cleanup_test_dir();
+        Ok(())
     }
 
     #[test]

@@ -58,13 +58,30 @@ pub struct CpuTask {
 
 #[derive(Debug, Clone)]
 pub enum SimdExtension {
+    #[cfg_attr(
+        not(any(target_arch = "x86", target_arch = "x86_64")),
+        allow(dead_code)
+    )]
     Avx512f,
+    #[cfg_attr(
+        not(any(target_arch = "x86", target_arch = "x86_64")),
+        allow(dead_code)
+    )]
     Avx2,
+    #[cfg_attr(
+        not(any(target_arch = "x86", target_arch = "x86_64")),
+        allow(dead_code)
+    )]
     Avx,
+    #[cfg_attr(
+        not(any(target_arch = "x86", target_arch = "x86_64")),
+        allow(dead_code)
+    )]
     Sse2,
     None,
 }
 
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub fn init_simd() -> SimdExtension {
     if is_x86_feature_detected!("avx512f") {
         SimdExtension::Avx512f
@@ -77,6 +94,11 @@ pub fn init_simd() -> SimdExtension {
     } else {
         SimdExtension::None
     }
+}
+
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+pub fn init_simd() -> SimdExtension {
+    SimdExtension::None
 }
 
 pub fn hash_cpu(tx: Sender<HasherMessage>, hasher_task: CpuTask) -> impl FnOnce() + Send {

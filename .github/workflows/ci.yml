@@ -1,0 +1,261 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, ci-integration ]
+  pull_request:
+    branches: [ master ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # Quick checks on Linux
+  checks:
+    name: Checks (Format, Lint, Security)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache target directory
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-target-checks-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Security audit
+        run: |
+          cargo install cargo-audit --locked || true
+          cargo audit
+
+  # Tests on Linux only (most comprehensive)
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache target directory
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-target-test-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run tests
+        run: cargo test --workspace
+        timeout-minutes: 30
+
+  # Multi-platform builds
+  build:
+    name: Build - ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            cross: false
+            features: simd
+            opencl: false
+
+          # Linux x86_64 with OpenCL
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            cross: false
+            features: simd,opencl
+            opencl: true
+
+          # Linux ARM64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            cross: true
+            features: ""
+            opencl: false
+
+          # Windows x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            cross: false
+            features: simd
+            opencl: false
+
+          # macOS x86_64
+          - os: macos-13
+            target: x86_64-apple-darwin
+            cross: false
+            features: simd
+            opencl: false
+
+          # macOS x86_64 with OpenCL
+          - os: macos-13
+            target: x86_64-apple-darwin
+            cross: false
+            features: simd,opencl
+            opencl: true
+
+          # macOS ARM64 (Apple Silicon)
+          - os: macos-14
+            target: aarch64-apple-darwin
+            cross: false
+            features: ""
+            opencl: false
+
+          # macOS ARM64 with OpenCL
+          - os: macos-14
+            target: aarch64-apple-darwin
+            cross: false
+            features: opencl
+            opencl: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache target directory
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-${{ matrix.target }}-target-build-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install cross-compilation tools
+        if: matrix.cross
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross --locked || true
+
+      - name: Install OpenCL headers (Linux)
+        if: matrix.opencl && runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ocl-icd-opencl-dev
+
+      - name: Build binaries
+        run: |
+          FEATURES_FLAG=""
+          if [ -n "${{ matrix.features }}" ]; then
+            FEATURES_FLAG="--no-default-features --features ${{ matrix.features }}"
+          else
+            FEATURES_FLAG="--no-default-features"
+          fi
+
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }} \
+              -p pocx_miner \
+              -p pocx_plotter \
+              -p pocx_verifier \
+              -p pocx_mockchain \
+              $FEATURES_FLAG
+          else
+            cargo build --release --target ${{ matrix.target }} \
+              -p pocx_miner \
+              -p pocx_plotter \
+              -p pocx_verifier \
+              -p pocx_mockchain \
+              $FEATURES_FLAG
+          fi
+        shell: bash
+        timeout-minutes: 60
+
+      - name: Prepare artifacts (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p artifacts
+          SUFFIX=""
+          if [ "${{ matrix.opencl }}" = "true" ]; then
+            SUFFIX="-opencl"
+          fi
+          cp target/${{ matrix.target }}/release/pocx_miner artifacts/pocx_miner-${{ matrix.target }}${SUFFIX}
+          cp target/${{ matrix.target }}/release/pocx_plotter artifacts/pocx_plotter-${{ matrix.target }}${SUFFIX}
+          cp target/${{ matrix.target }}/release/pocx_verifier artifacts/pocx_verifier-${{ matrix.target }}${SUFFIX}
+          cp target/${{ matrix.target }}/release/pocx_mockchain artifacts/pocx_mockchain-${{ matrix.target }}${SUFFIX}
+          chmod +x artifacts/*
+
+      - name: Prepare artifacts (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir artifacts
+          cp target/${{ matrix.target }}/release/pocx_miner.exe artifacts/pocx_miner-${{ matrix.target }}.exe
+          cp target/${{ matrix.target }}/release/pocx_plotter.exe artifacts/pocx_plotter-${{ matrix.target }}.exe
+          cp target/${{ matrix.target }}/release/pocx_verifier.exe artifacts/pocx_verifier-${{ matrix.target }}.exe
+          cp target/${{ matrix.target }}/release/pocx_mockchain.exe artifacts/pocx_mockchain-${{ matrix.target }}.exe
+        shell: bash
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.target }}${{ matrix.opencl && '-opencl' || '' }}
+          path: artifacts/*
+          retention-days: 90
+
+  # Summary job
+  ci-success:
+    name: CI Success
+    needs: [checks, test, build]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check all jobs
+        run: |
+          if [ "${{ needs.checks.result }}" != "success" ] || \
+             [ "${{ needs.test.result }}" != "success" ] || \
+             [ "${{ needs.build.result }}" != "success" ]; then
+            echo "One or more CI jobs failed"
+            exit 1
+          fi
+          echo "All CI jobs passed successfully!"
