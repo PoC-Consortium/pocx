@@ -249,6 +249,14 @@ pub fn create_scheduler_thread(
 
             // update status
             hash_progress[pointer] += warps_to_hash;
+
+            // output line progress if enabled
+            if task.line_progress {
+                let total_warps: u64 = task.warps.iter().sum();
+                let hashed_warps: u64 = hash_progress.iter().sum();
+                println!("#HASH_PROGRESS:{}:{}", hashed_warps, total_warps);
+            }
+
             if hash_progress[pointer] == task.warps[pointer] {
                 plotfile_progress[pointer] += 1;
                 if plotfile_progress[pointer] < task.number_of_plots[pointer] {
