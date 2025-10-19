@@ -1,5 +1,6 @@
 # PoCX - A neXt Generation Proof of Capacity Framework
 
+[![Release](https://img.shields.io/github/v/release/PoC-Consortium/pocx)](https://github.com/PoC-Consortium/pocx/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-%3E%3D1.91.0--nightly-brightgreen.svg)](https://www.rust-lang.org)
 

@@ -353,8 +353,7 @@ impl PoCXDisk {
                                     plot.meta.filename, e
                                 );
                                 plot.read_progress = plot.meta.number_of_warps;
-                                channels.tx_empty_buffer.send(buffer).unwrap();
-                                return;
+                                break;
                             }
                         }
                     }
