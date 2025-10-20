@@ -230,10 +230,6 @@ pub fn create_scheduler_thread(
                         if let Some(i) = &pb {
                             i.inc(delta);
                         }
-
-                        if task.line_progress {
-                            println!("#HASH_DELTA:{}", delta);
-                        }
                     }
                 }
                 if processed == nonces_to_hash {
@@ -255,6 +251,11 @@ pub fn create_scheduler_thread(
 
             // update status
             hash_progress[pointer] += warps_to_hash;
+
+            if task.line_progress {
+                println!("#HASH_DELTA:{}", warps_to_hash);
+            }
+
             if hash_progress[pointer] == task.warps[pointer] {
                 plotfile_progress[pointer] += 1;
                 if plotfile_progress[pointer] < task.number_of_plots[pointer] {

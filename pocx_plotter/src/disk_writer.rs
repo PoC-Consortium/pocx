@@ -97,7 +97,7 @@ pub fn create_writer_thread(
                     }
 
                     if task.line_progress {
-                        println!("#WRITE_DELTA:{}:{}", path_ptr, delta);
+                        println!("#WRITE_DELTA:{}:{}", path_ptr, warps_to_write);
                     }
 
                     if let Err(e) = tx_empty_buffers.send(buffer) {

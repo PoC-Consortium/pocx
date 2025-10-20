@@ -330,7 +330,7 @@ impl Plotter {
         let total_warps = total_planned_warps - resume;
 
         if task.line_progress {
-            println!("#TOTAL:{}", total_warps * WARP_SIZE);
+            println!("#TOTAL:{}", total_warps);
         }
 
         if !task.quiet {
