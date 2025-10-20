@@ -44,9 +44,10 @@ pub fn create_writer_thread(
     rx_buffers_to_writer: Receiver<WriterTask>,
     tx_empty_buffers: Sender<PageAlignedByteBuffer>,
     path_ptr: usize,
+    resume: u64,
 ) -> impl FnOnce() {
     move || {
-        let total_warps: u64 = task.warps.iter().sum();
+        let total_warps: u64 = task.warps.iter().sum::<u64>() - resume;
         let mut written_warps: u64 = 0;
 
         for write_task in rx_buffers_to_writer {

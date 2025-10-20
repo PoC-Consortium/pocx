@@ -469,6 +469,7 @@ impl Plotter {
                     rx_full_write_buffers.clone(),
                     tx_empty_write_buffers.clone(),
                     i,
+                    resume,
                 )
             }));
             tx_full.push(tx_full_write_buffers);
