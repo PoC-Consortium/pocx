@@ -90,14 +90,6 @@ fn run() -> Result<()> {
                 .global(true),
         )
         .arg(
-            Arg::new("line-progress")
-                .long("line-progress")
-                .help("Output machine-readable progress lines")
-                .action(clap::ArgAction::SetTrue)
-                .hide(true)
-                .global(true),
-        )
-        .arg(
             Arg::new("address")
                 .short('i')
                 .long("id")
@@ -447,7 +439,6 @@ fn run() -> Result<()> {
         escalate,
         quiet: matches.get_flag("non-verbosity"),
         benchmark: matches.get_flag("benchmark"),
-        line_progress: matches.get_flag("line-progress"),
         #[cfg(feature = "opencl")]
         zcb: matches.get_flag("zero-copy"),
         #[cfg(feature = "opencl")]

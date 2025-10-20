@@ -69,7 +69,6 @@ pub struct PlotterTask {
     pub escalate: u64,
     pub quiet: bool,
     pub benchmark: bool,
-    pub line_progress: bool,
     #[cfg(feature = "opencl")]
     pub zcb: bool,
     #[cfg(feature = "opencl")]
@@ -469,7 +468,6 @@ impl Plotter {
                     rx_full_write_buffers.clone(),
                     tx_empty_write_buffers.clone(),
                     i,
-                    resume,
                 )
             }));
             tx_full.push(tx_full_write_buffers);

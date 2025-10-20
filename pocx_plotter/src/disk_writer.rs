@@ -44,12 +44,8 @@ pub fn create_writer_thread(
     rx_buffers_to_writer: Receiver<WriterTask>,
     tx_empty_buffers: Sender<PageAlignedByteBuffer>,
     path_ptr: usize,
-    resume: u64,
 ) -> impl FnOnce() {
     move || {
-        let total_warps: u64 = task.warps.iter().sum::<u64>() - resume;
-        let mut written_warps: u64 = 0;
-
         for write_task in rx_buffers_to_writer {
             match write_task {
                 WriterTask::EndTask => {
@@ -97,13 +93,6 @@ pub fn create_writer_thread(
                     } else if let Some(pbr) = &pb {
                         pbr.inc(warps_to_write * WARP_SIZE);
                     }
-
-                    // update and output line progress if enabled
-                    written_warps += warps_to_write;
-                    if task.line_progress {
-                        println!("#WRITE_PROGRESS:{}:{}", written_warps, total_warps);
-                    }
-
                     if let Err(e) = tx_empty_buffers.send(buffer) {
                         eprintln!("ERROR: Failed to send empty buffer back to pool: {}", e);
                         break;
