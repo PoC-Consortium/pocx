@@ -225,8 +225,14 @@ pub fn create_scheduler_thread(
                     // process work completed message
                     HasherMessage::NoncesHashed(nonces) => {
                         processed += nonces;
+                        let delta = nonces * NONCE_SIZE / u64::pow(2, task.compress);
+
                         if let Some(i) = &pb {
-                            i.inc(nonces * NONCE_SIZE / u64::pow(2, task.compress));
+                            i.inc(delta);
+                        }
+
+                        if task.line_progress {
+                            println!("#HASH_DELTA:{}", delta);
                         }
                     }
                 }
