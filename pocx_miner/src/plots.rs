@@ -375,9 +375,8 @@ impl PoCXDisk {
                             };
 
                             if compressible_warps == 0 {
-                                // Single warp, cannot compress
-                                warn!("Cannot compress single warp from {}", plot.meta.filename_and_path.display());
-                                (0, plot.meta.compression) // Skip this buffer
+                                // Single warp, cannot compress - skip this buffer (normal for last warp of odd-sized files)
+                                (0, plot.meta.compression)
                             } else {
                                 // Perform inline SIMD compression on full buffer
                                 if let Some(ref _config) = compression_config {
