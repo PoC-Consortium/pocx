@@ -309,7 +309,7 @@ impl PoCXDisk {
                 };
 
                 if let CompressionAction::Skip(reason) = compression_action {
-                    info!("Skipping plot {} - {}", plot.meta.filename, reason);
+                    info!("Skipping plot {} - {}", plot.meta.filename_and_path.display(), reason);
                     continue;
                 }
 
@@ -350,7 +350,7 @@ impl PoCXDisk {
                             Err(e) => {
                                 error!(
                                     "reader: error reading chunk from {}: {} -> skip rest of plot",
-                                    plot.meta.filename, e
+                                    plot.meta.filename_and_path.display(), e
                                 );
                                 plot.read_progress = plot.meta.number_of_warps;
                                 break;
@@ -376,7 +376,7 @@ impl PoCXDisk {
 
                             if compressible_warps == 0 {
                                 // Single warp, cannot compress
-                                warn!("Cannot compress single warp from {}", plot.meta.filename);
+                                warn!("Cannot compress single warp from {}", plot.meta.filename_and_path.display());
                                 (0, plot.meta.compression) // Skip this buffer
                             } else {
                                 // Perform inline SIMD compression on full buffer
@@ -436,7 +436,7 @@ impl PoCXDisk {
         if let Some(first_plot) = plots.first() {
             let mut plot = first_plot.lock().unwrap();
             plot.wakeup()
-                .map_err(|e| format!("{}: {}", plot.meta.filename, e))
+                .map_err(|e| format!("{}: {}", plot.meta.filename_and_path.display(), e))
         } else {
             Ok(()) // No plots on this disk
         }
