@@ -69,6 +69,7 @@ pub struct PlotterTask {
     pub escalate: u64,
     pub quiet: bool,
     pub benchmark: bool,
+    pub line_progress: bool,
     #[cfg(feature = "opencl")]
     pub zcb: bool,
     #[cfg(feature = "opencl")]
@@ -328,6 +329,10 @@ impl Plotter {
 
         let total_warps = total_planned_warps - resume;
 
+        if task.line_progress {
+            println!("#TOTAL:{}", total_warps);
+        }
+
         if !task.quiet {
             println!(
                 "RAM: Total={:.2} GiB, Available={:.2} GiB, Usage={:.2} GiB",
@@ -405,7 +410,7 @@ impl Plotter {
             })?;
         }
 
-        let multi_progress = if !task.quiet {
+        let multi_progress = if !task.quiet && !task.line_progress {
             let mp = MultiProgress::new();
             // Ensure progress bars are visible by enabling steady tick
             mp.set_move_cursor(true);

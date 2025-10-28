@@ -132,6 +132,7 @@ jobs:
               -p pocx_miner \
               -p pocx_plotter \
               -p pocx_verifier \
+              -p pocx_aggregator \
               -p pocx_mockchain \
               $FEATURES_FLAG
           else
@@ -139,6 +140,7 @@ jobs:
               -p pocx_miner \
               -p pocx_plotter \
               -p pocx_verifier \
+              -p pocx_aggregator \
               -p pocx_mockchain \
               $FEATURES_FLAG
           fi
@@ -168,8 +170,14 @@ jobs:
           cp target/${{ matrix.target }}/release/pocx_miner staging/
           cp target/${{ matrix.target }}/release/pocx_plotter staging/
           cp target/${{ matrix.target }}/release/pocx_verifier staging/
+          cp target/${{ matrix.target }}/release/pocx_aggregator staging/
           cp target/${{ matrix.target }}/release/pocx_mockchain staging/
           chmod +x staging/*
+
+          # Copy config files
+          cp pocx_miner/miner_config.yaml staging/
+          cp pocx_aggregator/aggregator_config.yaml staging/
+          cp pocx_mockchain/mockchain_config.toml staging/
 
           # Create archive
           ARCHIVE_NAME="pocx-${VERSION}-${{ matrix.target }}${SUFFIX}.tar.gz"
@@ -194,7 +202,13 @@ jobs:
           Copy-Item target/${{ matrix.target }}/release/pocx_miner.exe staging/
           Copy-Item target/${{ matrix.target }}/release/pocx_plotter.exe staging/
           Copy-Item target/${{ matrix.target }}/release/pocx_verifier.exe staging/
+          Copy-Item target/${{ matrix.target }}/release/pocx_aggregator.exe staging/
           Copy-Item target/${{ matrix.target }}/release/pocx_mockchain.exe staging/
+
+          # Copy config files
+          Copy-Item pocx_miner/miner_config.yaml staging/
+          Copy-Item pocx_aggregator/aggregator_config.yaml staging/
+          Copy-Item pocx_mockchain/mockchain_config.toml staging/
 
           # Create archive
           $ARCHIVE_NAME = "pocx-${VERSION}-${{ matrix.target }}.zip"
@@ -267,7 +281,13 @@ jobs:
             - `pocx_miner` - Mining client
             - `pocx_plotter` - Plot file generator
             - `pocx_verifier` - Plot verification tool
+            - `pocx_aggregator` - Mining proxy/aggregator
             - `pocx_mockchain` - Mock blockchain for testing
+
+            **Configuration Files:**
+            - `miner_config.yaml` - Miner configuration template
+            - `aggregator_config.yaml` - Aggregator configuration template
+            - `mockchain_config.toml` - Mockchain configuration template
 
             **Installation:**
             ```bash

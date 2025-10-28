@@ -63,6 +63,9 @@ pub struct Cfg {
     #[serde(default = "default_show_progress")]
     pub show_progress: bool,
 
+    #[serde(default = "default_line_progress")]
+    pub line_progress: bool,
+
     #[serde(default)]
     pub benchmark: Option<Benchmark>,
 
@@ -154,6 +157,10 @@ fn default_show_progress() -> bool {
     true
 }
 
+fn default_line_progress() -> bool {
+    false
+}
+
 fn default_enable_on_the_fly_compression() -> bool {
     true
 }
@@ -199,6 +206,7 @@ mod tests {
             cpu_threads: 0,
             cpu_thread_pinning: default_cpu_thread_pinning(),
             show_progress: default_show_progress(),
+            line_progress: default_line_progress(),
             benchmark: None,
             console_log_level: default_console_log_level(),
             logfile_log_level: default_logfile_log_level(),
@@ -228,6 +236,7 @@ mod tests {
             cpu_threads: 0,
             cpu_thread_pinning: default_cpu_thread_pinning(),
             show_progress: default_show_progress(),
+            line_progress: default_line_progress(),
             benchmark: None,
             console_log_level: default_console_log_level(),
             logfile_log_level: default_logfile_log_level(),
@@ -270,6 +279,7 @@ mod tests {
             cpu_threads: 0,
             cpu_thread_pinning: default_cpu_thread_pinning(),
             show_progress: default_show_progress(),
+            line_progress: default_line_progress(),
             benchmark: None,
             console_log_level: default_console_log_level(),
             logfile_log_level: default_logfile_log_level(),
@@ -299,6 +309,7 @@ mod tests {
             cpu_threads: 0,
             cpu_thread_pinning: default_cpu_thread_pinning(),
             show_progress: default_show_progress(),
+            line_progress: default_line_progress(),
             benchmark: None,
             console_log_level: default_console_log_level(),
             logfile_log_level: default_logfile_log_level(),
@@ -362,6 +373,7 @@ thread_pool_size: 8
             cpu_threads: 0,
             cpu_thread_pinning: default_cpu_thread_pinning(),
             show_progress: default_show_progress(),
+            line_progress: default_line_progress(),
             benchmark: None,
             console_log_level: default_console_log_level(),
             logfile_log_level: default_logfile_log_level(),
@@ -397,6 +409,7 @@ thread_pool_size: 8
             cpu_threads: 0,
             cpu_thread_pinning: default_cpu_thread_pinning(),
             show_progress: default_show_progress(),
+            line_progress: default_line_progress(),
             benchmark: None,
             console_log_level: default_console_log_level(),
             logfile_log_level: default_logfile_log_level(),

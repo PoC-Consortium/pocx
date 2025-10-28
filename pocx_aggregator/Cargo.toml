@@ -1,0 +1,67 @@
+[package]
+name = "pocx_aggregator"
+version = "1.0.0"
+license = "MIT"
+authors = ["Proof of Capacity Consortium"]
+description = "High-performance mining aggregator for PoCX protocol"
+keywords = ["poc", "cryptocurrency", "mining", "aggregator"]
+categories = ["cryptography", "network-programming"]
+readme = "README.md"
+edition = "2021"
+rust-version = "1.91.0"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[[bin]]
+name = "pocx_aggregator"
+path = "src/main.rs"
+
+[dependencies]
+# Protocol - workspace crate
+pocx_protocol = { path = "../pocx_protocol" }
+
+# Async runtime
+tokio = { workspace = true }
+futures = { workspace = true }
+async-trait = { workspace = true }
+
+# Web framework
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+
+# Logging
+log = { workspace = true }
+env_logger = "0.11"
+tracing = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# CLI
+clap = { workspace = true }
+
+# Database
+diesel = { workspace = true }
+diesel_migrations = { workspace = true }
+r2d2 = { workspace = true }
+
+# Utilities
+uuid = { workspace = true }
+chrono = { workspace = true }
+url = { workspace = true }
+reqwest = { workspace = true }
+crossbeam-channel = { workspace = true }
+num-bigint = "0.4"
+num-traits = "0.2"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+mockito = { workspace = true }

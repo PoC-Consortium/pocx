@@ -18,20 +18,19 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-//! JSON-RPC 2.0 protocol implementation for PoCX mining with client and server
-//! support
+//! JSON-RPC protocol implementation for PoCX mining
+//!
+//! This crate provides:
+//! - JSON-RPC 2.0 protocol implementation (client and server)
+//! - Protocol types (MiningInfo, SubmitNonceParams, etc.)
+//! - Error handling
 
-pub mod client;
-pub mod errors;
-pub mod server;
-pub mod types;
+pub mod protocol;
 
-// Re-export main types for convenience
-pub use client::JsonRpcClient;
-pub use errors::{ProtocolError, Result};
-pub use server::{extract_auth_token, JsonRpcDispatcher, JsonRpcHandler};
-pub use types::{
-    GetMiningInfoParams, JsonRpcError, JsonRpcId, JsonRpcRequest, JsonRpcResponse, MiningInfo,
+// Re-export main protocol types for convenience
+pub use protocol::{
+    extract_auth_token, GetMiningInfoParams, JsonRpcClient, JsonRpcDispatcher, JsonRpcError,
+    JsonRpcHandler, JsonRpcId, JsonRpcRequest, JsonRpcResponse, MiningInfo, ProtocolError, Result,
     SubmitNonceParams, SubmitNonceResult, METHOD_GET_MINING_INFO, METHOD_SUBMIT_NONCE,
 };
 

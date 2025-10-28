@@ -21,7 +21,7 @@
 use crate::com::api::{FetchError, MiningInfo, NonceSubmission, SubmissionParameters};
 use crate::com::protocol_client::ProtocolClient;
 use crate::future::prio_retry::PrioRetry;
-use crate::miner::ChainAccount;
+use crate::miner::{ChainAccount, SubmissionMode};
 use futures::channel::mpsc;
 use futures::StreamExt;
 use std::collections::HashMap;
@@ -37,6 +37,11 @@ pub struct RequestHandler {
     #[allow(dead_code)]
     chain_headers: HashMap<String, String>,
     tx_submit_data: mpsc::UnboundedSender<SubmissionParameters>,
+    // Per-account submission channels, used by demultiplexer for routing
+    #[allow(dead_code)]
+    account_senders: std::sync::Arc<
+        std::sync::Mutex<HashMap<String, mpsc::UnboundedSender<SubmissionParameters>>>,
+    >,
 }
 
 impl RequestHandler {
@@ -47,6 +52,7 @@ impl RequestHandler {
         chain_headers: HashMap<String, String>,
         chain_accounts: Vec<ChainAccount>,
         auth_token: Option<String>,
+        submission_mode: SubmissionMode,
     ) -> RequestHandler {
         let default_headers = chain_headers.clone();
 
@@ -54,39 +60,101 @@ impl RequestHandler {
             .expect("Failed to create protocol client");
 
         let (tx_submit_data, rx_submit_nonce_data) = mpsc::unbounded();
-        RequestHandler::handle_submissions(
-            client.clone(),
-            rx_submit_nonce_data,
-            tx_submit_data.clone(),
-            chain_accounts.clone(),
-        );
+
+        let account_senders = std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()));
+
+        // Route based on submission mode
+        if submission_mode == SubmissionMode::Wallet {
+            // Wallet mode: single global queue (PrioRetry keeps best quality globally)
+            RequestHandler::start_wallet_handler(
+                client.clone(),
+                rx_submit_nonce_data,
+                chain_accounts.clone(),
+            );
+        } else {
+            // Pool mode: per-account queues
+            RequestHandler::start_demultiplexer(
+                client.clone(),
+                rx_submit_nonce_data,
+                chain_accounts.clone(),
+                account_senders.clone(),
+            );
+        }
 
         RequestHandler {
             client,
             chain_accounts,
             chain_headers,
             tx_submit_data,
+            account_senders,
         }
     }
 
-    fn handle_submissions(
+    /// Demultiplexer that routes submissions to per-account handlers
+    fn start_demultiplexer(
+        client: ProtocolClient,
+        mut rx: mpsc::UnboundedReceiver<SubmissionParameters>,
+        chain_accounts: Vec<ChainAccount>,
+        account_senders: std::sync::Arc<
+            std::sync::Mutex<HashMap<String, mpsc::UnboundedSender<SubmissionParameters>>>,
+        >,
+    ) {
+        tokio::task::spawn(async move {
+            while let Some(submission) = rx.next().await {
+                let account_id = submission.nonce_submission.account_id.clone();
+
+                // Get or create sender for this account
+                let tx = {
+                    let mut senders = account_senders.lock().unwrap();
+                    if let Some(tx) = senders.get(&account_id) {
+                        tx.clone()
+                    } else {
+                        // Create new channel and handler for this account
+                        let (tx, rx_account) = mpsc::unbounded();
+                        senders.insert(account_id.clone(), tx.clone());
+
+                        // Spawn handler for this account
+                        RequestHandler::handle_account_submissions(
+                            client.clone(),
+                            rx_account,
+                            account_id.clone(),
+                            chain_accounts.clone(),
+                            tx.clone(), // Requeue sender for retries
+                        );
+
+                        tx
+                    }
+                };
+
+                // Route submission to account-specific handler
+                if let Err(e) = tx.unbounded_send(submission) {
+                    log::error!(
+                        "Failed to route submission for account {}: {}",
+                        account_id,
+                        e
+                    );
+                }
+            }
+        });
+    }
+
+    /// Per-account submission handler with PrioRetry
+    fn handle_account_submissions(
         client: ProtocolClient,
         rx: mpsc::UnboundedReceiver<SubmissionParameters>,
-        tx_submit_data: mpsc::UnboundedSender<SubmissionParameters>,
+        account_id: String,
         chain_accounts: Vec<ChainAccount>,
+        requeue_tx: mpsc::UnboundedSender<SubmissionParameters>,
     ) {
         let stream = PrioRetry::new(rx, Duration::from_secs(3));
 
         tokio::task::spawn(async move {
             let mut stream = Box::pin(stream);
             while let Some(submission_params) = stream.next().await {
-                let tx_submit_data = tx_submit_data.clone();
                 let mut client = client.clone();
 
                 // Apply account-specific headers if they exist
-                let account_id = &submission_params.nonce_submission.account_id;
-                if let Some(account) = chain_accounts.iter().find(|acc| acc.account == *account_id)
-                {
+                if let Some(account) = chain_accounts.iter().find(|acc| acc.account == account_id) {
                     client = client.with_additional_headers(account.headers.clone());
                 }
 
@@ -112,9 +180,13 @@ impl RequestHandler {
                         // experiencing too much load expect the submission to be resent later.
                         if e.message.is_empty() || e.message == "limit exceeded" {
                             log_server_busy(&submission_params.nonce_submission);
-                            let res = tx_submit_data.unbounded_send(submission_params);
-                            if let Err(e) = res {
-                                log::error!("can't send submission params: {}", e);
+                            // Requeue for retry with exponential backoff via PrioRetry
+                            if let Err(send_err) = requeue_tx.unbounded_send(submission_params) {
+                                log::error!(
+                                    "Failed to requeue submission for account {}: {}",
+                                    account_id,
+                                    send_err
+                                );
                             }
                         } else {
                             log_submission_not_accepted(
@@ -126,10 +198,78 @@ impl RequestHandler {
                     }
                     Err(FetchError::Http(x)) => {
                         log_submission_failed(&submission_params.nonce_submission, &x.to_string());
-                        let res = tx_submit_data.unbounded_send(submission_params);
-                        if let Err(e) = res {
-                            log::error!("can't send submission params: {}", e);
+                        // Requeue for retry with exponential backoff via PrioRetry
+                        if let Err(send_err) = requeue_tx.unbounded_send(submission_params) {
+                            log::error!(
+                                "Failed to requeue submission for account {}: {}",
+                                account_id,
+                                send_err
+                            );
                         }
+                    }
+                }
+            }
+        });
+    }
+
+    /// Wallet mode: single global queue handler (global best quality via
+    /// PrioRetry's Ord)
+    fn start_wallet_handler(
+        client: ProtocolClient,
+        rx: mpsc::UnboundedReceiver<SubmissionParameters>,
+        chain_accounts: Vec<ChainAccount>,
+    ) {
+        let stream = PrioRetry::new(rx, Duration::from_secs(3));
+
+        tokio::task::spawn(async move {
+            let mut stream = Box::pin(stream);
+            while let Some(submission_params) = stream.next().await {
+                let mut client = client.clone();
+                let account_id = submission_params.nonce_submission.account_id.clone();
+
+                // Apply account-specific headers if they exist
+                if let Some(account) = chain_accounts.iter().find(|acc| acc.account == account_id) {
+                    client = client.with_additional_headers(account.headers.clone());
+                }
+
+                match client
+                    .submit_nonce(&submission_params.nonce_submission)
+                    .await
+                {
+                    Ok(res) => {
+                        if submission_params.nonce_submission.quality != res.quality_adjusted {
+                            log_quality_mismatch(
+                                &submission_params.nonce_submission,
+                                res.quality_adjusted,
+                            );
+                        } else {
+                            log_submission_accepted(
+                                &submission_params.nonce_submission,
+                                res.poc_time,
+                            );
+                        }
+                    }
+                    Err(FetchError::Pool(e)) => {
+                        if e.message.is_empty() || e.message == "limit exceeded" {
+                            log_server_busy(&submission_params.nonce_submission);
+                            // Note: In wallet mode, we don't requeue -
+                            // PrioRetry already
+                            // keeps the best quality item, and a newer better
+                            // item will
+                            // replace this one naturally
+                        } else {
+                            log_submission_not_accepted(
+                                &submission_params.nonce_submission,
+                                e.code,
+                                &e.message,
+                            );
+                        }
+                    }
+                    Err(FetchError::Http(x)) => {
+                        log_submission_failed(&submission_params.nonce_submission, &x.to_string());
+                        // Note: In wallet mode, we don't requeue - if mining
+                        // continues, a better quality
+                        // will naturally be found and replace this
                     }
                 }
             }
@@ -178,14 +318,13 @@ fn log_submission_not_accepted(nonce_submission: &NonceSubmission, err_code: i32
 }
 
 fn log_submission_accepted(nonce_submission: &NonceSubmission, poc_time: u64) {
-    if poc_time > 0 {
-        if poc_time < 86400 {
-            info!("accepted: {}, time={}", nonce_submission, poc_time);
-        } else {
-            info!("accepted: {}, time=∞", nonce_submission);
-        }
-    } else {
+    if poc_time == u64::MAX {
+        // No poc_time provided (default value)
         info!("accepted: {}", nonce_submission);
+    } else if poc_time < 86400 {
+        info!("accepted: {}, time={}", nonce_submission, poc_time);
+    } else {
+        info!("accepted: {}, time=∞", nonce_submission);
     }
 }
 
@@ -208,8 +347,15 @@ mod tests {
         let chain_headers = HashMap::new();
         let chain_accounts = Vec::new();
 
-        let handler =
-            RequestHandler::new(url, api_path, timeout, chain_headers, chain_accounts, None);
+        let handler = RequestHandler::new(
+            url,
+            api_path,
+            timeout,
+            chain_headers,
+            chain_accounts,
+            None,
+            SubmissionMode::Pool,
+        );
 
         // Verify handler was created (struct exists)
         let _ = &handler.client;
@@ -225,8 +371,15 @@ mod tests {
         chain_headers.insert("X-Custom-Header".to_string(), "test-value".to_string());
         let chain_accounts = Vec::new();
 
-        let handler =
-            RequestHandler::new(url, api_path, timeout, chain_headers, chain_accounts, None);
+        let handler = RequestHandler::new(
+            url,
+            api_path,
+            timeout,
+            chain_headers,
+            chain_accounts,
+            None,
+            SubmissionMode::Pool,
+        );
 
         // Verify handler was created with custom headers
         let _ = &handler.client;
@@ -251,8 +404,15 @@ mod tests {
             headers: account_headers,
         }];
 
-        let handler =
-            RequestHandler::new(url, api_path, timeout, chain_headers, chain_accounts, None);
+        let handler = RequestHandler::new(
+            url,
+            api_path,
+            timeout,
+            chain_headers,
+            chain_accounts,
+            None,
+            SubmissionMode::Pool,
+        );
 
         // Verify handler was created with custom headers
         let _ = &handler.client;
@@ -268,6 +428,7 @@ mod tests {
             HashMap::new(),
             Vec::new(),
             None,
+            SubmissionMode::Pool,
         );
 
         // Create test submission parameters
@@ -403,6 +564,7 @@ mod tests {
                     HashMap::new(),
                     Vec::new(),
                     None,
+                    SubmissionMode::Pool,
                 );
                 let _ = &handler.client;
             }
@@ -422,6 +584,7 @@ mod tests {
                 HashMap::new(),
                 Vec::new(),
                 None,
+                SubmissionMode::Pool,
             );
 
             // Verify handler creation with different timeout values
@@ -449,6 +612,7 @@ mod tests {
                 HashMap::new(),
                 Vec::new(),
                 None,
+                SubmissionMode::Pool,
             );
 
             // Verify handler creation with different API paths

@@ -1,7 +1,8 @@
 [workspace]
 members = [
     "pocx_address",
-    "pocx_hashlib", 
+    "pocx_aggregator",
+    "pocx_hashlib",
     "pocx_miner",
     "pocx_mockchain",
     "pocx_plotfile",

@@ -120,7 +120,7 @@ async fn main() {
             if let Err(sample_err) = PoCXConfig::create_sample_config() {
                 eprintln!("Failed to create sample config: {}", sample_err);
             }
-            eprintln!("Please configure pocx_mockchain.toml or set environment variables.");
+            eprintln!("Please configure mockchain_config.toml or set environment variables.");
             std::process::exit(1);
         }
     });

@@ -199,6 +199,7 @@ jobs:
               -p pocx_miner \
               -p pocx_plotter \
               -p pocx_verifier \
+              -p pocx_aggregator \
               -p pocx_mockchain \
               $FEATURES_FLAG
           else
@@ -206,6 +207,7 @@ jobs:
               -p pocx_miner \
               -p pocx_plotter \
               -p pocx_verifier \
+              -p pocx_aggregator \
               -p pocx_mockchain \
               $FEATURES_FLAG
           fi
@@ -223,6 +225,7 @@ jobs:
           cp target/${{ matrix.target }}/release/pocx_miner artifacts/pocx_miner-${{ matrix.target }}${SUFFIX}
           cp target/${{ matrix.target }}/release/pocx_plotter artifacts/pocx_plotter-${{ matrix.target }}${SUFFIX}
           cp target/${{ matrix.target }}/release/pocx_verifier artifacts/pocx_verifier-${{ matrix.target }}${SUFFIX}
+          cp target/${{ matrix.target }}/release/pocx_aggregator artifacts/pocx_aggregator-${{ matrix.target }}${SUFFIX}
           cp target/${{ matrix.target }}/release/pocx_mockchain artifacts/pocx_mockchain-${{ matrix.target }}${SUFFIX}
           chmod +x artifacts/*
 
@@ -233,6 +236,7 @@ jobs:
           cp target/${{ matrix.target }}/release/pocx_miner.exe artifacts/pocx_miner-${{ matrix.target }}.exe
           cp target/${{ matrix.target }}/release/pocx_plotter.exe artifacts/pocx_plotter-${{ matrix.target }}.exe
           cp target/${{ matrix.target }}/release/pocx_verifier.exe artifacts/pocx_verifier-${{ matrix.target }}.exe
+          cp target/${{ matrix.target }}/release/pocx_aggregator.exe artifacts/pocx_aggregator-${{ matrix.target }}.exe
           cp target/${{ matrix.target }}/release/pocx_mockchain.exe artifacts/pocx_mockchain-${{ matrix.target }}.exe
         shell: bash
 

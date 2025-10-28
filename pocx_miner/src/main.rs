@@ -60,12 +60,27 @@ async fn main() {
                 .long("config")
                 .value_name("FILE")
                 .help("Location of the config file")
-                .default_value("config.yaml"),
+                .default_value("miner_config.yaml"),
+        )
+        .arg(
+            Arg::new("line-progress")
+                .long("line-progress")
+                .action(clap::ArgAction::SetTrue)
+                .help("Enable machine-parsable progress protocol for GUI")
+                .hide(true),
         );
 
     let matches = arg.get_matches();
     let config = matches.get_one::<String>("config").unwrap();
-    let cfg_loaded = load_cfg(config);
+    let line_progress = matches.get_flag("line-progress");
+    let mut cfg_loaded = load_cfg(config);
+
+    // CLI flag overrides config file
+    if line_progress {
+        cfg_loaded.line_progress = true;
+        // Mutual exclusivity: line_progress disables show_progress
+        cfg_loaded.show_progress = false;
+    }
     logger::init_logger(&cfg_loaded);
 
     info!("PoCX Miner {}", env!("CARGO_PKG_VERSION"));

@@ -70,6 +70,18 @@ use std::time::{Duration, Instant};
 use tokio::task;
 use url::Url;
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SubmissionMode {
+    #[default]
+    Pool, // Per-account tracking and submission (pool mining)
+    Wallet, // Global best tracking and submission (solo mining)
+}
+
+fn default_submission_mode() -> SubmissionMode {
+    SubmissionMode::Pool
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChainAccount {
     pub account: String,
@@ -95,6 +107,8 @@ pub struct Chain {
     pub headers: HashMap<String, String>, // Chain-level headers
     #[serde(default)]
     pub accounts: Vec<ChainAccount>, // Per-account overrides
+    #[serde(default = "default_submission_mode")]
+    pub submission_mode: SubmissionMode, // Pool vs Wallet submission strategy
 }
 
 fn default_block_time() -> u64 {
@@ -153,6 +167,7 @@ pub struct ChainState {
     account_id_to_best_quality: HashMap<String, u64>,
     account_id_to_target_quality: HashMap<String, u64>,
     block: u64,
+    submission_mode: SubmissionMode,
 }
 
 impl ChainState {
@@ -163,9 +178,11 @@ impl ChainState {
         chain_target_quality: Option<u64>,
         chain_accounts: &[ChainAccount], // Chain account configurations
         known_account_payloads: &[String], // Hex payloads from plot files
+        submission_mode: SubmissionMode,
     ) {
         self.generation_signature = mining_info.generation_signature.clone();
         self.block_hash = mining_info.block_hash.clone();
+        self.submission_mode = submission_mode;
 
         // Reset best qualities for new block
         for best_quality in self.account_id_to_best_quality.values_mut() {
@@ -209,7 +226,6 @@ pub enum SchedulerMessage {
 
 #[derive(Default)]
 pub struct MinerState {
-    account_id_to_best_quality: HashMap<u64, u64>,
     start_time: Option<Instant>,
     scanning: bool,
     chain_id: usize,
@@ -242,7 +258,6 @@ impl MinerState {
         Default::default()
     }
 
-    // TODO: Preserve best qualities in ResumeInfo (minor optimization)
     fn update_state(
         &mut self,
         chain_id: usize,
@@ -251,9 +266,6 @@ impl MinerState {
         name: String,
         generation_signature: String,
     ) {
-        for best_qualities in self.account_id_to_best_quality.values_mut() {
-            *best_qualities = u64::MAX;
-        }
         self.start_time = Some(Instant::now());
         self.scanning = true;
         self.chain_id = chain_id;
@@ -362,6 +374,7 @@ impl Miner {
                 chain_specific_headers,
                 cfg.chains[i].accounts.clone(),
                 cfg.chains[i].auth_token.clone(),
+                cfg.chains[i].submission_mode.clone(),
             ));
         }
 
@@ -442,6 +455,7 @@ impl Miner {
             let chain_name = chain.name.clone();
             let chain_target_quality = chain.target_quality;
             let chain_accounts = chain.accounts.clone();
+            let submission_mode = chain.submission_mode.clone();
             let known_accounts = self.known_account_payloads.clone();
             task::spawn(async move {
                 let mining_info = request_handler[i]
@@ -457,6 +471,7 @@ impl Miner {
                                 chain_target_quality,
                                 &chain_accounts,
                                 &known_accounts,
+                                submission_mode,
                             );
                             // schedule block
                             tx_scheduler
@@ -508,6 +523,7 @@ impl Miner {
             let chain_name = chain.name.clone();
             let chain_target_quality = chain.target_quality;
             let chain_accounts = chain.accounts.clone();
+            let submission_mode = chain.submission_mode.clone();
             let known_accounts = self.known_account_payloads.clone();
             task::spawn(async move {
                 let mut interval_stream =
@@ -533,6 +549,7 @@ impl Miner {
                                     chain_target_quality,
                                     &chain_accounts,
                                     &known_accounts,
+                                    submission_mode.clone(),
                                 );
                                 // schedule block
                                 tx_scheduler
@@ -812,6 +829,7 @@ impl Miner {
                                         block,
                                         matches!(benchmark_clone, Some(Benchmark::Io)),
                                         compression_config,
+                                        cfg.line_progress,
                                     )
                                 });
                             }
@@ -894,10 +912,22 @@ impl Miner {
                 if chain_state.generation_signature.to_lowercase()
                     == submission_parameter.nonce_submission.generation_signature
                 {
-                    let best_quality = *chain_state
-                        .account_id_to_best_quality
-                        .get(&submission_parameter.nonce_submission.account_id)
-                        .unwrap_or(&u64::MAX);
+                    // Determine best quality based on submission mode
+                    let best_quality = if chain_state.submission_mode == SubmissionMode::Wallet {
+                        // Wallet mode: global best across all accounts
+                        chain_state
+                            .account_id_to_best_quality
+                            .values()
+                            .min()
+                            .copied()
+                            .unwrap_or(u64::MAX)
+                    } else {
+                        // Pool mode: per-account best
+                        *chain_state
+                            .account_id_to_best_quality
+                            .get(&submission_parameter.nonce_submission.account_id)
+                            .unwrap_or(&u64::MAX)
+                    };
 
                     let target_quality = *chain_state
                         .account_id_to_target_quality
@@ -963,6 +993,7 @@ impl Miner {
         block_count: u64,
         io_bench: bool,
         compression_config: Option<CompressionConfig>,
+        line_progress: bool,
     ) {
         let (tx_readstate, rx_readstate) = crossbeam_channel::unbounded();
         let start_time = Instant::now();
@@ -988,13 +1019,21 @@ impl Miner {
             ));
         }
 
+        // Emit progress protocol or create progress bar
+        if line_progress {
+            // Machine-parsable progress protocol for GUI
+            println!("#TOTAL:{}", plots.size_in_warps - resume_from);
+        }
+
         let pb = ProgressBar::new((plots.size_in_warps - resume_from) * NUM_SCOOPS * SCOOP_SIZE);
-        pb.set_style(
-            ProgressStyle::default_bar()
-                .template("{msg} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
-                .unwrap(),
-        );
-        pb.set_message("Scanning");
+        if !line_progress {
+            pb.set_style(
+                ProgressStyle::default_bar()
+                    .template("{msg} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+                    .unwrap(),
+            );
+            pb.set_message("Scanning");
+        }
 
         // collect scan results
         let mut finished_count = 0;
@@ -1009,7 +1048,12 @@ impl Miner {
                     interrupted_count += 1;
                 }
                 ScanMessage::WarpsProcessed(i) => {
-                    pb.inc(i * NUM_SCOOPS * SCOOP_SIZE);
+                    if line_progress {
+                        // Machine-parsable progress protocol for GUI
+                        println!("#SCAN_PROGRESS:{}", i);
+                    } else {
+                        pb.inc(i * NUM_SCOOPS * SCOOP_SIZE);
+                    }
                     warps_processed += i;
                 }
                 ScanMessage::Data(read_reply) => {
