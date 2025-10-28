@@ -223,8 +223,9 @@ async fn handle_get_mining_info(
 ) -> Response {
     match state.pool_manager.get_mining_info().await {
         Ok(info) => {
-            // Update stats with current height
+            // Update stats with current height and base target
             state.stats.update_height(info.height).await;
+            state.stats.update_base_target(info.base_target).await;
 
             // Store current base_target for capacity estimation
             *state.current_base_target.write().await = info.base_target;

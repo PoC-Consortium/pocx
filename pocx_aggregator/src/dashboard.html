@@ -175,7 +175,7 @@
                 <div class="stat-value" id="total-accounts">-</div>
             </div>
             <div class="stat-card">
-                <div class="stat-label">Total Capacity Estimate (1h)</div>
+                <div class="stat-label">Total Miner Capacity (1h)</div>
                 <div class="stat-value" id="total-capacity">-</div>
             </div>
             <div class="stat-card">
@@ -183,8 +183,8 @@
                 <div class="stat-value warning" id="current-height">-</div>
             </div>
             <div class="stat-card">
-                <div class="stat-label">Uptime</div>
-                <div class="stat-value" id="uptime">-</div>
+                <div class="stat-label">Network Capacity</div>
+                <div class="stat-value" id="network-capacity">-</div>
             </div>
         </div>
 
@@ -214,7 +214,7 @@
         </div>
 
         <div class="last-update">
-            Last updated: <span id="last-update">Never</span>
+            Uptime: <span id="uptime">-</span> | Last updated: <span id="last-update">Never</span>
         </div>
     </div>
 
@@ -254,10 +254,6 @@
             return quality.toLocaleString();
         }
 
-        function formatCapacity(capacityTiB) {
-            if (!capacityTiB || capacityTiB === 0) return 'N/A';
-            return capacityTiB.toFixed(2) + ' TiB';
-        }
 
         function formatPocTime(pocTimeSecs) {
             if (!pocTimeSecs) return 'N/A';
@@ -290,8 +286,9 @@
                 // Update summary stats
                 document.getElementById('connected-machines').textContent = data.active_machines + ' / ' + data.unique_machines;
                 document.getElementById('total-accounts').textContent = data.unique_miners;
-                document.getElementById('total-capacity').textContent = formatCapacity(data.total_capacity_tib);
+                document.getElementById('total-capacity').textContent = data.total_capacity;
                 document.getElementById('current-height').textContent = data.current_height.toLocaleString();
+                document.getElementById('network-capacity').textContent = data.network_capacity;
                 document.getElementById('uptime').textContent = formatUptime(data.uptime_secs);
 
                 // Update machines table
@@ -309,7 +306,7 @@
                                 <td><span class="status-indicator ${statusClass}"></span></td>
                                 <td title="${machine.machine_id || 'Unknown'}">${machineId}</td>
                                 <td class="account-id" title="${machine.account_id}">${truncateId(machine.account_id)}</td>
-                                <td><strong>${formatCapacity(machine.estimated_capacity_tib)}</strong></td>
+                                <td><strong>${machine.estimated_capacity_tib.toFixed(2)} TiB</strong></td>
                                 <td>${submissionText}</td>
                                 <td>${formatQuality(machine.best_quality)}</td>
                                 <td>${formatPocTime(machine.best_poc_time)}</td>

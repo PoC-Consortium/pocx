@@ -18,11 +18,24 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use bytesize::ByteSize;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+/// Calculate genesis base target for given block time
+fn genesis_base_target(block_time: u64) -> u64 {
+    2u64.pow(42) / block_time
+}
+
+/// Calculate estimated network capacity from base target and block time
+fn calculate_network_capacity_bytes(base_target: u64, block_time: u64) -> u64 {
+    let genesis_bt = genesis_base_target(block_time);
+    let capacity_ratio = genesis_bt as f64 / base_target as f64;
+    (capacity_ratio * (1u64 << 40) as f64) as u64
+}
 
 /// Best submission for a specific block
 #[derive(Debug, Clone)]
@@ -45,6 +58,7 @@ struct StatsInner {
     unique_miners: HashSet<String>, // Track unique account IDs
     active_connections: HashMap<String, MinerInfo>, // Account ID -> info
     current_height: u64,
+    current_base_target: Option<u64>, // Current network base target
     started_at: Option<DateTime<Utc>>,
 }
 
@@ -119,7 +133,8 @@ pub struct StatsSnapshot {
     pub active_machines: usize, // Machines seen in last 5 minutes
     pub current_height: u64,
     pub uptime_secs: i64,
-    pub total_capacity_tib: f64, // Estimated total network capacity
+    pub total_capacity: String,   // Total miner capacity (ByteSize formatted)
+    pub network_capacity: String, // Network capacity from base_target (ByteSize formatted)
     pub miners: Vec<MinerSnapshot>,
 }
 
@@ -239,6 +254,12 @@ impl Stats {
         inner.current_height = height;
     }
 
+    /// Update the current base target (from mining info)
+    pub async fn update_base_target(&self, base_target: u64) {
+        let mut inner = self.inner.write().await;
+        inner.current_base_target = Some(base_target);
+    }
+
     /// Record a mining info request from a miner (keeps connection alive)
     pub async fn record_miner_heartbeat(&self, account_id: &str, machine_id: Option<String>) {
         let mut inner = self.inner.write().await;
@@ -330,8 +351,19 @@ impl Stats {
 
         let active_miners = active_machine_ids.len();
 
-        // Calculate total capacity from all miners
+        // Calculate total miner capacity in bytes
         let total_capacity_tib: f64 = miners.iter().map(|m| m.estimated_capacity_tib).sum();
+        let total_capacity_bytes = (total_capacity_tib * 1_099_511_627_776.0) as u64; // TiB to bytes
+        let total_capacity = ByteSize::b(total_capacity_bytes).to_string();
+
+        // Calculate network capacity from base target
+        let network_capacity = inner
+            .current_base_target
+            .map(|bt| {
+                let bytes = calculate_network_capacity_bytes(bt, self.block_time_secs);
+                ByteSize::b(bytes).to_string()
+            })
+            .unwrap_or_else(|| "N/A".to_string());
 
         StatsSnapshot {
             unique_miners: inner.unique_miners.len(),
@@ -339,7 +371,8 @@ impl Stats {
             active_machines: active_miners,
             current_height: inner.current_height,
             uptime_secs,
-            total_capacity_tib,
+            total_capacity,
+            network_capacity,
             miners,
         }
     }
