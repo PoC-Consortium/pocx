@@ -53,19 +53,14 @@ pub struct Config {
     pub logging: LoggingConfig,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum SubmissionMode {
     /// Per-account tracking and submission (default for pool aggregators)
+    #[default]
     Pool,
     /// Global best tracking and submission (for solo mining aggregators)
     Wallet,
-}
-
-impl Default for SubmissionMode {
-    fn default() -> Self {
-        Self::Pool
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
