@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PoCX Aggregator Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            transition: transform 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .stat-label {
+            font-size: 0.9em;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+
+        .stat-value {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-value.success {
+            color: #10b981;
+        }
+
+        .stat-value.warning {
+            color: #f59e0b;
+        }
+
+        .miners-section {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .miners-section h2 {
+            margin-bottom: 20px;
+            color: #667eea;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .miners-table {
+            width: 100%;
+            border-collapse: collapse;
+            overflow-x: auto;
+        }
+
+        .miners-table th {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        .miners-table td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .miners-table tr:hover {
+            background: #f9fafb;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-active {
+            background: #10b981;
+            box-shadow: 0 0 10px #10b981;
+        }
+
+        .status-inactive {
+            background: #ef4444;
+        }
+
+        .last-update {
+            text-align: center;
+            color: white;
+            margin-top: 20px;
+            font-size: 0.9em;
+        }
+
+        .account-id {
+            font-family: 'Courier New', monospace;
+            color: #6366f1;
+            font-weight: 500;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .loading {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        .no-miners {
+            text-align: center;
+            padding: 40px;
+            color: #9ca3af;
+            font-size: 1.2em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⛏️ PoCX Aggregator Dashboard</h1>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Connected Machines</div>
+                <div class="stat-value success" id="connected-machines">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Mining Accounts</div>
+                <div class="stat-value" id="total-accounts">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Miner Capacity (1h)</div>
+                <div class="stat-value" id="total-capacity">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Current Height</div>
+                <div class="stat-value warning" id="current-height">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Network Capacity</div>
+                <div class="stat-value" id="network-capacity">-</div>
+            </div>
+        </div>
+
+        <div class="miners-section">
+            <h2>🖥️ Connected Machines</h2>
+            <div id="miners-container">
+                <table class="miners-table">
+                    <thead>
+                        <tr>
+                            <th>Status</th>
+                            <th>Machine ID</th>
+                            <th>Account ID</th>
+                            <th>Capacity Est. (1h)</th>
+                            <th>Submissions 24h</th>
+                            <th>Best Quality (Current)</th>
+                            <th>Best PoC Time (Current)</th>
+                            <th>Last Seen</th>
+                        </tr>
+                    </thead>
+                    <tbody id="miners-tbody">
+                        <tr>
+                            <td colspan="8" class="no-miners loading">Loading machines...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="last-update">
+            Uptime: <span id="uptime">-</span> | Last updated: <span id="last-update">Never</span>
+        </div>
+    </div>
+
+    <script>
+        const STATS_ENDPOINT = '/stats';
+        const UPDATE_INTERVAL = 2000; // 2 seconds
+
+        function formatUptime(seconds) {
+            const days = Math.floor(seconds / 86400);
+            const hours = Math.floor((seconds % 86400) / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = seconds % 60;
+
+            if (days > 0) {
+                return `${days}d ${hours}h ${minutes}m`;
+            } else if (hours > 0) {
+                return `${hours}h ${minutes}m ${secs}s`;
+            } else if (minutes > 0) {
+                return `${minutes}m ${secs}s`;
+            } else {
+                return `${secs}s`;
+            }
+        }
+
+        function formatLastSeen(secondsAgo) {
+            if (secondsAgo < 60) {
+                return `${secondsAgo}s ago`;
+            } else if (secondsAgo < 3600) {
+                return `${Math.floor(secondsAgo / 60)}m ago`;
+            } else {
+                return `${Math.floor(secondsAgo / 3600)}h ago`;
+            }
+        }
+
+        function formatQuality(quality) {
+            if (!quality) return 'N/A';
+            return quality.toLocaleString();
+        }
+
+
+        function formatPocTime(pocTimeSecs) {
+            if (!pocTimeSecs) return 'N/A';
+            // poc_time is in seconds
+            if (pocTimeSecs >= 3600) {
+                const hours = Math.floor(pocTimeSecs / 3600);
+                const mins = Math.floor((pocTimeSecs % 3600) / 60);
+                return `${hours}h ${mins}m`;
+            } else if (pocTimeSecs >= 60) {
+                const mins = Math.floor(pocTimeSecs / 60);
+                const secs = pocTimeSecs % 60;
+                return `${mins}m ${secs}s`;
+            } else {
+                return pocTimeSecs + ' s';
+            }
+        }
+
+        function truncateId(id) {
+            if (!id) return 'Unknown';
+            // Show last 8 characters (last 4 hex bytes) like miner output
+            if (id.length <= 8) return id;
+            return '...' + id.substring(id.length - 8);
+        }
+
+        async function updateStats() {
+            try {
+                const response = await fetch(STATS_ENDPOINT);
+                const data = await response.json();
+
+                // Update summary stats
+                document.getElementById('connected-machines').textContent = data.active_machines + ' / ' + data.unique_machines;
+                document.getElementById('total-accounts').textContent = data.unique_miners;
+                document.getElementById('total-capacity').textContent = data.total_capacity;
+                document.getElementById('current-height').textContent = data.current_height.toLocaleString();
+                document.getElementById('network-capacity').textContent = data.network_capacity;
+                document.getElementById('uptime').textContent = formatUptime(data.uptime_secs);
+
+                // Update machines table
+                const tbody = document.getElementById('miners-tbody');
+
+                if (data.miners && data.miners.length > 0) {
+                    tbody.innerHTML = data.miners.map(machine => {
+                        const isActive = machine.last_seen_secs_ago < 300; // 5 minutes
+                        const statusClass = isActive ? 'status-active' : 'status-inactive';
+                        const machineId = machine.machine_id || 'Unknown';
+                        const submissionText = `${machine.submissions_24h} (${machine.submission_percentage.toFixed(1)}%)`;
+
+                        return `
+                            <tr>
+                                <td><span class="status-indicator ${statusClass}"></span></td>
+                                <td title="${machine.machine_id || 'Unknown'}">${machineId}</td>
+                                <td class="account-id" title="${machine.account_id}">${truncateId(machine.account_id)}</td>
+                                <td><strong>${machine.estimated_capacity_tib.toFixed(2)} TiB</strong></td>
+                                <td>${submissionText}</td>
+                                <td>${formatQuality(machine.best_quality)}</td>
+                                <td>${formatPocTime(machine.best_poc_time)}</td>
+                                <td>${formatLastSeen(machine.last_seen_secs_ago)}</td>
+                            </tr>
+                        `;
+                    }).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="8" class="no-miners">No machines connected yet</td></tr>';
+                }
+
+                // Update last update time
+                document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+            } catch (error) {
+                console.error('Failed to fetch stats:', error);
+                document.getElementById('last-update').textContent = 'Error: ' + error.message;
+            }
+        }
+
+        // Initial update
+        updateStats();
+
+        // Auto-refresh
+        setInterval(updateStats, UPDATE_INTERVAL);
+    </script>
+</body>
+</html>

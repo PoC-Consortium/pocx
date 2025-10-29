@@ -5,7 +5,7 @@ license = "MIT"
 authors = [
     "Proof of Capacity Consortium",
 ]
-description = "JSON-RPC 2.0 protocol implementation for PoCX mining operations"
+description = "JSON-RPC protocol implementation for PoCX mining"
 keywords = ["poc", "cryptocurrency", "mining", "jsonrpc", "protocol"]
 categories = ["cryptography", "network-programming", "web-programming"]
 readme = "README.md"
@@ -25,6 +25,9 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }
+futures = { workspace = true }
+log = { workspace = true }
 
 [dev-dependencies]
 mockito = { workspace = true }
+tokio-stream = "0.1"

@@ -71,6 +71,8 @@ pub fn create_writer_thread(
                         }
                     };
 
+                    let delta = warps_to_write * WARP_SIZE;
+
                     if !task.benchmark {
                         let mut optimized_plot_file = PoCXPlotFile::new(
                             &task.output_paths[path_ptr],
@@ -91,8 +93,13 @@ pub fn create_writer_thread(
                             )
                             .expect("error writing to file");
                     } else if let Some(pbr) = &pb {
-                        pbr.inc(warps_to_write * WARP_SIZE);
+                        pbr.inc(delta);
                     }
+
+                    if task.line_progress {
+                        println!("#WRITE_DELTA:{}", warps_to_write);
+                    }
+
                     if let Err(e) = tx_empty_buffers.send(buffer) {
                         eprintln!("ERROR: Failed to send empty buffer back to pool: {}", e);
                         break;

@@ -26,7 +26,7 @@ cargo build --release -p pocx_mockchain
 
 ## Configuration
 
-The mockchain uses `pocx_mockchain.toml` for configuration:
+The mockchain uses `mockchain_config.toml` for configuration:
 
 ```toml
 [network]

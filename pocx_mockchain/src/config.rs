@@ -196,19 +196,19 @@ impl Default for PoCXConfig {
 impl PoCXConfig {
     /// Load configuration from file or environment variables
     pub fn load() -> Result<Self, Box<dyn std::error::Error>> {
-        let mut config = if let Ok(config_content) = std::fs::read_to_string("pocx_mockchain.toml")
-        {
-            let config: PoCXConfig = toml::from_str(&config_content)?;
-            println!("Loaded configuration from pocx_mockchain.toml");
-            config
-        } else if let Ok(config_content) = std::fs::read_to_string("pocx_mockchain.json") {
-            let config: PoCXConfig = serde_json::from_str(&config_content)?;
-            println!("Loaded configuration from pocx_mockchain.json");
-            config
-        } else {
-            println!("No config file found, using default configuration");
-            PoCXConfig::default()
-        };
+        let mut config =
+            if let Ok(config_content) = std::fs::read_to_string("mockchain_config.toml") {
+                let config: PoCXConfig = toml::from_str(&config_content)?;
+                println!("Loaded configuration from mockchain_config.toml");
+                config
+            } else if let Ok(config_content) = std::fs::read_to_string("mockchain_config.json") {
+                let config: PoCXConfig = serde_json::from_str(&config_content)?;
+                println!("Loaded configuration from mockchain_config.json");
+                config
+            } else {
+                println!("No config file found, using default configuration");
+                PoCXConfig::default()
+            };
 
         // Apply environment variable overrides
 
@@ -286,15 +286,15 @@ impl PoCXConfig {
 
         // Create TOML version
         let toml_content = toml::to_string_pretty(&sample_config)?;
-        std::fs::write("pocx_mockchain.sample.toml", toml_content)?;
+        std::fs::write("mockchain_config.sample.toml", toml_content)?;
 
         // Create JSON version
         let json_content = serde_json::to_string_pretty(&sample_config)?;
-        std::fs::write("pocx_mockchain.sample.json", json_content)?;
+        std::fs::write("mockchain_config.sample.json", json_content)?;
 
         println!("Created sample configuration files:");
-        println!("  - pocx_mockchain.sample.toml");
-        println!("  - pocx_mockchain.sample.json");
+        println!("  - mockchain_config.sample.toml");
+        println!("  - mockchain_config.sample.json");
 
         Ok(())
     }

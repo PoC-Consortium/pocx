@@ -1,0 +1,61 @@
+# PoCX Aggregator Configuration
+
+# Listen address for miner connections
+# Default: 0.0.0.0:8080
+listen_address: "0.0.0.0:8080"
+
+# Expected block time in seconds (used for capacity estimation and database retention)
+# PoCX: 120, Burst: 240
+# Default: 120
+block_time_secs: 120
+
+# Upstream pool or wallet configuration
+upstream:
+  name: "primary_pool"
+  url: "http://pool.example.com:8080/pocx"
+  # Optional authentication token
+  # auth_token: "your_secret_token"
+  # Submission mode: "pool" (per-account best) or "wallet" (global best)
+  # Default: pool
+  submission_mode: pool
+
+# Cache settings
+cache:
+  # How long to cache mining info (in seconds)
+  # Lower values = more upstream requests, higher values = stale data risk
+  # Default: 5
+  mining_info_ttl_secs: 5
+
+  # Upstream request timeout (in seconds)
+  # Default: 30
+  pool_timeout_secs: 30
+
+# Database settings
+database:
+  # Database file path
+  # Default: aggregator.db
+  path: "aggregator.db"
+
+  # Database retention period in days (0 = keep forever)
+  # Submissions older than this will be automatically deleted
+  # Default: 7 days
+  # Example: 7 days at 120s blocks = 5,040 blocks retained
+  retention_days: 7
+
+# Dashboard settings (optional)
+dashboard:
+  # Enable dashboard
+  # Default: true
+  enabled: true
+  # Dashboard listen address
+  # Default: 0.0.0.0:8081
+  listen_address: "0.0.0.0:8081"
+
+# Logging configuration
+logging:
+  # Log level: trace, debug, info, warn, error
+  # Default: info
+  level: "info"
+  # Log file path
+  # Default: aggregator.log
+  file: "aggregator.log"

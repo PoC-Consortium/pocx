@@ -12,7 +12,7 @@ High-performance Proof-of-Capacity mining client.
 
 ## Quick Start
 
-Configure via `config.yaml` file, then:
+Configure via `miner_config.yaml` file, then:
 
 ```bash
 pocx_miner

@@ -225,8 +225,10 @@ pub fn create_scheduler_thread(
                     // process work completed message
                     HasherMessage::NoncesHashed(nonces) => {
                         processed += nonces;
+                        let delta = nonces * NONCE_SIZE / u64::pow(2, task.compress);
+
                         if let Some(i) = &pb {
-                            i.inc(nonces * NONCE_SIZE / u64::pow(2, task.compress));
+                            i.inc(delta);
                         }
                     }
                 }
@@ -249,6 +251,11 @@ pub fn create_scheduler_thread(
 
             // update status
             hash_progress[pointer] += warps_to_hash;
+
+            if task.line_progress {
+                println!("#HASH_DELTA:{}", warps_to_hash);
+            }
+
             if hash_progress[pointer] == task.warps[pointer] {
                 plotfile_progress[pointer] += 1;
                 if plotfile_progress[pointer] < task.number_of_plots[pointer] {

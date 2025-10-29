@@ -38,8 +38,12 @@ pub struct NonceSubmission {
 #[serde(rename_all = "camelCase")]
 pub struct SubmitNonceResponse {
     pub quality_adjusted: u64,
-    #[serde(default)]
+    #[serde(default = "default_poc_time")]
     pub poc_time: u64,
+}
+
+fn default_poc_time() -> u64 {
+    u64::MAX
 }
 
 #[derive(Deserialize, Clone, Default)]
