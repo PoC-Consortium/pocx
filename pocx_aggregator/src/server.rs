@@ -121,7 +121,7 @@ impl AggregatorServer {
             stats: self.stats,
             current_base_target: Arc::new(RwLock::new(1)), // Will be updated from mining_info
             current_block_hash: Arc::new(RwLock::new(String::new())), /* Will be updated from
-                                                                       * mining_info */
+                                                            * mining_info */
             database: self.database,
             current_height: Arc::new(RwLock::new(0)), // Will be updated from mining_info
             retention_blocks,

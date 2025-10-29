@@ -133,7 +133,7 @@ pub struct StatsSnapshot {
     pub active_machines: usize, // Machines seen in last 5 minutes
     pub current_height: u64,
     pub uptime_secs: i64,
-    pub total_capacity: String,   // Total miner capacity (ByteSize formatted)
+    pub total_capacity: String, // Total miner capacity (ByteSize formatted)
     pub network_capacity: String, // Network capacity from base_target (ByteSize formatted)
     pub miners: Vec<MinerSnapshot>,
 }
