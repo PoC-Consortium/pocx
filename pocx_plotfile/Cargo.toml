@@ -23,6 +23,7 @@ filetime = { workspace = true }
 cfg-if = { workspace = true }
 indicatif = { workspace = true }
 rand = { workspace = true }
+page_size = { workspace = true }
 
 [dev-dependencies]
 # Testing infrastructure
