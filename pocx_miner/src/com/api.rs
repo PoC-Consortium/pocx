@@ -30,8 +30,8 @@ pub struct NonceSubmission {
     pub account_id: String, // Changed from base58 to account_id (hex payload)
     pub seed: String,
     pub nonce: u64,
-    pub quality: u64,           // Changed from quality_adjusted to quality
-    pub compression_level: u32, // New field for plotfile compression
+    pub quality: u64, // Changed from quality_adjusted to quality
+    pub compression: u8,
 }
 
 #[derive(Deserialize)]
@@ -134,7 +134,7 @@ impl fmt::Display for NonceSubmission {
             },
             self.seed.chars().skip(56).take(8).collect::<String>(),
             self.nonce,
-            self.compression_level,
+            self.compression,
             self.quality
         )
     }

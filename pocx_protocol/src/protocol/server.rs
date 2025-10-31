@@ -326,7 +326,7 @@ mod tests {
                 "account_id": "1234567890abcdef1234567890abcdef12345678",
                 "seed": "seed123",
                 "nonce": 123456789,
-                "compression_level": 4
+                "compression": 4
             },
             "id": "test-id"
         }
@@ -356,7 +356,7 @@ mod tests {
                 "account_id": "1234567890abcdef1234567890abcdef12345678",
                 "seed": "seed123",
                 "nonce": 123456789,
-                "compression_level": 4
+                "compression": 4
             },
             "id": "test-id"
         }
@@ -427,7 +427,7 @@ mod tests {
                 "account_id": "invalid",
                 "seed": "seed123",
                 "nonce": 123456789,
-                "compression_level": 4
+                "compression": 4
             },
             "id": "test-id"
         }

@@ -176,6 +176,7 @@ pub struct SubmitNonceParams {
     pub account_id: String,
     pub seed: String,
     pub nonce: u64,
+    pub compression: u8,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quality: Option<u64>,
 }
@@ -187,6 +188,7 @@ impl SubmitNonceParams {
         account_id: String,
         seed: String,
         nonce: u64,
+        compression: u8,
     ) -> Self {
         Self {
             height,
@@ -194,6 +196,7 @@ impl SubmitNonceParams {
             account_id,
             seed,
             nonce,
+            compression,
             quality: None,
         }
     }
@@ -265,12 +268,14 @@ mod tests {
             "1234567890abcdef1234567890abcdef12345678".to_string(),
             "seed123".to_string(),
             123456789,
+            5,
         )
         .with_quality(987654321);
 
         let json = serde_json::to_string(&params).unwrap();
         assert!(json.contains("\"height\":98765"));
         assert!(json.contains("\"nonce\":123456789"));
+        assert!(json.contains("\"compression\":5"));
         assert!(json.contains("\"quality\":987654321"));
     }
 

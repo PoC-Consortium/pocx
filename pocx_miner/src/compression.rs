@@ -28,11 +28,12 @@ pub enum CompressionAction {
 }
 
 pub fn determine_compression_action(
-    plot_compression: u32,
+    plot_compression: u8,
     min_required: u32,
     target_level: u32,
     max_steps_possible: u32,
 ) -> CompressionAction {
+    let plot_compression = plot_compression as u32;
     if plot_compression > target_level {
         return CompressionAction::Skip("compression higher than chain target");
     }

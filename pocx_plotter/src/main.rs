@@ -278,7 +278,7 @@ fn run() -> Result<()> {
     let compress = matches
         .get_one::<String>("compression")
         .map(|s| {
-            let value = s.parse::<u32>().map_err(|e| {
+            let value = s.parse::<u8>().map_err(|e| {
                 PoCXPlotterError::InvalidInput(format!("Invalid compression value: {}", e))
             })?;
             if value == 0 {

@@ -295,8 +295,8 @@ pub struct PlotFileMeta {
     pub seed_decoded: [u8; 32],
     /// Number of warps in this plot file
     pub number_of_warps: u64,
-    /// Compression level (X factor)
-    pub compression: u32,
+    /// Compression level (X factor, 1-255)
+    pub compression: u8,
     /// Just the filename portion
     pub filename: String,
     /// Full path to the file
@@ -366,7 +366,7 @@ impl PoCXPlotFile {
         address_payload: &[u8; 20],
         seed_decoded: &[u8; 32],
         number_of_warps: u64,
-        compression: u32,
+        compression: u8,
         mut direct_io: bool,
         create: bool,
     ) -> Result<PoCXPlotFile> {
@@ -531,7 +531,7 @@ impl PoCXPlotFile {
             .first()
             .and_then(|s| s.get(1..))
             .ok_or_else(|| PoCXPlotFileError::InvalidCompression(parts[3].to_string()))?;
-        let compression = compression_str.parse::<u32>()?;
+        let compression = compression_str.parse::<u8>()?;
 
         let size = fs::metadata(plotfile)?.len();
         let exp_size = number_of_warps * WARP_SIZE;
