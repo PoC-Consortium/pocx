@@ -18,12 +18,17 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use crate::error::{PoCXPlotterError, Result};
+use crate::error::Result;
 use std::path::Path;
+
+// Wrapper around pocx_plotfile::get_sector_size to match plotter's Result type
+// pocx_plotfile always returns a valid u64 (with fallbacks), but plotter expects Result
+pub fn get_sector_size(path: &str) -> Result<u64> {
+    Ok(pocx_plotfile::get_sector_size(path))
+}
 
 cfg_if! {
     if #[cfg(unix)] {
-        use std::process::Command;
 
         pub fn set_low_prio() {
             // NOTE: Thread priority setting is not implemented yet
@@ -35,75 +40,6 @@ cfg_if! {
             }
         }
 
-        // On unix, get the device id from 'df' command
-        fn get_device_id_unix(path: &str) -> Result<String> {
-            let output = Command::new("df")
-                 .arg(path)
-                 .output()
-                 .map_err(|e| PoCXPlotterError::SystemInfo(format!("Failed to execute 'df': {}", e)))?;
-             let source = String::from_utf8(output.stdout).map_err(|e| PoCXPlotterError::SystemInfo(format!("Invalid UTF-8 from df: {}", e)))?;
-             let lines: Vec<&str> = source.split('\n').collect();
-             let device = lines.get(1)
-                 .ok_or_else(|| PoCXPlotterError::SystemInfo("No device line in df output".to_string()))?
-                 .split(' ')
-                 .next()
-                 .ok_or_else(|| PoCXPlotterError::SystemInfo("Invalid df output format".to_string()))?;
-             Ok(device.to_string())
-         }
-
-        // On macos, use df and 'diskutil info <device>' to get the Device Block Size line
-        // and extract the size
-        fn get_sector_size_macos(path: &str) -> Result<u64> {
-            let source = get_device_id_unix(path)?;
-            let output = Command::new("diskutil")
-                .arg("info")
-                .arg(source)
-                .output()
-                .map_err(|e| PoCXPlotterError::SystemInfo(format!("Failed to execute 'diskutil info': {}", e)))?;
-            let source = String::from_utf8(output.stdout).map_err(|e| PoCXPlotterError::SystemInfo(format!("Invalid UTF-8 from diskutil: {}", e)))?;
-            let mut sector_size: u64 = 0;
-            for line in source.split('\n').collect::<Vec<&str>>() {
-                if line.trim().starts_with("Device Block Size") {
-                    // e.g. in reverse: "Bytes 512 Size Block Device"
-                    let source = line.rsplit(' ').collect::<Vec<&str>>()[1];
-
-                    sector_size = source.parse::<u64>().map_err(|e| PoCXPlotterError::SystemInfo(format!("Invalid sector size: {}", e)))?;
-                }
-            }
-            if sector_size == 0 {
-                Err(PoCXPlotterError::SystemInfo("Unable to determine disk physical sector size from diskutil info".to_string()))
-            } else {
-                Ok(sector_size)
-            }
-        }
-
-        // On unix, use df and lsblk to extract the device sector size
-        fn get_sector_size_unix(path: &str) -> Result<u64> {
-            let source = get_device_id_unix(path)?;
-            let output = Command::new("lsblk")
-                .arg(source)
-                .arg("-o")
-                .arg("LOG-SeC")
-                .output()
-                .map_err(|e| PoCXPlotterError::SystemInfo(format!("Failed to execute 'lsblk -o LOG-SeC': {}", e)))?;
-
-            let sector_size = String::from_utf8(output.stdout).map_err(|e| PoCXPlotterError::SystemInfo(format!("Invalid UTF-8 from lsblk: {}", e)))?;
-            let sector_size = sector_size.split('\n').collect::<Vec<&str>>().get(1).unwrap_or_else(|| {
-                println!("failed to determine sector size, defaulting to 4096.");
-                &"4096"
-            }).trim();
-
-            sector_size.parse::<u64>().map_err(|e| PoCXPlotterError::SystemInfo(format!("Invalid sector size from lsblk: {}", e)))
-        }
-
-        pub fn get_sector_size(path: &str) -> Result<u64> {
-            if cfg!(target_os = "macos") {
-                get_sector_size_macos(path)
-            } else {
-                get_sector_size_unix(path)
-            }
-        }
-
         pub fn free_disk_space(path: &str) -> Result<u64> {
             // I don't like the following code, but I had to. It's difficult to estimate the space available for a new file on ext4 due to overhead.
             // Therefor I enforce a 2MB cushion assuming this is sufficient.
@@ -111,10 +47,8 @@ cfg_if! {
         }
 
     } else {
-        use std::ffi::CString;
         use std::ptr::null_mut;
         use std::mem;
-        use winapi::um::fileapi::GetDiskFreeSpaceA;
         use winapi::um::handleapi::CloseHandle;
         use winapi::um::processthreadsapi::{SetThreadIdealProcessor,GetCurrentThread,OpenProcessToken,GetCurrentProcess,SetPriorityClass};
         use winapi::um::winnt::TokenElevation;
@@ -150,28 +84,6 @@ cfg_if! {
             }
 
             elevation_struct.TokenIsElevated == 1
-        }
-
-        pub fn get_sector_size(path: &str) -> Result<u64> {
-            let path_encoded = Path::new(path);
-            let path_str = path_encoded.to_str().ok_or_else(|| PoCXPlotterError::InvalidInput("Invalid path encoding".to_string()))?;
-            let parent_path_encoded = CString::new(path_str).map_err(|e| PoCXPlotterError::InvalidInput(format!("Invalid path: {}", e)))?;
-            let mut sectors_per_cluster  = 0u32;
-            let mut bytes_per_sector  = 0u32;
-            let mut number_of_free_cluster  = 0u32;
-            let mut total_number_of_cluster  = 0u32;
-            if unsafe {
-                GetDiskFreeSpaceA(
-                    parent_path_encoded.as_ptr(),
-                    &mut sectors_per_cluster,
-                    &mut bytes_per_sector,
-                    &mut number_of_free_cluster,
-                    &mut total_number_of_cluster
-                )
-            } == 0  {
-                return Err(PoCXPlotterError::SystemInfo(format!("Failed to get sector size for path: {}", path)));
-            };
-            Ok(u64::from(bytes_per_sector))
         }
 
         pub fn set_thread_ideal_processor(id: usize){
@@ -257,36 +169,6 @@ mod tests {
         // The actual priority change is OS-dependent and hard to test
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn test_get_device_id_unix_current_dir() {
-        let result = super::get_device_id_unix(".");
-
-        // This should work on most Unix systems
-        match result {
-            Ok(device_id) => {
-                assert!(!device_id.is_empty());
-                // Device ID should be a reasonable filesystem path
-                assert!(device_id.starts_with('/') || device_id.starts_with("dev"));
-            }
-            Err(_) => {
-                // Some systems might not have df command or it might fail
-                // That's acceptable for the test
-            }
-        }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_get_device_id_unix_invalid_path() {
-        let result = super::get_device_id_unix("/this/path/should/not/exist");
-
-        // This might succeed (if df can handle the parent directory)
-        // or fail (if the path is completely invalid)
-        // Either outcome is acceptable - we just test it doesn't panic
-        let _ = result;
-    }
-
     #[cfg(windows)]
     #[test]
     fn test_is_elevated() {
@@ -336,36 +218,6 @@ mod tests {
                 // Error should be displayable
                 let error_msg = format!("{}", e);
                 assert!(!error_msg.is_empty());
-            }
-        }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_sector_size_functions() {
-        // Test the sector size detection functions
-        if cfg!(target_os = "macos") {
-            // Test macOS-specific function if available
-            let result = super::get_sector_size_macos(".");
-            match result {
-                Ok(size) => {
-                    assert!((512..=65536).contains(&size));
-                    assert!(size & (size - 1) == 0); // Power of 2
-                }
-                Err(_) => {
-                    // May fail if diskutil is not available or path is invalid
-                }
-            }
-        } else {
-            // Test Unix-specific function if available
-            let result = super::get_sector_size_unix(".");
-            match result {
-                Ok(size) => {
-                    assert!((512..=65536).contains(&size));
-                }
-                Err(_) => {
-                    // May fail if lsblk is not available or path is invalid
-                }
             }
         }
     }

@@ -46,6 +46,13 @@ jobs:
             features: ""
             opencl: false
 
+          # Android ARM64
+          - os: ubuntu-latest
+            target: aarch64-linux-android
+            cross: true
+            features: ""
+            opencl: false
+
           # Windows x86_64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
@@ -274,6 +281,7 @@ jobs:
 
             **Platforms:**
             - Linux x86_64 / ARM64 (with/without OpenCL)
+            - Android ARM64
             - Windows x86_64
             - macOS x86_64 / ARM64 (with/without OpenCL)
 

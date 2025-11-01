@@ -88,6 +88,9 @@ extern crate cfg_if;
 mod buffer;
 mod utils;
 
+// Re-export utility functions for use by other crates
+pub use utils::get_sector_size;
+
 use filetime::FileTime;
 use std::cmp::min;
 use std::error;
@@ -100,7 +103,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::buffer::PageAlignedByteBuffer;
-use crate::utils::{get_sector_size, preallocate};
+use crate::utils::{preallocate};
 use crate::utils::{open_r, open_r_using_direct_io, open_rw, open_rw_using_direct_io};
 
 /// Size of a single scoop in bytes
@@ -396,7 +399,7 @@ impl PoCXPlotFile {
             false
         };
 
-        let sector_size = get_sector_size(&plotfile.to_string_lossy());
+        let sector_size = crate::get_sector_size(&plotfile.to_string_lossy());
 
         // fallback for rare cases where writes and sector size are not aligned
         if direct_io && (sector_size & (sector_size - 1)) != 0 {
@@ -544,7 +547,7 @@ impl PoCXPlotFile {
             });
         }
 
-        let sector_size = get_sector_size(&plotfile.to_string_lossy());
+        let sector_size = crate::get_sector_size(&plotfile.to_string_lossy());
 
         // fallback for rare cases where reads and sector size are not aligned
         if direct_io && (sector_size & (sector_size - 1)) != 0 {
