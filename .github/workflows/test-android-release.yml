@@ -1,0 +1,132 @@
+name: Test Android Release Build
+
+on:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+    inputs:
+      test_note:
+        description: 'Test note (optional)'
+        required: false
+        default: 'Manual test run'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-android:
+    name: Build Android - ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Android ARM64
+          - target: aarch64-linux-android
+            features: ""
+            opencl: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache target directory
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-${{ matrix.target }}-target-release-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install cross-compilation tools
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross --locked || true
+
+      - name: Build release binaries
+        run: |
+          FEATURES_FLAG=""
+          if [ -n "${{ matrix.features }}" ]; then
+            FEATURES_FLAG="--no-default-features --features ${{ matrix.features }}"
+          else
+            FEATURES_FLAG="--no-default-features"
+          fi
+
+          cross build --release --target ${{ matrix.target }} \
+            -p pocx_miner \
+            -p pocx_plotter \
+            -p pocx_verifier \
+            -p pocx_aggregator \
+            -p pocx_mockchain \
+            $FEATURES_FLAG
+        shell: bash
+        timeout-minutes: 60
+
+      - name: Prepare release artifacts
+        run: |
+          mkdir -p staging release-artifacts
+
+          # Use test version for artifacts
+          VERSION="v0.0.1-android-test"
+
+          # Copy binaries to staging
+          cp target/${{ matrix.target }}/release/pocx_miner staging/
+          cp target/${{ matrix.target }}/release/pocx_plotter staging/
+          cp target/${{ matrix.target }}/release/pocx_verifier staging/
+          cp target/${{ matrix.target }}/release/pocx_aggregator staging/
+          cp target/${{ matrix.target }}/release/pocx_mockchain staging/
+          chmod +x staging/*
+
+          # Copy config files
+          cp pocx_miner/miner_config.yaml staging/
+          cp pocx_aggregator/aggregator_config.yaml staging/
+          cp pocx_mockchain/mockchain_config.toml staging/
+
+          # Create archive
+          ARCHIVE_NAME="pocx-${VERSION}-${{ matrix.target }}.tar.gz"
+          tar -czf "release-artifacts/${ARCHIVE_NAME}" -C staging .
+
+          # List what we built
+          echo "=== Built binaries ==="
+          ls -lh staging/
+          echo ""
+          echo "=== Archive created ==="
+          ls -lh release-artifacts/
+        shell: bash
+
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-test-${{ matrix.target }}
+          path: release-artifacts/*
+          retention-days: 7
+
+      - name: Build summary
+        run: |
+          echo "### Android Build Test Complete! :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Target:** ${{ matrix.target }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Features:** ${{ matrix.features || 'none (default disabled)' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Built binaries:**" >> $GITHUB_STEP_SUMMARY
+          echo "- pocx_miner" >> $GITHUB_STEP_SUMMARY
+          echo "- pocx_plotter" >> $GITHUB_STEP_SUMMARY
+          echo "- pocx_verifier" >> $GITHUB_STEP_SUMMARY
+          echo "- pocx_aggregator" >> $GITHUB_STEP_SUMMARY
+          echo "- pocx_mockchain" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Download the artifacts from the Actions tab to test on an Android device." >> $GITHUB_STEP_SUMMARY
