@@ -123,6 +123,10 @@ mod shabal256_lite_sse2;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod shabal256_sse2;
 
+// ARM NEON SIMD modules
+#[cfg(target_arch = "aarch64")]
+mod shabal256_neon;
+
 // Re-export main error types for convenience
 pub use error::{PoCXHashError, Result};
 
