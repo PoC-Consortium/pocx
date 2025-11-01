@@ -52,19 +52,19 @@ const ONE: i32 = 0xFFFFFFFF;
 const SIMD_VECTOR_SIZE: usize = 4;
 const MESSAGE_SIZE: usize = 16;
 
-/// Helper function to perform left rotation on NEON vectors
+/// Helper macro to perform left rotation on NEON vectors
 /// NEON doesn't have native rotate, so we synthesize it with shift + or
-#[inline(always)]
-#[cfg(target_arch = "aarch64")]
-unsafe fn vrotlq_n_u32<const N: i32>(a: uint32x4_t) -> uint32x4_t {
-    vorrq_u32(vshlq_n_u32::<N>(a), vshrq_n_u32::<{32 - N}>(a))
+macro_rules! vrotlq_n_u32 {
+    ($a:expr, $n:expr) => {
+        vorrq_u32(vshlq_n_u32::<$n>($a), vshrq_n_u32::<{32 - $n}>($a))
+    };
 }
 
-/// Helper function to perform right rotation on NEON vectors
-#[inline(always)]
-#[cfg(target_arch = "aarch64")]
-unsafe fn vrotrq_n_u32<const N: i32>(a: uint32x4_t) -> uint32x4_t {
-    vorrq_u32(vshrq_n_u32::<N>(a), vshlq_n_u32::<{32 - N}>(a))
+/// Helper macro to perform right rotation on NEON vectors
+macro_rules! vrotrq_n_u32 {
+    ($a:expr, $n:expr) => {
+        vorrq_u32(vshrq_n_u32::<$n>($a), vshlq_n_u32::<{32 - $n}>($a))
+    };
 }
 
 /// 4-way parallel Shabal256 using ARM NEON intrinsics
@@ -222,7 +222,7 @@ unsafe fn apply_p(
 ) {
     // Rotate b elements
     for i in 0..16 {
-        *b.get_unchecked_mut(i) = vrotlq_n_u32::<17>(*b.get_unchecked(i));
+        *b.get_unchecked_mut(i) = vrotlq_n_u32!(*b.get_unchecked(i), 17);
     }
 
     // Apply permutation elements (48 rounds)
@@ -305,7 +305,7 @@ unsafe fn perm_elt(
     xm: *const uint32x4_t,
 ) {
     // tt = (a[xa1] <<< 15) * 5
-    let mut tt = vrotlq_n_u32::<15>(*a.get_unchecked(xa1));
+    let mut tt = vrotlq_n_u32!(*a.get_unchecked(xa1), 15);
     tt = vaddq_u32(vshlq_n_u32::<2>(tt), tt); // tt * 5 = (tt << 2) + tt
 
     // tt = a[xa0] ^ tt ^ xc
@@ -326,7 +326,7 @@ unsafe fn perm_elt(
     *a.get_unchecked_mut(xa0) = tt;
 
     // tt = (b[xb0] <<< 1)
-    tt = vrotlq_n_u32::<1>(*b.get_unchecked(xb0));
+    tt = vrotlq_n_u32!(*b.get_unchecked(xb0), 1);
 
     // b[xb0] = tt ^ ~a[xa0]
     *b.get_unchecked_mut(xb0) = veorq_u32(
