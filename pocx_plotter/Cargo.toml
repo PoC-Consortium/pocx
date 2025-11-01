@@ -38,6 +38,7 @@ crossbeam-channel = { workspace = true }
 ocl-core = { version = "0.11", optional = true }
 clap = { workspace = true }
 sysinfo = "0.32"
+num_cpus = { workspace = true }
 cfg-if = { workspace = true }
 indicatif = { workspace = true }
 bytesize = "2.0.1"

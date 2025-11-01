@@ -98,7 +98,8 @@ impl Plotter {
             .map(|cpu| cpu.brand().trim().to_string())
             .unwrap_or_else(|| "Unknown CPU".to_string());
 
-        let cores = sys.cpus().len() as u32;
+        // Use num_cpus for Android compatibility (sysinfo can return 0 on Android)
+        let cores = num_cpus::get() as u32;
 
         let simd_ext = init_simd();
 

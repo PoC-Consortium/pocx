@@ -413,9 +413,8 @@ fn run() -> Result<()> {
     let gpus: Option<Vec<String>> = None;
 
     // work out number of cpu threads to use
-    let mut sys = sysinfo::System::new_all();
-    sys.refresh_cpu_all();
-    let cores = sys.cpus().len() as u8;
+    // Use num_cpus instead of sysinfo for better Android compatibility
+    let cores = num_cpus::get() as u8;
     let cpu_threads = if cpu_threads == 0 {
         cores
     } else {
