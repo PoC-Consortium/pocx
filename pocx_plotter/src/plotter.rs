@@ -96,7 +96,19 @@ impl Plotter {
             .cpus()
             .first()
             .map(|cpu| cpu.brand().trim().to_string())
-            .unwrap_or_else(|| "Unknown CPU".to_string());
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| {
+                // Fallback for platforms where sysinfo doesn't detect CPU brand (e.g., Android)
+                // Match the miner's naming convention
+                #[cfg(target_arch = "aarch64")]
+                {
+                    "ARM/Other CPU".to_string()
+                }
+                #[cfg(not(target_arch = "aarch64"))]
+                {
+                    "Unknown CPU".to_string()
+                }
+            });
 
         // Use num_cpus for Android compatibility (sysinfo can return 0 on Android)
         let cores = num_cpus::get() as u32;
@@ -113,17 +125,13 @@ impl Plotter {
         }
 
         if !task.quiet {
+            let simd_str = match simd_ext {
+                SimdExtension::None => String::new(),
+                _ => format!(" + {:?}", simd_ext),
+            };
             println!(
-                "CPU: {} [using {} of {} cores{}{:?}]",
-                cpu_name,
-                task.cpu_threads,
-                cores,
-                if let SimdExtension::None = simd_ext {
-                    ""
-                } else {
-                    " + "
-                },
-                simd_ext
+                "CPU: {} [using {} of {} cores{}]",
+                cpu_name, task.cpu_threads, cores, simd_str
             );
         }
 
