@@ -85,6 +85,12 @@
 #[macro_use]
 extern crate cfg_if;
 
+mod buffer;
+mod utils;
+
+// Re-export utility functions for use by other crates
+pub use utils::get_sector_size;
+
 use filetime::FileTime;
 use std::cmp::min;
 use std::error;
@@ -96,7 +102,8 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::utils::{get_sector_size, preallocate};
+use crate::buffer::PageAlignedByteBuffer;
+use crate::utils::preallocate;
 use crate::utils::{open_r, open_r_using_direct_io, open_rw, open_rw_using_direct_io};
 
 /// Size of a single scoop in bytes
@@ -246,8 +253,6 @@ impl From<std::num::ParseIntError> for PoCXPlotFileError {
     }
 }
 
-mod utils;
-
 /// A PoC cryptocurrency plot file for mining operations
 ///
 /// This structure represents a plot file used in PoC cryptocurrency mining,
@@ -295,8 +300,8 @@ pub struct PlotFileMeta {
     pub seed_decoded: [u8; 32],
     /// Number of warps in this plot file
     pub number_of_warps: u64,
-    /// Compression level (X factor)
-    pub compression: u32,
+    /// Compression level (X factor, 1-255)
+    pub compression: u8,
     /// Just the filename portion
     pub filename: String,
     /// Full path to the file
@@ -366,7 +371,7 @@ impl PoCXPlotFile {
         address_payload: &[u8; 20],
         seed_decoded: &[u8; 32],
         number_of_warps: u64,
-        compression: u32,
+        compression: u8,
         mut direct_io: bool,
         create: bool,
     ) -> Result<PoCXPlotFile> {
@@ -394,7 +399,7 @@ impl PoCXPlotFile {
             false
         };
 
-        let sector_size = get_sector_size(&plotfile.to_string_lossy());
+        let sector_size = crate::get_sector_size(&plotfile.to_string_lossy());
 
         // fallback for rare cases where writes and sector size are not aligned
         if direct_io && (sector_size & (sector_size - 1)) != 0 {
@@ -531,7 +536,7 @@ impl PoCXPlotFile {
             .first()
             .and_then(|s| s.get(1..))
             .ok_or_else(|| PoCXPlotFileError::InvalidCompression(parts[3].to_string()))?;
-        let compression = compression_str.parse::<u32>()?;
+        let compression = compression_str.parse::<u8>()?;
 
         let size = fs::metadata(plotfile)?.len();
         let exp_size = number_of_warps * WARP_SIZE;
@@ -542,7 +547,7 @@ impl PoCXPlotFile {
             });
         }
 
-        let sector_size = get_sector_size(&plotfile.to_string_lossy());
+        let sector_size = crate::get_sector_size(&plotfile.to_string_lossy());
 
         // fallback for rare cases where reads and sector size are not aligned
         if direct_io && (sector_size & (sector_size - 1)) != 0 {
@@ -868,18 +873,33 @@ impl PoCXPlotFile {
                 random_pos
             };
 
+            // Calculate aligned read size (must be multiple of sector size for direct I/O)
+            let read_size = if self.direct_io {
+                let sectors = WAKEUP_READ_SIZE.div_ceil(self.sector_size as usize);
+                sectors * self.sector_size as usize
+            } else {
+                WAKEUP_READ_SIZE
+            };
+
             // Ensure aligned position + read size doesn't exceed file bounds
-            let safe_pos = if aligned_pos + WAKEUP_READ_SIZE as u64 > file_size {
+            let safe_pos = if aligned_pos + read_size as u64 > file_size {
                 // If read would exceed bounds, align backwards from end
-                ((file_size - WAKEUP_READ_SIZE as u64) / self.sector_size) * self.sector_size
+                ((file_size - read_size as u64) / self.sector_size) * self.sector_size
             } else {
                 aligned_pos
             };
 
-            // Perform the wakeup read
-            let mut buffer = vec![0u8; WAKEUP_READ_SIZE];
-            file.seek(SeekFrom::Start(safe_pos))?;
-            file.read_exact(&mut buffer)?;
+            // Perform the wakeup read with aligned buffer for direct I/O
+            if self.direct_io {
+                let mut aligned_buffer = PageAlignedByteBuffer::new(read_size);
+                let buffer_slice = &mut aligned_buffer.get_buffer_mut()[0..read_size];
+                file.seek(SeekFrom::Start(safe_pos))?;
+                file.read_exact(buffer_slice)?;
+            } else {
+                let mut buffer = vec![0u8; read_size];
+                file.seek(SeekFrom::Start(safe_pos))?;
+                file.read_exact(&mut buffer)?;
+            }
         }
 
         Ok(())
@@ -1495,13 +1515,13 @@ mod tests {
         }
 
         // Test filename with edge case compression value using symlink
-        let edge_case_file = test_dir.join("0000000000000000000000000000000000000000_0000000000000000000000000000000000000000000000000000000000000000_1_X999.pocx");
+        let edge_case_file = test_dir.join("0000000000000000000000000000000000000000_0000000000000000000000000000000000000000000000000000000000000000_1_X255.pocx");
         let _ = fs::remove_file(&edge_case_file);
         if std::os::unix::fs::symlink(&shared_file, &edge_case_file).is_ok() {
             let result = PoCXPlotFile::open(&edge_case_file, AccessType::Dummy, false);
             match result {
                 Ok(plotfile) => {
-                    assert_eq!(plotfile.meta.compression, 999);
+                    assert_eq!(plotfile.meta.compression, 255);
                 }
                 Err(_e) => {
                     // Test passed - we're testing filename parsing, errors are
@@ -1786,5 +1806,87 @@ mod tests {
             let error_string = format!("{}", error);
             assert!(!error_string.is_empty());
         }
+    }
+
+    #[test]
+    fn test_wakeup_without_direct_io() -> Result<()> {
+        use std::fs::File;
+        use std::io::Write;
+
+        let temp_dir = setup_test_dir();
+        let (account, seed) = create_test_account_and_seed();
+
+        // Create a test file with proper size
+        let test_file = temp_dir.join(format!(
+            "{}_{}_{}_X1.pocx",
+            hex::encode(account),
+            hex::encode(seed),
+            1
+        ));
+
+        let file_size = WARP_SIZE as usize;
+        let mut file = File::create(&test_file)?;
+        file.write_all(&vec![0u8; file_size])?;
+        file.sync_all()?;
+        drop(file);
+
+        // Open without direct I/O
+        let mut plotfile = PoCXPlotFile::open(&test_file, AccessType::Read, false)?;
+
+        // Test wakeup without direct I/O
+        let result = plotfile.wakeup();
+        assert!(result.is_ok());
+
+        cleanup_test_dir();
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_wakeup_with_direct_io() -> Result<()> {
+        use std::fs::File;
+        use std::io::Write;
+
+        let temp_dir = setup_test_dir();
+        let (account, seed) = create_test_account_and_seed();
+
+        // Create a test file with proper size
+        let test_file = temp_dir.join(format!(
+            "{}_{}_{}_X1.pocx",
+            hex::encode(account),
+            hex::encode(seed),
+            1
+        ));
+
+        let file_size = WARP_SIZE as usize;
+        let mut file = File::create(&test_file)?;
+        file.write_all(&vec![0u8; file_size])?;
+        file.sync_all()?;
+        drop(file);
+
+        // Open with direct I/O
+        let result = PoCXPlotFile::open(&test_file, AccessType::Read, true);
+
+        // Direct I/O may not be supported on all filesystems/configurations
+        // If it fails to open, skip the test
+        if result.is_err() {
+            cleanup_test_dir();
+            return Ok(());
+        }
+
+        let mut plotfile = result?;
+
+        // Test wakeup with direct I/O
+        let wakeup_result = plotfile.wakeup();
+
+        // Wakeup should succeed with aligned buffer
+        assert!(
+            wakeup_result.is_ok(),
+            "Wakeup with direct I/O should succeed with aligned buffer: {:?}",
+            wakeup_result.err()
+        );
+
+        cleanup_test_dir();
+        Ok(())
     }
 }

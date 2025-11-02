@@ -60,7 +60,7 @@ pub struct PlotterTask {
     pub seed: Option<[u8; 32]>,
     pub warps: Vec<u64>,
     pub number_of_plots: Vec<u64>,
-    pub compress: u32,
+    pub compress: u8,
     pub output_paths: Vec<String>,
     pub mem: String,
     pub cpu_threads: u8,
@@ -96,9 +96,22 @@ impl Plotter {
             .cpus()
             .first()
             .map(|cpu| cpu.brand().trim().to_string())
-            .unwrap_or_else(|| "Unknown CPU".to_string());
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| {
+                // Fallback for platforms where sysinfo doesn't detect CPU brand (e.g., Android)
+                // Match the miner's naming convention
+                #[cfg(target_arch = "aarch64")]
+                {
+                    "ARM/Other CPU".to_string()
+                }
+                #[cfg(not(target_arch = "aarch64"))]
+                {
+                    "Unknown CPU".to_string()
+                }
+            });
 
-        let cores = sys.cpus().len() as u32;
+        // Use num_cpus for Android compatibility (sysinfo can return 0 on Android)
+        let cores = num_cpus::get() as u32;
 
         let simd_ext = init_simd();
 
@@ -112,17 +125,13 @@ impl Plotter {
         }
 
         if !task.quiet {
+            let simd_str = match simd_ext {
+                SimdExtension::None => String::new(),
+                _ => format!(" + {:?}", simd_ext),
+            };
             println!(
-                "CPU: {} [using {} of {} cores{}{:?}]",
-                cpu_name,
-                task.cpu_threads,
-                cores,
-                if let SimdExtension::None = simd_ext {
-                    ""
-                } else {
-                    " + "
-                },
-                simd_ext
+                "CPU: {} [using {} of {} cores{}]",
+                cpu_name, task.cpu_threads, cores, simd_str
             );
         }
 
@@ -237,7 +246,7 @@ impl Plotter {
                 )
             })?;
 
-        let compression_multiplier = u64::pow(2, task.compress);
+        let compression_multiplier = u64::pow(2, task.compress as u32);
         let mem_plot = compression_multiplier.checked_mul(mem_write)
             .ok_or_else(|| PoCXPlotterError::Config(format!(
                 "Memory plot calculation overflow: compression value {} results in 2^{} = {} which causes overflow when multiplied by memory requirements",
@@ -286,7 +295,7 @@ impl Plotter {
                 "Insufficient host memory for plotting!\n\nRAM: Total={:.2} GiB, Available={:.2} GiB\nPlotter requirement: {:.2} GiB x{} (escalation)\nWriter requirement: {:.2} GiB x{} (escalation)\nGPU requirement: {:.2} GiB\nTOTAL requirement: {:.2} GiB",
                 sys.total_memory() as f64 / 1024.0 / 1024.0 / 1024.0,
                 sys.available_memory() as f64 / 1024.0 / 1024.0 / 1024.0,
-                (u64::pow(2, task.compress) * DIM * NONCE_SIZE) as f64 / 1024.0 / 1024.0 / 1024.0,
+                (u64::pow(2, task.compress as u32) * DIM * NONCE_SIZE) as f64 / 1024.0 / 1024.0 / 1024.0,
                 task.escalate,
                 WARP_SIZE as f64 / 1024.0 / 1024.0 / 1024.0,
                 task.escalate,
@@ -346,7 +355,7 @@ impl Plotter {
 
             println!(
                 "     Cache(Plotter)={:.2} GiB x{} (escalation), Cache(HDD)={:.2} GiB x{} (escalation) x{} (disks), Cache(GPU)={:.2} GiB,\n",
-                (u64::pow(2, task.compress) * DIM * NONCE_SIZE) as f64 / 1024.0 / 1024.0 / 1024.0,
+                (u64::pow(2, task.compress as u32) * DIM * NONCE_SIZE) as f64 / 1024.0 / 1024.0 / 1024.0,
                 task.escalate,
                 (DIM * NONCE_SIZE) as f64 / 1024.0 / 1024.0 / 1024.0,
                 task.escalate,
@@ -372,7 +381,7 @@ impl Plotter {
             );
             println!(
                 "Compression    : {:?}(X{:?})",
-                u64::pow(2, task.compress),
+                u64::pow(2, task.compress as u32),
                 task.compress
             );
             println!("Output path(s) : {:?}", task.output_paths);

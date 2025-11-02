@@ -323,10 +323,11 @@ impl Miner {
         };
 
         info!(
-            "CPU: {} [using {} of {} cores + SIMD]",
+            "CPU: {} [using {} of {} cores + {}]",
             cpu_name,
             cpu_threads,
-            num_cpus::get()
+            num_cpus::get(),
+            crate::utils::get_simd_name()
         );
 
         let thread_pinning = cfg.cpu_thread_pinning;

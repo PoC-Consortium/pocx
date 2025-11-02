@@ -38,7 +38,7 @@ pub struct HashingTask {
     pub base_target: u64,
     pub start_warp: u64,
     pub number_of_warps: u64,
-    pub compression_level: u32,
+    pub compression_level: u8,
     pub tx_buffer: Sender<PageAlignedByteBuffer>,
     pub tx_nonce_data: UnboundedSender<(usize, SubmissionParameters)>,
 }
@@ -70,7 +70,7 @@ pub fn calc_qualities(task: HashingTask) -> impl FnOnce() {
                         generation_signature: hex::encode(task.generation_signature_bytes),
                         quality: quality / task.base_target, /* raw_quality -> quality_adjusted
                                                               * (dimensionless quality score) */
-                        compression_level: task.compression_level,
+                        compression: task.compression_level,
                     },
                 },
             ))

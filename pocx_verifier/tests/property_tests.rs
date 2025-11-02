@@ -142,12 +142,12 @@ mod property_tests {
                 &account,
                 &seed,
                 warps,
-                compression,
+                compression as u8,
                 false, // dummy mode
                 false, // no direct io
             ) {
                 prop_assert_eq!(plotfile.meta.number_of_warps, warps);
-                prop_assert_eq!(plotfile.meta.compression, compression);
+                prop_assert_eq!(plotfile.meta.compression, compression as u8);
                 prop_assert_eq!(plotfile.meta.base58_decoded, account);
                 prop_assert_eq!(plotfile.meta.seed_decoded, seed);
             }

@@ -99,7 +99,7 @@ pub struct ReadReply {
     /// Seed value for this plot
     pub seed: String,
     /// Compression level from plotfile metadata
-    pub compression_level: u32,
+    pub compression_level: u8,
 }
 
 impl PoCXArray {
@@ -392,7 +392,7 @@ impl PoCXDisk {
                                         steps,              // Compression steps
                                     );
 
-                                    (compressed_warps, plot.meta.compression + steps)
+                                    (compressed_warps, plot.meta.compression + steps as u8)
                                 } else {
                                     (compressible_warps, plot.meta.compression)
                                 }

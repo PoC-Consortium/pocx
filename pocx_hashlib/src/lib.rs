@@ -80,9 +80,17 @@ use crate::quality_256::find_best_quality_256;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 use crate::quality_512::find_best_quality_512;
 
+// ARM NEON SIMD imports
+#[cfg(target_arch = "aarch64")]
+use crate::noncegen_neon::generate_nonces_neon;
+#[cfg(target_arch = "aarch64")]
+use crate::quality_neon::find_best_quality_neon;
+
 // Always available (scalar) imports
 use crate::noncegen_32::generate_nonces_32;
 use crate::noncegen_common::*;
+// Used for x86 no-SIMD fallback, unused on aarch64 (has NEON)
+#[cfg_attr(target_arch = "aarch64", allow(unused_imports))]
 use crate::quality_32::find_best_quality_32;
 use crate::shabal256::shabal256;
 
@@ -122,6 +130,16 @@ mod shabal256_lite_avx512;
 mod shabal256_lite_sse2;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod shabal256_sse2;
+
+// ARM NEON SIMD modules
+#[cfg(target_arch = "aarch64")]
+pub mod noncegen_neon;
+#[cfg(target_arch = "aarch64")]
+pub mod quality_neon;
+#[cfg(target_arch = "aarch64")]
+mod shabal256_lite_neon;
+#[cfg(target_arch = "aarch64")]
+mod shabal256_neon;
 
 // Re-export main error types for convenience
 pub use error::{PoCXHashError, Result};
@@ -305,7 +323,17 @@ pub fn find_best_quality(
     }
 }
 
-#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(target_arch = "aarch64")]
+pub fn find_best_quality(
+    data: &[u8],
+    number_of_nonces: u64,
+    generation_signature_bytes: &[u8; 32],
+) -> (u64, u64) {
+    // NEON is always available on AArch64
+    find_best_quality_neon(data, number_of_nonces, generation_signature_bytes)
+}
+
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
 pub fn find_best_quality(
     data: &[u8],
     number_of_nonces: u64,
@@ -457,7 +485,55 @@ pub fn generate_nonces(
     Ok(())
 }
 
-#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(target_arch = "aarch64")]
+pub fn generate_nonces(
+    cache: &mut [u8],
+    cache_offset: usize,
+    address_payload: &[u8; 20],
+    seed: &[u8; 32],
+    start_nonce: u64,
+    num_nonces: u64,
+) -> Result<()> {
+    let required_size = cache_offset + (num_nonces as usize * NONCE_SIZE);
+    if cache.len() < required_size {
+        return Err(PoCXHashError::BufferSizeError(format!(
+            "Cache buffer too small: need {} bytes, have {} bytes",
+            required_size,
+            cache.len()
+        )));
+    }
+
+    // NEON is always available on AArch64
+    const NEON_VECTOR_SIZE: u64 = 4;
+    let simd_nonces = num_nonces / NEON_VECTOR_SIZE * NEON_VECTOR_SIZE;
+    let remainder = num_nonces % NEON_VECTOR_SIZE;
+
+    if simd_nonces > 0 {
+        generate_nonces_neon(
+            cache,
+            cache_offset,
+            address_payload,
+            seed,
+            start_nonce,
+            simd_nonces,
+        );
+    }
+
+    if remainder > 0 {
+        generate_nonces_32(
+            cache,
+            cache_offset + (simd_nonces as usize * NONCE_SIZE),
+            address_payload,
+            seed,
+            start_nonce + simd_nonces,
+            remainder,
+        );
+    }
+
+    Ok(())
+}
+
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
 pub fn generate_nonces(
     cache: &mut [u8],
     cache_offset: usize,

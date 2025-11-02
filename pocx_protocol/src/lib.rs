@@ -103,7 +103,7 @@ mod integration_tests {
                 "account_id": "1234567890abcdef1234567890abcdef12345678",
                 "seed": "test_seed",
                 "nonce": 999888777,
-                "compression_level": 5
+                "compression": 5
             },
             "id": "test-2"
         }"#;
@@ -125,7 +125,7 @@ mod integration_tests {
                 "account_id": "1234567890abcdef1234567890abcdef12345678",
                 "seed": "test_seed",
                 "nonce": 123456,
-                "compression_level": 5
+                "compression": 5
             },
             "id": "test-3"
         }"#;

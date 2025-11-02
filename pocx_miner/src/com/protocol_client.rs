@@ -132,6 +132,7 @@ fn convert_to_jsonrpc_submit_params(submission: &NonceSubmission) -> JsonRpcSubm
         submission.account_id.clone(),
         submission.seed.clone(),
         submission.nonce,
+        submission.compression,
     )
     .with_quality(submission.quality)
 }
@@ -177,7 +178,7 @@ mod tests {
             seed: "test_seed".to_string(),
             nonce: 123456,
             quality: 789,
-            compression_level: 4,
+            compression: 4,
         };
 
         let jsonrpc_params = convert_to_jsonrpc_submit_params(&nonce_submission);
@@ -190,6 +191,7 @@ mod tests {
         );
         assert_eq!(jsonrpc_params.seed, "test_seed");
         assert_eq!(jsonrpc_params.nonce, 123456);
+        assert_eq!(jsonrpc_params.compression, 4);
         assert_eq!(jsonrpc_params.quality, Some(789));
     }
 }

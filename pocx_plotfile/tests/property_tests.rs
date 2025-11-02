@@ -61,7 +61,7 @@ proptest! {
             &account,
             &seed,
             number_of_warps,
-            compression,
+            compression as u8,
             false, // no direct I/O
             false  // don't create actual file
         );
@@ -69,7 +69,7 @@ proptest! {
         if let Ok(plotfile) = plotfile_result {
             // Verify parameters are preserved
             assert_eq!(plotfile.meta.number_of_warps, number_of_warps);
-            assert_eq!(plotfile.meta.compression, compression);
+            assert_eq!(plotfile.meta.compression, compression as u8);
             assert_eq!(plotfile.meta.base58_decoded, account);
             assert_eq!(plotfile.meta.seed_decoded, seed);
 
@@ -95,7 +95,7 @@ proptest! {
             &account,
             &seed,
             number_of_warps,
-            compression,
+            compression as u8,
             false,
             false
         );
@@ -139,7 +139,7 @@ proptest! {
             &account,
             &seed,
             number_of_warps,
-            compression,
+            compression as u8,
             false,
             false
         );
@@ -178,7 +178,7 @@ fn quickcheck_plotfile_bounds(number_of_warps: u8, compression: u8, scoop: u16, 
     let seed = [0u8; 32];
 
     if let Ok(mut plotfile) =
-        PoCXPlotFile::new(temp_path, &account, &seed, warps, comp, false, false)
+        PoCXPlotFile::new(temp_path, &account, &seed, warps, comp as u8, false, false)
     {
         plotfile.access = AccessType::Dummy;
 

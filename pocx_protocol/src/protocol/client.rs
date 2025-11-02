@@ -273,6 +273,7 @@ mod tests {
             "1234567890abcdef1234567890abcdef12345678".to_string(),
             "seed123".to_string(),
             123456789,
+            5,
         );
 
         let result = client.submit_nonce(params).await.unwrap();
@@ -317,6 +318,7 @@ mod tests {
             "1234567890abcdef1234567890abcdef12345678".to_string(),
             "seed123".to_string(),
             123456789,
+            5,
         );
 
         let result = client.submit_nonce(params).await;

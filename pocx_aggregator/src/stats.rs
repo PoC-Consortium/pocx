@@ -77,19 +77,39 @@ impl MinerInfo {
     /// Estimate capacity in TiB using PoC formula
     /// Formula: capacity_TiB = 2^42 / avg(deadline)
     /// Uses only BEST submission per block from lookback window
+    /// Uses a sliding 30-block window: if current block present, use blocks
+    /// (current-30 to current-1), if current block not present, use blocks
+    /// (current-31 to current-1)
     pub fn estimate_capacity_tib(&self, current_height: u64, lookback_blocks: u64) -> f64 {
         if self.best_per_block.is_empty() {
             return 0.0;
         }
 
-        let cutoff_height = current_height.saturating_sub(lookback_blocks);
+        // Check if miner has submitted for current height
+        let has_current_block = self.best_per_block.contains_key(&current_height);
+
+        // If current block is present, use window [current-29, current] (30 blocks:
+        // 71-100) If current block is absent, use window [current-30,
+        // current-1] (30 blocks: 70-99)
+        let (window_start, window_end) = if has_current_block {
+            (
+                current_height.saturating_sub(lookback_blocks - 1),
+                current_height,
+            )
+        } else {
+            (
+                current_height.saturating_sub(lookback_blocks),
+                current_height.saturating_sub(1),
+            )
+        };
+
         const POC_CONSTANT: f64 = 4_398_046_511_104.0; // 2^42
 
         let mut deadline_sum = 0.0;
         let mut count = 0;
 
         for (h, best) in self.best_per_block.iter() {
-            if *h > cutoff_height {
+            if *h >= window_start && *h <= window_end {
                 let deadline = best.quality as f64 * best.base_target as f64;
                 deadline_sum += deadline;
                 count += 1;

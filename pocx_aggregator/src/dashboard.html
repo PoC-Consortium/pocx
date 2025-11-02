@@ -159,6 +159,155 @@
             color: #9ca3af;
             font-size: 1.2em;
         }
+
+        /* Mobile responsive styles */
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+
+            h1 {
+                font-size: 1.8em;
+                margin-bottom: 20px;
+            }
+
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 10px;
+                margin-bottom: 20px;
+            }
+
+            .stat-card {
+                padding: 15px;
+            }
+
+            .stat-label {
+                font-size: 0.75em;
+            }
+
+            .stat-value {
+                font-size: 1.8em;
+            }
+
+            .miners-section {
+                padding: 15px;
+            }
+
+            .miners-section h2 {
+                font-size: 1.3em;
+                margin-bottom: 15px;
+            }
+
+            /* Hide table headers on mobile */
+            .miners-table thead {
+                display: none;
+            }
+
+            /* Convert table to card layout */
+            .miners-table,
+            .miners-table tbody,
+            .miners-table tr {
+                display: block;
+            }
+
+            .miners-table tr {
+                margin-bottom: 15px;
+                border: 2px solid #e5e7eb;
+                border-radius: 10px;
+                padding: 15px;
+                background: #f9fafb;
+            }
+
+            .miners-table tr:hover {
+                background: #f3f4f6;
+            }
+
+            .miners-table td {
+                display: block;
+                text-align: left;
+                padding: 8px 0;
+                border: none;
+                font-size: 0.9em;
+            }
+
+            /* First cell (status + machine ID) as header */
+            .miners-table td:nth-child(1),
+            .miners-table td:nth-child(2) {
+                display: inline-block;
+                padding: 0;
+            }
+
+            .miners-table td:nth-child(2) {
+                font-size: 1em;
+                font-weight: bold;
+                color: #333;
+                margin-bottom: 10px;
+            }
+
+            /* Add labels before data on mobile */
+            .miners-table td:nth-child(3)::before {
+                content: "Account: ";
+                font-weight: bold;
+                color: #666;
+            }
+
+            .miners-table td:nth-child(4)::before {
+                content: "Capacity: ";
+                font-weight: bold;
+                color: #666;
+            }
+
+            .miners-table td:nth-child(5)::before {
+                content: "Submissions 24h: ";
+                font-weight: bold;
+                color: #666;
+            }
+
+            .miners-table td:nth-child(6)::before {
+                content: "Best Quality: ";
+                font-weight: bold;
+                color: #666;
+            }
+
+            .miners-table td:nth-child(7)::before {
+                content: "Best PoC Time: ";
+                font-weight: bold;
+                color: #666;
+            }
+
+            .miners-table td:nth-child(8)::before {
+                content: "Last Seen: ";
+                font-weight: bold;
+                color: #666;
+            }
+
+            /* No miners message on mobile */
+            .no-miners {
+                display: block !important;
+                padding: 20px;
+                font-size: 1em;
+            }
+
+            .last-update {
+                font-size: 0.8em;
+                margin-top: 15px;
+            }
+        }
+
+        /* Tablet optimization (medium screens) */
+        @media (min-width: 769px) and (max-width: 1024px) {
+            .stats-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+
+            .miners-section {
+                overflow-x: auto;
+            }
+
+            .miners-table {
+                min-width: 900px;
+            }
+        }
     </style>
 </head>
 <body>

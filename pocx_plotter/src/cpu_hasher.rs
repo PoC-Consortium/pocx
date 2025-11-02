@@ -78,6 +78,9 @@ pub enum SimdExtension {
         allow(dead_code)
     )]
     Sse2,
+    #[cfg_attr(not(target_arch = "aarch64"), allow(dead_code))]
+    Neon,
+    #[allow(dead_code)]
     None,
 }
 
@@ -98,7 +101,15 @@ pub fn init_simd() -> SimdExtension {
 
 #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
 pub fn init_simd() -> SimdExtension {
-    SimdExtension::None
+    #[cfg(target_arch = "aarch64")]
+    {
+        // NEON is mandatory on all AArch64 processors
+        SimdExtension::Neon
+    }
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        SimdExtension::None
+    }
 }
 
 pub fn hash_cpu(tx: Sender<HasherMessage>, hasher_task: CpuTask) -> impl FnOnce() + Send {

@@ -18,6 +18,35 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+/// Detect and return the SIMD instruction set name for display purposes
+pub fn get_simd_name() -> &'static str {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    {
+        if is_x86_feature_detected!("avx512f") {
+            "AVX512"
+        } else if is_x86_feature_detected!("avx2") {
+            "AVX2"
+        } else if is_x86_feature_detected!("avx") {
+            "AVX"
+        } else if is_x86_feature_detected!("sse2") {
+            "SSE2"
+        } else {
+            "Scalar"
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    {
+        // NEON is mandatory on all AArch64 processors
+        return "NEON";
+    }
+
+    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
+    {
+        return "Scalar";
+    }
+}
+
 pub fn new_thread_pool(num_threads: usize, thread_pinning: bool) -> rayon::ThreadPool {
     let core_ids = if thread_pinning {
         core_affinity::get_core_ids().unwrap()

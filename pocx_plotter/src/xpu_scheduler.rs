@@ -113,12 +113,12 @@ pub fn create_scheduler_thread(
             let buffer_size = (*bs).len() as u64;
 
             let warps_to_hash = min(
-                buffer_size / WARP_SIZE / u64::pow(2, task.compress),
+                buffer_size / WARP_SIZE / u64::pow(2, task.compress as u32),
                 task.warps[pointer] - hash_progress[pointer],
             );
 
-            let nonces_to_hash = u64::pow(2, task.compress) * warps_to_hash * DIM;
-            let nonces_hashed = u64::pow(2, task.compress) * hash_progress[pointer] * DIM;
+            let nonces_to_hash = u64::pow(2, task.compress as u32) * warps_to_hash * DIM;
+            let nonces_hashed = u64::pow(2, task.compress as u32) * hash_progress[pointer] * DIM;
 
             let mut requested = 0u64;
             let mut processed = 0u64;
@@ -225,7 +225,7 @@ pub fn create_scheduler_thread(
                     // process work completed message
                     HasherMessage::NoncesHashed(nonces) => {
                         processed += nonces;
-                        let delta = nonces * NONCE_SIZE / u64::pow(2, task.compress);
+                        let delta = nonces * NONCE_SIZE / u64::pow(2, task.compress as u32);
 
                         if let Some(i) = &pb {
                             i.inc(delta);

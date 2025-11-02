@@ -193,6 +193,7 @@ mod tests {
                 "acc1".to_string(),
                 "seed1".to_string(),
                 1000,
+                5,
             ),
         };
 

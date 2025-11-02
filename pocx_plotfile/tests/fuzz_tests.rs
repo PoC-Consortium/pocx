@@ -83,7 +83,7 @@ fn fuzz_plot_file_creation(data: &[u8]) -> Result<(), Box<dyn std::error::Error>
         &account,
         &seed,
         fuzz_params.number_of_warps,
-        fuzz_params.compression,
+        fuzz_params.compression as u8,
         fuzz_params.direct_io,
         fuzz_params.create_file,
     );
@@ -171,7 +171,7 @@ fn fuzz_metadata_operations(data: &[u8]) -> Result<(), Box<dyn std::error::Error
             &account,
             &seed,
             safe_warps,
-            safe_compression,
+            safe_compression as u8,
             false,
             false,
         );
@@ -181,7 +181,7 @@ fn fuzz_metadata_operations(data: &[u8]) -> Result<(), Box<dyn std::error::Error
             assert_eq!(plotfile.meta.base58_decoded, account);
             assert_eq!(plotfile.meta.seed_decoded, seed);
             assert_eq!(plotfile.meta.number_of_warps, safe_warps);
-            assert_eq!(plotfile.meta.compression, safe_compression);
+            assert_eq!(plotfile.meta.compression, safe_compression as u8);
         }
     }
 

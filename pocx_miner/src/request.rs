@@ -439,7 +439,7 @@ mod tests {
             seed: "test_seed".to_string(),
             nonce: 67890,
             quality: 300,
-            compression_level: 4,
+            compression: 4,
         };
 
         let submission_params = SubmissionParameters {
@@ -461,7 +461,7 @@ mod tests {
             seed: "test_seed".to_string(),
             nonce: 67890,
             quality: 300,
-            compression_level: 4,
+            compression: 4,
         };
 
         // Test that logging function doesn't panic
@@ -479,7 +479,7 @@ mod tests {
             seed: "test_seed".to_string(),
             nonce: 67890,
             quality: 300,
-            compression_level: 4,
+            compression: 4,
         };
 
         // Test logging with various error messages
@@ -498,7 +498,7 @@ mod tests {
             seed: "test_seed".to_string(),
             nonce: 67890,
             quality: 300,
-            compression_level: 4,
+            compression: 4,
         };
 
         // Test logging with various error codes and messages
@@ -517,7 +517,7 @@ mod tests {
             seed: "test_seed".to_string(),
             nonce: 67890,
             quality: 300,
-            compression_level: 4,
+            compression: 4,
         };
 
         // Test that accepted logging works
@@ -535,7 +535,7 @@ mod tests {
             seed: "test_seed".to_string(),
             nonce: 67890,
             quality: 300,
-            compression_level: 4,
+            compression: 4,
         };
 
         // Test that server busy logging works

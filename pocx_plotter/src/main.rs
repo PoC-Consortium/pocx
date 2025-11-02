@@ -278,7 +278,7 @@ fn run() -> Result<()> {
     let compress = matches
         .get_one::<String>("compression")
         .map(|s| {
-            let value = s.parse::<u32>().map_err(|e| {
+            let value = s.parse::<u8>().map_err(|e| {
                 PoCXPlotterError::InvalidInput(format!("Invalid compression value: {}", e))
             })?;
             if value == 0 {
@@ -413,9 +413,8 @@ fn run() -> Result<()> {
     let gpus: Option<Vec<String>> = None;
 
     // work out number of cpu threads to use
-    let mut sys = sysinfo::System::new_all();
-    sys.refresh_cpu_all();
-    let cores = sys.cpus().len() as u8;
+    // Use num_cpus instead of sysinfo for better Android compatibility
+    let cores = num_cpus::get() as u8;
     let cpu_threads = if cpu_threads == 0 {
         cores
     } else {

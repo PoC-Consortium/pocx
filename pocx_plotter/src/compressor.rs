@@ -112,14 +112,14 @@ pub fn create_chunk_compressor_thread(
                 helix_compress_inline(
                     &mut mutex_read_buffer,
                     0,
-                    u64::pow(2, task.compress - 1) * read_buffer.warps_to_compress,
+                    u64::pow(2, (task.compress - 1) as u32) * read_buffer.warps_to_compress,
                 );
                 xor_compress(
                     &mutex_read_buffer,
                     &mut mutex_write_buffer,
                     0,
                     read_buffer.warps_to_compress,
-                    task.compress - 1,
+                    (task.compress - 1) as u32,
                 )
             }
 

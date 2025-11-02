@@ -32,6 +32,7 @@ pub enum PoCXPlotterError {
     OpenCl(ocl_core::Error),
 
     /// System information errors
+    #[allow(dead_code)]
     SystemInfo(String),
 
     /// Memory allocation errors
