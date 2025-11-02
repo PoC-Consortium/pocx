@@ -120,4 +120,10 @@ Use the local CI scripts for development:
 - **Function docs**: One-line summary preferred. Avoid multi-paragraph explanations unless absolutely necessary.
 - **Demo code**: Always include clear production warnings when displaying sensitive data (private keys, etc.).
 - **Test functions**: Keep functional tests, remove purely educational/tutorial test functions.
-- **Implementation**: Clean, minimal code. Remove redundant intermediate variables and verbose logging.  
+- **Implementation**: Clean, minimal code. Remove redundant intermediate variables and verbose logging.
+
+## Git Commit Guidelines
+- **CRITICAL**: NEVER use Co-Authored-By for Claude. ALL commits must have ONLY the user as the author.
+- **Author**: Use only the user's name and email, never include Claude as co-author
+- **Commit message format**: Clear subject line, detailed body if needed, NO co-author attribution
+- **When committing**: ALWAYS use `git commit` without Co-Authored-By trailer  

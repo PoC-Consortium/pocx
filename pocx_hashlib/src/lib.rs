@@ -89,7 +89,8 @@ use crate::quality_neon::find_best_quality_neon;
 // Always available (scalar) imports
 use crate::noncegen_32::generate_nonces_32;
 use crate::noncegen_common::*;
-#[cfg(not(target_arch = "aarch64"))]
+// Used for x86 no-SIMD fallback, unused on aarch64 (has NEON)
+#[cfg_attr(target_arch = "aarch64", allow(unused_imports))]
 use crate::quality_32::find_best_quality_32;
 use crate::shabal256::shabal256;
 
