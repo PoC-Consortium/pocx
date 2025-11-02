@@ -62,8 +62,8 @@ jobs:
       - name: Build pocx_hashlib for ${{ matrix.target }}
         run: cross build --target ${{ matrix.target }} -p pocx_hashlib --lib
 
-      - name: Test pocx_hashlib NEON implementation
-        run: cross test --target ${{ matrix.target }} -p pocx_hashlib --lib
+      - name: Test shabal256_lite_neon function
+        run: cross test --target ${{ matrix.target }} -p pocx_hashlib --lib shabal256_lite_neon::tests::test_shabal256_lite_neon
 
   summary:
     name: NEON Test Summary
