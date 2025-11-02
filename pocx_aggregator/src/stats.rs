@@ -56,7 +56,7 @@ pub struct Stats {
 #[derive(Debug, Default)]
 struct StatsInner {
     unique_miners: HashSet<String>, // Track unique account IDs
-    active_connections: HashMap<String, MinerInfo>, // Account ID -> info
+    active_connections: HashMap<(String, String), MinerInfo>, // (Account ID, Machine ID) -> info
     current_height: u64,
     current_base_target: Option<u64>, // Current network base target
     started_at: Option<DateTime<Utc>>,
@@ -147,6 +147,59 @@ impl MinerInfo {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct CurrentBlockBest {
+    pub height: u64,
+    pub best_poc_time: Option<u64>,       // in seconds
+    pub best_quality: Option<u64>,        // raw quality value
+    pub best_account_id: Option<String>,
+    pub best_machine_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AccountSummary {
+    pub account_id: String,
+    pub machine_count: usize,
+    pub total_capacity_tib: f64,
+    pub submissions_24h: usize,
+    pub submission_percentage: f64,
+    pub last_seen_secs_ago: i64,
+    pub is_active: bool,
+    pub machines: Vec<MachineInAccount>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MachineInAccount {
+    pub machine_id: String,
+    pub capacity_tib: f64,
+    pub submissions_24h: usize,
+    pub submission_percentage: f64,
+    pub last_seen_secs_ago: i64,
+    pub is_active: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MachineSummary {
+    pub machine_id: String,
+    pub account_count: usize,
+    pub total_capacity_tib: f64,
+    pub submissions_24h: usize,
+    pub submission_percentage: f64,
+    pub last_seen_secs_ago: i64,
+    pub is_active: bool,
+    pub accounts: Vec<AccountInMachine>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AccountInMachine {
+    pub account_id: String,
+    pub capacity_tib: f64,
+    pub submissions_24h: usize,
+    pub submission_percentage: f64,
+    pub last_seen_secs_ago: i64,
+    pub is_active: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct StatsSnapshot {
     pub unique_miners: usize,   // Unique account IDs
     pub unique_machines: usize, // Unique machine IDs (IPs)
@@ -155,7 +208,9 @@ pub struct StatsSnapshot {
     pub uptime_secs: i64,
     pub total_capacity: String, // Total miner capacity (ByteSize formatted)
     pub network_capacity: String, // Network capacity from base_target (ByteSize formatted)
-    pub miners: Vec<MinerSnapshot>,
+    pub current_block_best: CurrentBlockBest,
+    pub machines: Vec<MachineSummary>,
+    pub accounts: Vec<AccountSummary>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -191,7 +246,7 @@ impl Stats {
     }
 
     /// Record a nonce submission from a miner
-    /// Only stores the BEST submission per block per machine
+    /// Only stores the BEST submission per block per (account, machine) pair
     pub async fn record_submission(
         &self,
         account_id: &str,
@@ -200,18 +255,19 @@ impl Stats {
         base_target: u64,
         height: u64,
     ) {
+        let machine_id = machine_id.unwrap_or_else(|| "unknown".to_string());
         let mut inner = self.inner.write().await;
         inner.unique_miners.insert(account_id.to_string());
 
         let now = Utc::now();
+        let key = (account_id.to_string(), machine_id.clone());
 
         // Update miner info
         inner
             .active_connections
-            .entry(account_id.to_string())
+            .entry(key)
             .and_modify(|info| {
                 info.last_seen = now;
-                info.machine_id = machine_id.clone().or(info.machine_id.clone());
 
                 // Reset per-round stats if new block
                 if height != info.current_height {
@@ -248,7 +304,7 @@ impl Stats {
             })
             .or_insert(MinerInfo {
                 account_id: account_id.to_string(),
-                machine_id,
+                machine_id: Some(machine_id),
                 last_seen: now,
                 best_quality: Some(quality),
                 best_base_target: Some(base_target),
@@ -282,22 +338,23 @@ impl Stats {
 
     /// Record a mining info request from a miner (keeps connection alive)
     pub async fn record_miner_heartbeat(&self, account_id: &str, machine_id: Option<String>) {
+        let machine_id = machine_id.unwrap_or_else(|| "unknown".to_string());
         let mut inner = self.inner.write().await;
         inner.unique_miners.insert(account_id.to_string());
 
         let now = Utc::now();
         let current_height = inner.current_height;
+        let key = (account_id.to_string(), machine_id.clone());
 
         inner
             .active_connections
-            .entry(account_id.to_string())
+            .entry(key)
             .and_modify(|info| {
                 info.last_seen = now;
-                info.machine_id = machine_id.clone().or(info.machine_id.clone());
             })
             .or_insert(MinerInfo {
                 account_id: account_id.to_string(),
-                machine_id,
+                machine_id: Some(machine_id),
                 last_seen: now,
                 best_quality: None,
                 best_base_target: None,
@@ -309,6 +366,7 @@ impl Stats {
     /// Get a snapshot of current statistics
     pub async fn snapshot(&self) -> StatsSnapshot {
         const LOOKBACK_BLOCKS: u64 = 30; // 30 blocks = ~1 hour for 120s block time
+        const ACTIVE_THRESHOLD_SECS: i64 = 300; // 5 minutes
 
         let inner = self.inner.read().await;
         let now = Utc::now();
@@ -319,16 +377,15 @@ impl Stats {
             .map(|start| (now - start).num_seconds())
             .unwrap_or(0);
 
-        // Count unique machines (by machine_id/IP)
+        // Count unique machines
         let unique_machine_ids: HashSet<String> = inner
             .active_connections
             .values()
             .filter_map(|info| info.machine_id.clone())
             .collect();
 
-        // Clean up stale connections (>5 minutes old) and count active miners
-        let active_threshold = chrono::Duration::minutes(5);
-        let mut miners: Vec<MinerSnapshot> = inner
+        // Build intermediate data for each (account, machine) pair
+        let pair_data: Vec<_> = inner
             .active_connections
             .values()
             .map(|info| {
@@ -337,43 +394,179 @@ impl Stats {
                     info.estimate_capacity_tib(current_height, LOOKBACK_BLOCKS);
                 let submissions_24h = info.submissions_last_24h();
                 let submission_percentage = info.submission_percentage(self.block_time_secs);
-                let best_poc_time = match (info.best_quality, info.best_base_target) {
-                    (Some(adjusted_quality), Some(bt)) => {
-                        // best_quality is adjusted quality, multiply back to get raw quality
-                        let raw_quality = adjusted_quality * bt;
-                        Some(self.calculate_poc_time(raw_quality, bt))
-                    }
-                    _ => None,
-                };
+                let is_active = last_seen_secs_ago < ACTIVE_THRESHOLD_SECS;
 
-                MinerSnapshot {
-                    account_id: info.account_id.clone(),
-                    machine_id: info.machine_id.clone(),
+                (
+                    info.account_id.clone(),
+                    info.machine_id.clone().unwrap_or_else(|| "unknown".to_string()),
                     last_seen_secs_ago,
+                    estimated_capacity_tib,
                     submissions_24h,
                     submission_percentage,
-                    best_quality: info.best_quality,
-                    best_poc_time,
-                    estimated_capacity_tib,
+                    is_active,
+                    info.best_quality,
+                    info.best_base_target,
+                )
+            })
+            .collect();
+
+        // Find current block best submission
+        let mut current_block_best = CurrentBlockBest {
+            height: current_height,
+            best_poc_time: None,
+            best_quality: None,
+            best_account_id: None,
+            best_machine_id: None,
+        };
+
+        for (account_id, machine_id, _, _, _, _, _, best_quality, best_base_target) in &pair_data {
+            if let (Some(quality), Some(bt)) = (best_quality, best_base_target) {
+                let raw_quality = quality * bt;
+                let current_best_raw = current_block_best
+                    .best_quality
+                    .and_then(|q| current_block_best.best_poc_time.map(|_| q));
+
+                if current_best_raw.is_none() || raw_quality < current_best_raw.unwrap() {
+                    current_block_best.best_quality = Some(raw_quality);
+                    current_block_best.best_poc_time =
+                        Some(self.calculate_poc_time(raw_quality, *bt));
+                    current_block_best.best_account_id = Some(account_id.clone());
+                    current_block_best.best_machine_id = Some(machine_id.clone());
+                }
+            }
+        }
+
+        // Aggregate by machine: group by machine_id
+        let mut machine_map: HashMap<String, Vec<usize>> = HashMap::new();
+        for (idx, (_, machine_id, _, _, _, _, _, _, _)) in pair_data.iter().enumerate() {
+            machine_map
+                .entry(machine_id.clone())
+                .or_default()
+                .push(idx);
+        }
+
+        let mut machines: Vec<MachineSummary> = machine_map
+            .into_iter()
+            .map(|(machine_id, indices)| {
+                let mut accounts = Vec::new();
+                let mut total_capacity_tib = 0.0;
+                let mut total_submissions_24h = 0;
+                let mut last_seen_secs_ago = i64::MAX;
+                let mut is_active = false;
+
+                for &idx in &indices {
+                    let (account_id, _, last_seen, capacity_tib, subs_24h, sub_pct, active, _, _) =
+                        &pair_data[idx];
+                    total_capacity_tib += capacity_tib;
+                    total_submissions_24h += subs_24h;
+                    last_seen_secs_ago = last_seen_secs_ago.min(*last_seen);
+                    is_active = is_active || *active;
+
+                    accounts.push(AccountInMachine {
+                        account_id: account_id.clone(),
+                        capacity_tib: *capacity_tib,
+                        submissions_24h: *subs_24h,
+                        submission_percentage: *sub_pct,
+                        last_seen_secs_ago: *last_seen,
+                        is_active: *active,
+                    });
+                }
+
+                let submission_percentage = if total_submissions_24h > 0 {
+                    let blocks_per_day = 86400 / self.block_time_secs;
+                    (total_submissions_24h as f64 / blocks_per_day as f64) * 100.0
+                } else {
+                    0.0
+                };
+
+                MachineSummary {
+                    machine_id,
+                    account_count: indices.len(),
+                    total_capacity_tib,
+                    submissions_24h: total_submissions_24h,
+                    submission_percentage,
+                    last_seen_secs_ago,
+                    is_active,
+                    accounts,
                 }
             })
             .collect();
 
-        // Sort by last seen (most recent first)
-        miners.sort_by_key(|m| m.last_seen_secs_ago);
+        // Sort machines by last seen (most recent first)
+        machines.sort_by_key(|m| m.last_seen_secs_ago);
 
-        // Count active machines (unique IPs seen in last 5 minutes)
-        let active_machine_ids: HashSet<String> = miners
-            .iter()
-            .filter(|m| m.last_seen_secs_ago < active_threshold.num_seconds())
-            .filter_map(|m| m.machine_id.clone())
+        // Aggregate by account: group by account_id
+        let mut account_map: HashMap<String, Vec<usize>> = HashMap::new();
+        for (idx, (account_id, _, _, _, _, _, _, _, _)) in pair_data.iter().enumerate() {
+            account_map
+                .entry(account_id.clone())
+                .or_default()
+                .push(idx);
+        }
+
+        let mut accounts: Vec<AccountSummary> = account_map
+            .into_iter()
+            .map(|(account_id, indices)| {
+                let mut machine_list = Vec::new();
+                let mut total_capacity_tib = 0.0;
+                let mut total_submissions_24h = 0;
+                let mut last_seen_secs_ago = i64::MAX;
+                let mut is_active = false;
+
+                for &idx in &indices {
+                    let (_, machine_id, last_seen, capacity_tib, subs_24h, sub_pct, active, _, _) =
+                        &pair_data[idx];
+                    total_capacity_tib += capacity_tib;
+                    total_submissions_24h += subs_24h;
+                    last_seen_secs_ago = last_seen_secs_ago.min(*last_seen);
+                    is_active = is_active || *active;
+
+                    machine_list.push(MachineInAccount {
+                        machine_id: machine_id.clone(),
+                        capacity_tib: *capacity_tib,
+                        submissions_24h: *subs_24h,
+                        submission_percentage: *sub_pct,
+                        last_seen_secs_ago: *last_seen,
+                        is_active: *active,
+                    });
+                }
+
+                let submission_percentage = if total_submissions_24h > 0 {
+                    let blocks_per_day = 86400 / self.block_time_secs;
+                    (total_submissions_24h as f64 / blocks_per_day as f64) * 100.0
+                } else {
+                    0.0
+                };
+
+                AccountSummary {
+                    account_id,
+                    machine_count: indices.len(),
+                    total_capacity_tib,
+                    submissions_24h: total_submissions_24h,
+                    submission_percentage,
+                    last_seen_secs_ago,
+                    is_active,
+                    machines: machine_list,
+                }
+            })
             .collect();
 
-        let active_miners = active_machine_ids.len();
+        // Sort accounts by last seen (most recent first)
+        accounts.sort_by_key(|a| a.last_seen_secs_ago);
 
-        // Calculate total miner capacity in bytes
-        let total_capacity_tib: f64 = miners.iter().map(|m| m.estimated_capacity_tib).sum();
-        let total_capacity_bytes = (total_capacity_tib * 1_099_511_627_776.0) as u64; // TiB to bytes
+        // Count active machines
+        let active_machines = unique_machine_ids
+            .iter()
+            .filter(|machine_id| {
+                machines
+                    .iter()
+                    .any(|m| &m.machine_id == *machine_id && m.is_active)
+            })
+            .count();
+
+        // Calculate total capacity
+        let total_capacity_tib: f64 = pair_data.iter().map(|(_, _, _, cap, _, _, _, _, _)| cap).sum();
+        let total_capacity_bytes = (total_capacity_tib * 1_099_511_627_776.0) as u64;
         let total_capacity = ByteSize::b(total_capacity_bytes).to_string();
 
         // Calculate network capacity from base target
@@ -388,12 +581,14 @@ impl Stats {
         StatsSnapshot {
             unique_miners: inner.unique_miners.len(),
             unique_machines: unique_machine_ids.len(),
-            active_machines: active_miners,
+            active_machines,
             current_height: inner.current_height,
             uptime_secs,
             total_capacity,
             network_capacity,
-            miners,
+            current_block_best,
+            machines,
+            accounts,
         }
     }
 }
