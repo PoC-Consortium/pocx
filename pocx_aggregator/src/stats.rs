@@ -472,9 +472,13 @@ impl Stats {
                     });
                 }
 
-                let submission_percentage = if total_submissions_24h > 0 {
-                    let blocks_per_day = 86400 / self.block_time_secs;
-                    (total_submissions_24h as f64 / blocks_per_day as f64) * 100.0
+                // Calculate average submission percentage instead of sum
+                let avg_submission_percentage = if !indices.is_empty() {
+                    let total_pct: f64 = indices
+                        .iter()
+                        .map(|&idx| pair_data[idx].5)
+                        .sum();
+                    total_pct / indices.len() as f64
                 } else {
                     0.0
                 };
@@ -484,7 +488,7 @@ impl Stats {
                     account_count: indices.len(),
                     total_capacity_tib,
                     submissions_24h: total_submissions_24h,
-                    submission_percentage,
+                    submission_percentage: avg_submission_percentage,
                     last_seen_secs_ago,
                     is_active,
                     accounts,
@@ -492,8 +496,13 @@ impl Stats {
             })
             .collect();
 
-        // Sort machines by last seen (most recent first)
-        machines.sort_by_key(|m| m.last_seen_secs_ago);
+        // Sort machines: active first, then by machine_id for stability
+        machines.sort_by(|a, b| {
+            match b.is_active.cmp(&a.is_active) {
+                std::cmp::Ordering::Equal => a.machine_id.cmp(&b.machine_id),
+                other => other,
+            }
+        });
 
         // Aggregate by account: group by account_id
         let mut account_map: HashMap<String, Vec<usize>> = HashMap::new();
@@ -531,9 +540,13 @@ impl Stats {
                     });
                 }
 
-                let submission_percentage = if total_submissions_24h > 0 {
-                    let blocks_per_day = 86400 / self.block_time_secs;
-                    (total_submissions_24h as f64 / blocks_per_day as f64) * 100.0
+                // Calculate average submission percentage instead of sum
+                let avg_submission_percentage = if !indices.is_empty() {
+                    let total_pct: f64 = indices
+                        .iter()
+                        .map(|&idx| pair_data[idx].5)
+                        .sum();
+                    total_pct / indices.len() as f64
                 } else {
                     0.0
                 };
@@ -543,7 +556,7 @@ impl Stats {
                     machine_count: indices.len(),
                     total_capacity_tib,
                     submissions_24h: total_submissions_24h,
-                    submission_percentage,
+                    submission_percentage: avg_submission_percentage,
                     last_seen_secs_ago,
                     is_active,
                     machines: machine_list,
@@ -551,8 +564,13 @@ impl Stats {
             })
             .collect();
 
-        // Sort accounts by last seen (most recent first)
-        accounts.sort_by_key(|a| a.last_seen_secs_ago);
+        // Sort accounts: active first, then by account_id for stability
+        accounts.sort_by(|a, b| {
+            match b.is_active.cmp(&a.is_active) {
+                std::cmp::Ordering::Equal => a.account_id.cmp(&b.account_id),
+                other => other,
+            }
+        });
 
         // Count active machines
         let active_machines = unique_machine_ids
