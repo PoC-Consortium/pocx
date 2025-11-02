@@ -385,9 +385,14 @@ impl Stats {
             .collect();
 
         // Build intermediate data for each (account, machine) pair
+        // Filter out stale connections (>24 hours old)
         let pair_data: Vec<_> = inner
             .active_connections
             .values()
+            .filter(|info| {
+                let secs_ago = (now - info.last_seen).num_seconds();
+                secs_ago < 86400 // 24 hours
+            })
             .map(|info| {
                 let last_seen_secs_ago = (now - info.last_seen).num_seconds();
                 let estimated_capacity_tib =
