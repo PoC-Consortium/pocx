@@ -48,7 +48,7 @@ const C_INIT: [i32; 16] = [
 /// Helper macro to perform left rotation on NEON vectors
 macro_rules! vrotlq_n_u32 {
     ($a:expr, $n:expr) => {
-        vorrq_u32(vshlq_n_u32::<$n>($a), vshrq_n_u32::<{32 - $n}>($a))
+        vorrq_u32(vshlq_n_u32::<$n>($a), vshrq_n_u32::<{ 32 - $n }>($a))
     };
 }
 
@@ -241,56 +241,680 @@ unsafe fn mshabal_quality_round(
         b[j] = vrotlq_n_u32!(b[j], 17);
     }
 
-    pp_neon(a, 0x0, 0xB, b, 0x0, 0xD, 0x9, 0x6, c, 0x8, vld1q_u32(message.add(0x0) as *const u32), one);
-    pp_neon(a, 0x1, 0x0, b, 0x1, 0xE, 0xA, 0x7, c, 0x7, vld1q_u32(message.add(0x1) as *const u32), one);
-    pp_neon(a, 0x2, 0x1, b, 0x2, 0xF, 0xB, 0x8, c, 0x6, vld1q_u32(message.add(0x2) as *const u32), one);
-    pp_neon(a, 0x3, 0x2, b, 0x3, 0x0, 0xC, 0x9, c, 0x5, vld1q_u32(message.add(0x3) as *const u32), one);
-    pp_neon(a, 0x4, 0x3, b, 0x4, 0x1, 0xD, 0xA, c, 0x4, vld1q_u32(message.add(0x4) as *const u32), one);
-    pp_neon(a, 0x5, 0x4, b, 0x5, 0x2, 0xE, 0xB, c, 0x3, vld1q_u32(message.add(0x5) as *const u32), one);
-    pp_neon(a, 0x6, 0x5, b, 0x6, 0x3, 0xF, 0xC, c, 0x2, vld1q_u32(message.add(0x6) as *const u32), one);
-    pp_neon(a, 0x7, 0x6, b, 0x7, 0x4, 0x0, 0xD, c, 0x1, vld1q_u32(message.add(0x7) as *const u32), one);
-    pp_neon(a, 0x8, 0x7, b, 0x8, 0x5, 0x1, 0xE, c, 0x0, vld1q_u32(message.add(0x8) as *const u32), one);
-    pp_neon(a, 0x9, 0x8, b, 0x9, 0x6, 0x2, 0xF, c, 0xF, vld1q_u32(message.add(0x9) as *const u32), one);
-    pp_neon(a, 0xA, 0x9, b, 0xA, 0x7, 0x3, 0x0, c, 0xE, vld1q_u32(message.add(0xA) as *const u32), one);
-    pp_neon(a, 0xB, 0xA, b, 0xB, 0x8, 0x4, 0x1, c, 0xD, vld1q_u32(message.add(0xB) as *const u32), one);
-    pp_neon(a, 0x0, 0xB, b, 0xC, 0x9, 0x5, 0x2, c, 0xC, vld1q_u32(message.add(0xC) as *const u32), one);
-    pp_neon(a, 0x1, 0x0, b, 0xD, 0xA, 0x6, 0x3, c, 0xB, vld1q_u32(message.add(0xD) as *const u32), one);
-    pp_neon(a, 0x2, 0x1, b, 0xE, 0xB, 0x7, 0x4, c, 0xA, vld1q_u32(message.add(0xE) as *const u32), one);
-    pp_neon(a, 0x3, 0x2, b, 0xF, 0xC, 0x8, 0x5, c, 0x9, vld1q_u32(message.add(0xF) as *const u32), one);
+    pp_neon(
+        a,
+        0x0,
+        0xB,
+        b,
+        0x0,
+        0xD,
+        0x9,
+        0x6,
+        c,
+        0x8,
+        vld1q_u32(message.add(0x0) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x1,
+        0x0,
+        b,
+        0x1,
+        0xE,
+        0xA,
+        0x7,
+        c,
+        0x7,
+        vld1q_u32(message.add(0x1) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x2,
+        0x1,
+        b,
+        0x2,
+        0xF,
+        0xB,
+        0x8,
+        c,
+        0x6,
+        vld1q_u32(message.add(0x2) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x3,
+        0x2,
+        b,
+        0x3,
+        0x0,
+        0xC,
+        0x9,
+        c,
+        0x5,
+        vld1q_u32(message.add(0x3) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x4,
+        0x3,
+        b,
+        0x4,
+        0x1,
+        0xD,
+        0xA,
+        c,
+        0x4,
+        vld1q_u32(message.add(0x4) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x5,
+        0x4,
+        b,
+        0x5,
+        0x2,
+        0xE,
+        0xB,
+        c,
+        0x3,
+        vld1q_u32(message.add(0x5) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x6,
+        0x5,
+        b,
+        0x6,
+        0x3,
+        0xF,
+        0xC,
+        c,
+        0x2,
+        vld1q_u32(message.add(0x6) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x7,
+        0x6,
+        b,
+        0x7,
+        0x4,
+        0x0,
+        0xD,
+        c,
+        0x1,
+        vld1q_u32(message.add(0x7) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x8,
+        0x7,
+        b,
+        0x8,
+        0x5,
+        0x1,
+        0xE,
+        c,
+        0x0,
+        vld1q_u32(message.add(0x8) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x9,
+        0x8,
+        b,
+        0x9,
+        0x6,
+        0x2,
+        0xF,
+        c,
+        0xF,
+        vld1q_u32(message.add(0x9) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0xA,
+        0x9,
+        b,
+        0xA,
+        0x7,
+        0x3,
+        0x0,
+        c,
+        0xE,
+        vld1q_u32(message.add(0xA) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0xB,
+        0xA,
+        b,
+        0xB,
+        0x8,
+        0x4,
+        0x1,
+        c,
+        0xD,
+        vld1q_u32(message.add(0xB) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x0,
+        0xB,
+        b,
+        0xC,
+        0x9,
+        0x5,
+        0x2,
+        c,
+        0xC,
+        vld1q_u32(message.add(0xC) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x1,
+        0x0,
+        b,
+        0xD,
+        0xA,
+        0x6,
+        0x3,
+        c,
+        0xB,
+        vld1q_u32(message.add(0xD) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x2,
+        0x1,
+        b,
+        0xE,
+        0xB,
+        0x7,
+        0x4,
+        c,
+        0xA,
+        vld1q_u32(message.add(0xE) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x3,
+        0x2,
+        b,
+        0xF,
+        0xC,
+        0x8,
+        0x5,
+        c,
+        0x9,
+        vld1q_u32(message.add(0xF) as *const u32),
+        one,
+    );
 
-    pp_neon(a, 0x4, 0x3, b, 0x0, 0xD, 0x9, 0x6, c, 0x8, vld1q_u32(message.add(0x0) as *const u32), one);
-    pp_neon(a, 0x5, 0x4, b, 0x1, 0xE, 0xA, 0x7, c, 0x7, vld1q_u32(message.add(0x1) as *const u32), one);
-    pp_neon(a, 0x6, 0x5, b, 0x2, 0xF, 0xB, 0x8, c, 0x6, vld1q_u32(message.add(0x2) as *const u32), one);
-    pp_neon(a, 0x7, 0x6, b, 0x3, 0x0, 0xC, 0x9, c, 0x5, vld1q_u32(message.add(0x3) as *const u32), one);
-    pp_neon(a, 0x8, 0x7, b, 0x4, 0x1, 0xD, 0xA, c, 0x4, vld1q_u32(message.add(0x4) as *const u32), one);
-    pp_neon(a, 0x9, 0x8, b, 0x5, 0x2, 0xE, 0xB, c, 0x3, vld1q_u32(message.add(0x5) as *const u32), one);
-    pp_neon(a, 0xA, 0x9, b, 0x6, 0x3, 0xF, 0xC, c, 0x2, vld1q_u32(message.add(0x6) as *const u32), one);
-    pp_neon(a, 0xB, 0xA, b, 0x7, 0x4, 0x0, 0xD, c, 0x1, vld1q_u32(message.add(0x7) as *const u32), one);
-    pp_neon(a, 0x0, 0xB, b, 0x8, 0x5, 0x1, 0xE, c, 0x0, vld1q_u32(message.add(0x8) as *const u32), one);
-    pp_neon(a, 0x1, 0x0, b, 0x9, 0x6, 0x2, 0xF, c, 0xF, vld1q_u32(message.add(0x9) as *const u32), one);
-    pp_neon(a, 0x2, 0x1, b, 0xA, 0x7, 0x3, 0x0, c, 0xE, vld1q_u32(message.add(0xA) as *const u32), one);
-    pp_neon(a, 0x3, 0x2, b, 0xB, 0x8, 0x4, 0x1, c, 0xD, vld1q_u32(message.add(0xB) as *const u32), one);
-    pp_neon(a, 0x4, 0x3, b, 0xC, 0x9, 0x5, 0x2, c, 0xC, vld1q_u32(message.add(0xC) as *const u32), one);
-    pp_neon(a, 0x5, 0x4, b, 0xD, 0xA, 0x6, 0x3, c, 0xB, vld1q_u32(message.add(0xD) as *const u32), one);
-    pp_neon(a, 0x6, 0x5, b, 0xE, 0xB, 0x7, 0x4, c, 0xA, vld1q_u32(message.add(0xE) as *const u32), one);
-    pp_neon(a, 0x7, 0x6, b, 0xF, 0xC, 0x8, 0x5, c, 0x9, vld1q_u32(message.add(0xF) as *const u32), one);
+    pp_neon(
+        a,
+        0x4,
+        0x3,
+        b,
+        0x0,
+        0xD,
+        0x9,
+        0x6,
+        c,
+        0x8,
+        vld1q_u32(message.add(0x0) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x5,
+        0x4,
+        b,
+        0x1,
+        0xE,
+        0xA,
+        0x7,
+        c,
+        0x7,
+        vld1q_u32(message.add(0x1) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x6,
+        0x5,
+        b,
+        0x2,
+        0xF,
+        0xB,
+        0x8,
+        c,
+        0x6,
+        vld1q_u32(message.add(0x2) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x7,
+        0x6,
+        b,
+        0x3,
+        0x0,
+        0xC,
+        0x9,
+        c,
+        0x5,
+        vld1q_u32(message.add(0x3) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x8,
+        0x7,
+        b,
+        0x4,
+        0x1,
+        0xD,
+        0xA,
+        c,
+        0x4,
+        vld1q_u32(message.add(0x4) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x9,
+        0x8,
+        b,
+        0x5,
+        0x2,
+        0xE,
+        0xB,
+        c,
+        0x3,
+        vld1q_u32(message.add(0x5) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0xA,
+        0x9,
+        b,
+        0x6,
+        0x3,
+        0xF,
+        0xC,
+        c,
+        0x2,
+        vld1q_u32(message.add(0x6) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0xB,
+        0xA,
+        b,
+        0x7,
+        0x4,
+        0x0,
+        0xD,
+        c,
+        0x1,
+        vld1q_u32(message.add(0x7) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x0,
+        0xB,
+        b,
+        0x8,
+        0x5,
+        0x1,
+        0xE,
+        c,
+        0x0,
+        vld1q_u32(message.add(0x8) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x1,
+        0x0,
+        b,
+        0x9,
+        0x6,
+        0x2,
+        0xF,
+        c,
+        0xF,
+        vld1q_u32(message.add(0x9) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x2,
+        0x1,
+        b,
+        0xA,
+        0x7,
+        0x3,
+        0x0,
+        c,
+        0xE,
+        vld1q_u32(message.add(0xA) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x3,
+        0x2,
+        b,
+        0xB,
+        0x8,
+        0x4,
+        0x1,
+        c,
+        0xD,
+        vld1q_u32(message.add(0xB) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x4,
+        0x3,
+        b,
+        0xC,
+        0x9,
+        0x5,
+        0x2,
+        c,
+        0xC,
+        vld1q_u32(message.add(0xC) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x5,
+        0x4,
+        b,
+        0xD,
+        0xA,
+        0x6,
+        0x3,
+        c,
+        0xB,
+        vld1q_u32(message.add(0xD) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x6,
+        0x5,
+        b,
+        0xE,
+        0xB,
+        0x7,
+        0x4,
+        c,
+        0xA,
+        vld1q_u32(message.add(0xE) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x7,
+        0x6,
+        b,
+        0xF,
+        0xC,
+        0x8,
+        0x5,
+        c,
+        0x9,
+        vld1q_u32(message.add(0xF) as *const u32),
+        one,
+    );
 
-    pp_neon(a, 0x8, 0x7, b, 0x0, 0xD, 0x9, 0x6, c, 0x8, vld1q_u32(message.add(0x0) as *const u32), one);
-    pp_neon(a, 0x9, 0x8, b, 0x1, 0xE, 0xA, 0x7, c, 0x7, vld1q_u32(message.add(0x1) as *const u32), one);
-    pp_neon(a, 0xA, 0x9, b, 0x2, 0xF, 0xB, 0x8, c, 0x6, vld1q_u32(message.add(0x2) as *const u32), one);
-    pp_neon(a, 0xB, 0xA, b, 0x3, 0x0, 0xC, 0x9, c, 0x5, vld1q_u32(message.add(0x3) as *const u32), one);
-    pp_neon(a, 0x0, 0xB, b, 0x4, 0x1, 0xD, 0xA, c, 0x4, vld1q_u32(message.add(0x4) as *const u32), one);
-    pp_neon(a, 0x1, 0x0, b, 0x5, 0x2, 0xE, 0xB, c, 0x3, vld1q_u32(message.add(0x5) as *const u32), one);
-    pp_neon(a, 0x2, 0x1, b, 0x6, 0x3, 0xF, 0xC, c, 0x2, vld1q_u32(message.add(0x6) as *const u32), one);
-    pp_neon(a, 0x3, 0x2, b, 0x7, 0x4, 0x0, 0xD, c, 0x1, vld1q_u32(message.add(0x7) as *const u32), one);
-    pp_neon(a, 0x4, 0x3, b, 0x8, 0x5, 0x1, 0xE, c, 0x0, vld1q_u32(message.add(0x8) as *const u32), one);
-    pp_neon(a, 0x5, 0x4, b, 0x9, 0x6, 0x2, 0xF, c, 0xF, vld1q_u32(message.add(0x9) as *const u32), one);
-    pp_neon(a, 0x6, 0x5, b, 0xA, 0x7, 0x3, 0x0, c, 0xE, vld1q_u32(message.add(0xA) as *const u32), one);
-    pp_neon(a, 0x7, 0x6, b, 0xB, 0x8, 0x4, 0x1, c, 0xD, vld1q_u32(message.add(0xB) as *const u32), one);
-    pp_neon(a, 0x8, 0x7, b, 0xC, 0x9, 0x5, 0x2, c, 0xC, vld1q_u32(message.add(0xC) as *const u32), one);
-    pp_neon(a, 0x9, 0x8, b, 0xD, 0xA, 0x6, 0x3, c, 0xB, vld1q_u32(message.add(0xD) as *const u32), one);
-    pp_neon(a, 0xA, 0x9, b, 0xE, 0xB, 0x7, 0x4, c, 0xA, vld1q_u32(message.add(0xE) as *const u32), one);
-    pp_neon(a, 0xB, 0xA, b, 0xF, 0xC, 0x8, 0x5, c, 0x9, vld1q_u32(message.add(0xF) as *const u32), one);
+    pp_neon(
+        a,
+        0x8,
+        0x7,
+        b,
+        0x0,
+        0xD,
+        0x9,
+        0x6,
+        c,
+        0x8,
+        vld1q_u32(message.add(0x0) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x9,
+        0x8,
+        b,
+        0x1,
+        0xE,
+        0xA,
+        0x7,
+        c,
+        0x7,
+        vld1q_u32(message.add(0x1) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0xA,
+        0x9,
+        b,
+        0x2,
+        0xF,
+        0xB,
+        0x8,
+        c,
+        0x6,
+        vld1q_u32(message.add(0x2) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0xB,
+        0xA,
+        b,
+        0x3,
+        0x0,
+        0xC,
+        0x9,
+        c,
+        0x5,
+        vld1q_u32(message.add(0x3) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x0,
+        0xB,
+        b,
+        0x4,
+        0x1,
+        0xD,
+        0xA,
+        c,
+        0x4,
+        vld1q_u32(message.add(0x4) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x1,
+        0x0,
+        b,
+        0x5,
+        0x2,
+        0xE,
+        0xB,
+        c,
+        0x3,
+        vld1q_u32(message.add(0x5) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x2,
+        0x1,
+        b,
+        0x6,
+        0x3,
+        0xF,
+        0xC,
+        c,
+        0x2,
+        vld1q_u32(message.add(0x6) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x3,
+        0x2,
+        b,
+        0x7,
+        0x4,
+        0x0,
+        0xD,
+        c,
+        0x1,
+        vld1q_u32(message.add(0x7) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x4,
+        0x3,
+        b,
+        0x8,
+        0x5,
+        0x1,
+        0xE,
+        c,
+        0x0,
+        vld1q_u32(message.add(0x8) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x5,
+        0x4,
+        b,
+        0x9,
+        0x6,
+        0x2,
+        0xF,
+        c,
+        0xF,
+        vld1q_u32(message.add(0x9) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x6,
+        0x5,
+        b,
+        0xA,
+        0x7,
+        0x3,
+        0x0,
+        c,
+        0xE,
+        vld1q_u32(message.add(0xA) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x7,
+        0x6,
+        b,
+        0xB,
+        0x8,
+        0x4,
+        0x1,
+        c,
+        0xD,
+        vld1q_u32(message.add(0xB) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x8,
+        0x7,
+        b,
+        0xC,
+        0x9,
+        0x5,
+        0x2,
+        c,
+        0xC,
+        vld1q_u32(message.add(0xC) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0x9,
+        0x8,
+        b,
+        0xD,
+        0xA,
+        0x6,
+        0x3,
+        c,
+        0xB,
+        vld1q_u32(message.add(0xD) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0xA,
+        0x9,
+        b,
+        0xE,
+        0xB,
+        0x7,
+        0x4,
+        c,
+        0xA,
+        vld1q_u32(message.add(0xE) as *const u32),
+        one,
+    );
+    pp_neon(
+        a,
+        0xB,
+        0xA,
+        b,
+        0xF,
+        0xC,
+        0x8,
+        0x5,
+        c,
+        0x9,
+        vld1q_u32(message.add(0xF) as *const u32),
+        one,
+    );
 
     a[0xB] = vaddq_u32(a[0xB], c[0x6]);
     a[0xA] = vaddq_u32(a[0xA], c[0x5]);
@@ -377,10 +1001,7 @@ unsafe fn pp_neon(
     tt = vaddq_u32(vshlq_n_u32::<2>(tt), tt);
     tt = veorq_u32(veorq_u32(a[xa0_idx], tt), xc);
     tt = vaddq_u32(vshlq_n_u32::<1>(tt), tt);
-    tt = veorq_u32(
-        veorq_u32(tt, xb1),
-        veorq_u32(vbicq_u32(xb2, xb3), xm),
-    );
+    tt = veorq_u32(veorq_u32(tt, xb1), veorq_u32(vbicq_u32(xb2, xb3), xm));
     a[xa0_idx] = tt;
 
     tt = b[xb0_idx];

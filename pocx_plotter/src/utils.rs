@@ -22,7 +22,8 @@ use crate::error::Result;
 use std::path::Path;
 
 // Wrapper around pocx_plotfile::get_sector_size to match plotter's Result type
-// pocx_plotfile always returns a valid u64 (with fallbacks), but plotter expects Result
+// pocx_plotfile always returns a valid u64 (with fallbacks), but plotter
+// expects Result
 pub fn get_sector_size(path: &str) -> Result<u64> {
     Ok(pocx_plotfile::get_sector_size(path))
 }

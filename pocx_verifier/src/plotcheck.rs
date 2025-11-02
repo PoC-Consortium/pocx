@@ -117,7 +117,7 @@ fn single(matches: &clap::ArgMatches, mut plotfile: PoCXPlotFile) {
         &plotfile.meta.seed_decoded,
         scoop,
         nonce,
-        plotfile.meta.compression as u8,
+        plotfile.meta.compression,
     )
     .unwrap_or_else(|e| {
         eprintln!("ERROR: Failed to generate reference scoop: {}", e);
@@ -189,7 +189,7 @@ fn partial(mut plotfile: PoCXPlotFile) {
             &plotfile.meta.seed_decoded,
             scoop,
             nonce,
-            plotfile.meta.compression as u8,
+            plotfile.meta.compression,
         )
         .unwrap_or_else(|e| {
             eprintln!("ERROR: Failed to generate reference scoop: {}", e);
@@ -236,7 +236,7 @@ fn random(mut plotfile: PoCXPlotFile) {
             &plotfile.meta.seed_decoded,
             scoop,
             nonce,
-            plotfile.meta.compression as u8,
+            plotfile.meta.compression,
         )
         .unwrap_or_else(|e| {
             eprintln!("ERROR: Failed to generate reference scoop: {}", e);
@@ -288,7 +288,7 @@ fn complete(mut plotfile: PoCXPlotFile) {
                     &plotfile.meta.seed_decoded,
                     scoop,
                     nonce,
-                    plotfile.meta.compression as u8,
+                    plotfile.meta.compression,
                 )
                 .unwrap_or_else(|e| {
                     eprintln!("ERROR: Failed to generate reference scoop: {}", e);

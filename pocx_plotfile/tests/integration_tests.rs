@@ -275,7 +275,7 @@ fn test_metadata_consistency() {
             account,
             seed,
             (i + 1) as u64,
-            (i + 1) as u32,
+            (i + 1) as u8,
             false,
             false,
         ) {
@@ -283,7 +283,7 @@ fn test_metadata_consistency() {
             assert_eq!(plotfile.meta.base58_decoded, *account);
             assert_eq!(plotfile.meta.seed_decoded, *seed);
             assert_eq!(plotfile.meta.number_of_warps, (i + 1) as u64);
-            assert_eq!(plotfile.meta.compression, (i + 1) as u32);
+            assert_eq!(plotfile.meta.compression, (i + 1) as u8);
 
             // Verify derived metadata
             assert!(!plotfile.meta.base58.is_empty());
@@ -409,7 +409,7 @@ fn test_large_parameter_handling() {
 
     for (warps, compression) in large_params {
         let plotfile_result =
-            PoCXPlotFile::new(temp_path, &account, &seed, warps, compression, false, false);
+            PoCXPlotFile::new(temp_path, &account, &seed, warps, compression as u8, false, false);
 
         if let Ok(mut plotfile) = plotfile_result {
             plotfile.access = AccessType::Dummy;
@@ -422,7 +422,7 @@ fn test_large_parameter_handling() {
 
             // Verify metadata is correct
             assert_eq!(plotfile.meta.number_of_warps, warps);
-            assert_eq!(plotfile.meta.compression, compression);
+            assert_eq!(plotfile.meta.compression, compression as u8);
         }
     }
 }

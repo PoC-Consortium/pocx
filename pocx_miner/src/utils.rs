@@ -23,15 +23,15 @@ pub fn get_simd_name() -> &'static str {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
         if is_x86_feature_detected!("avx512f") {
-            return "AVX512";
+            "AVX512"
         } else if is_x86_feature_detected!("avx2") {
-            return "AVX2";
+            "AVX2"
         } else if is_x86_feature_detected!("avx") {
-            return "AVX";
+            "AVX"
         } else if is_x86_feature_detected!("sse2") {
-            return "SSE2";
+            "SSE2"
         } else {
-            return "Scalar";
+            "Scalar"
         }
     }
 

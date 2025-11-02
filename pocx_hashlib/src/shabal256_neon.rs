@@ -20,8 +20,9 @@
 
 //! ARM NEON-optimized Shabal256 implementation
 //!
-//! This module provides a 4-way parallel Shabal256 implementation using ARM NEON intrinsics.
-//! It processes 4 independent hash calculations simultaneously using 128-bit NEON vectors.
+//! This module provides a 4-way parallel Shabal256 implementation using ARM
+//! NEON intrinsics. It processes 4 independent hash calculations simultaneously
+//! using 128-bit NEON vectors.
 
 #![allow(clippy::too_many_arguments)]
 
@@ -56,19 +57,21 @@ const MESSAGE_SIZE: usize = 16;
 /// NEON doesn't have native rotate, so we synthesize it with shift + or
 macro_rules! vrotlq_n_u32 {
     ($a:expr, $n:expr) => {
-        vorrq_u32(vshlq_n_u32::<$n>($a), vshrq_n_u32::<{32 - $n}>($a))
+        vorrq_u32(vshlq_n_u32::<$n>($a), vshrq_n_u32::<{ 32 - $n }>($a))
     };
 }
 
 /// 4-way parallel Shabal256 using ARM NEON intrinsics
 ///
-/// Processes 4 independent Shabal256 hashes simultaneously using 128-bit NEON vectors.
-/// Equivalent to the SSE2 implementation but using ARM NEON instructions.
+/// Processes 4 independent Shabal256 hashes simultaneously using 128-bit NEON
+/// vectors. Equivalent to the SSE2 implementation but using ARM NEON
+/// instructions.
 ///
 /// # Safety
 ///
 /// This function uses NEON intrinsics and requires the `neon` target feature.
-/// NEON is mandatory on all AArch64 processors, so this is always available on ARM64.
+/// NEON is mandatory on all AArch64 processors, so this is always available on
+/// ARM64.
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon")]
 pub unsafe fn shabal256_neon(
@@ -141,15 +144,19 @@ pub unsafe fn shabal256_neon(
     // Process main data blocks
     while num > 0 {
         for i in 0..16 {
-            *b.get_unchecked_mut(i) =
-                vaddq_u32(*b.get_unchecked(i), vld1q_u32(data_ptr.add(ptr + i) as *const u32));
+            *b.get_unchecked_mut(i) = vaddq_u32(
+                *b.get_unchecked(i),
+                vld1q_u32(data_ptr.add(ptr + i) as *const u32),
+            );
         }
         a[0] = veorq_u32(a[0], vdupq_n_u32(w_low));
         a[1] = veorq_u32(a[1], vdupq_n_u32(w_high));
         apply_p(&mut a, &mut b, &c, data_ptr.add(ptr));
         for i in 0..16 {
-            *c.get_unchecked_mut(i) =
-                vsubq_u32(*c.get_unchecked(i), vld1q_u32(data_ptr.add(ptr + i) as *const u32));
+            *c.get_unchecked_mut(i) = vsubq_u32(
+                *c.get_unchecked(i),
+                vld1q_u32(data_ptr.add(ptr + i) as *const u32),
+            );
         }
         std::mem::swap(&mut b, &mut c);
         w_low = w_low.wrapping_add(1);
@@ -164,15 +171,19 @@ pub unsafe fn shabal256_neon(
     if let Some(pre_term) = pre_term {
         let pre_term_ptr = pre_term.as_ptr() as *const uint32x4_t;
         for i in 0..16 {
-            *b.get_unchecked_mut(i) =
-                vaddq_u32(*b.get_unchecked(i), vld1q_u32(pre_term_ptr.add(i) as *const u32));
+            *b.get_unchecked_mut(i) = vaddq_u32(
+                *b.get_unchecked(i),
+                vld1q_u32(pre_term_ptr.add(i) as *const u32),
+            );
         }
         a[0] = veorq_u32(a[0], vdupq_n_u32(w_low));
         a[1] = veorq_u32(a[1], vdupq_n_u32(w_high));
         apply_p(&mut a, &mut b, &c, pre_term_ptr);
         for i in 0..16 {
-            *c.get_unchecked_mut(i) =
-                vsubq_u32(*c.get_unchecked(i), vld1q_u32(pre_term_ptr.add(i) as *const u32));
+            *c.get_unchecked_mut(i) = vsubq_u32(
+                *c.get_unchecked(i),
+                vld1q_u32(pre_term_ptr.add(i) as *const u32),
+            );
         }
         std::mem::swap(&mut b, &mut c);
         w_low = w_low.wrapping_add(1);
@@ -183,8 +194,10 @@ pub unsafe fn shabal256_neon(
 
     // Process termination block
     for i in 0..16 {
-        *b.get_unchecked_mut(i) =
-            vaddq_u32(*b.get_unchecked(i), vld1q_u32(term_ptr.add(i) as *const u32));
+        *b.get_unchecked_mut(i) = vaddq_u32(
+            *b.get_unchecked(i),
+            vld1q_u32(term_ptr.add(i) as *const u32),
+        );
     }
     a[0] = veorq_u32(a[0], vdupq_n_u32(w_low));
     a[1] = veorq_u32(a[1], vdupq_n_u32(w_high));

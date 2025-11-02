@@ -103,7 +103,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::buffer::PageAlignedByteBuffer;
-use crate::utils::{preallocate};
+use crate::utils::preallocate;
 use crate::utils::{open_r, open_r_using_direct_io, open_rw, open_rw_using_direct_io};
 
 /// Size of a single scoop in bytes
@@ -875,7 +875,7 @@ impl PoCXPlotFile {
 
             // Calculate aligned read size (must be multiple of sector size for direct I/O)
             let read_size = if self.direct_io {
-                let sectors = (WAKEUP_READ_SIZE + self.sector_size as usize - 1) / self.sector_size as usize;
+                let sectors = WAKEUP_READ_SIZE.div_ceil(self.sector_size as usize);
                 sectors * self.sector_size as usize
             } else {
                 WAKEUP_READ_SIZE
@@ -1819,8 +1819,8 @@ mod tests {
         // Create a test file with proper size
         let test_file = temp_dir.join(format!(
             "{}_{}_{}_X1.pocx",
-            hex::encode(&account),
-            hex::encode(&seed),
+            hex::encode(account),
+            hex::encode(seed),
             1
         ));
 
@@ -1853,8 +1853,8 @@ mod tests {
         // Create a test file with proper size
         let test_file = temp_dir.join(format!(
             "{}_{}_{}_X1.pocx",
-            hex::encode(&account),
-            hex::encode(&seed),
+            hex::encode(account),
+            hex::encode(seed),
             1
         ));
 

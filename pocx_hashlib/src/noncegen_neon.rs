@@ -136,7 +136,8 @@ pub fn generate_nonces_neon(
             // remainder
             let pointer: &mut [u8] = unsafe {
                 from_raw_parts_mut(
-                    buffer[i * NEON_VECTOR_SIZE - HASH_SIZE * NEON_VECTOR_SIZE..i * NEON_VECTOR_SIZE]
+                    buffer
+                        [i * NEON_VECTOR_SIZE - HASH_SIZE * NEON_VECTOR_SIZE..i * NEON_VECTOR_SIZE]
                         .as_mut_ptr(),
                     HASH_SIZE * NEON_VECTOR_SIZE,
                 )
@@ -167,14 +168,16 @@ pub fn generate_nonces_neon(
         for i in (HASH_SIZE..=NONCE_SIZE - HASH_CAP).rev().step_by(HASH_SIZE) {
             let pointer: &mut [u8] = unsafe {
                 from_raw_parts_mut(
-                    buffer[i * NEON_VECTOR_SIZE - HASH_SIZE * NEON_VECTOR_SIZE..i * NEON_VECTOR_SIZE]
+                    buffer
+                        [i * NEON_VECTOR_SIZE - HASH_SIZE * NEON_VECTOR_SIZE..i * NEON_VECTOR_SIZE]
                         .as_mut_ptr(),
                     HASH_SIZE * NEON_VECTOR_SIZE,
                 )
             };
             unsafe {
                 shabal256_neon(
-                    &buffer[i * NEON_VECTOR_SIZE..i * NEON_VECTOR_SIZE + HASH_CAP * NEON_VECTOR_SIZE],
+                    &buffer
+                        [i * NEON_VECTOR_SIZE..i * NEON_VECTOR_SIZE + HASH_CAP * NEON_VECTOR_SIZE],
                     None,
                     &t3,
                     pointer,
@@ -217,7 +220,9 @@ fn splatter_neon(input: &[u32; MESSAGE_SIZE]) -> [u32; MESSAGE_SIZE * NEON_VECTO
     let mut result = [0u32; MESSAGE_SIZE * NEON_VECTOR_SIZE];
     for j in 0..MESSAGE_SIZE {
         for i in 0..NEON_VECTOR_SIZE {
-            unsafe { *result.get_unchecked_mut(j * NEON_VECTOR_SIZE + i) = *input.get_unchecked(j) };
+            unsafe {
+                *result.get_unchecked_mut(j * NEON_VECTOR_SIZE + i) = *input.get_unchecked(j)
+            };
         }
     }
     result
@@ -242,8 +247,7 @@ mod tests {
             .try_into()
             .unwrap();
         let start_nonce = 1337;
-        let exp_result_hash =
-            "acc0b40a22cf8ce8aabe361bd4b67bdb61b7367755ae9cb9963a68acaa6d322c";
+        let exp_result_hash = "acc0b40a22cf8ce8aabe361bd4b67bdb61b7367755ae9cb9963a68acaa6d322c";
 
         let check_result = |buf: &Vec<u8>| {
             let mut hasher = Sha256::new();

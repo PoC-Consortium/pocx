@@ -152,11 +152,7 @@ mod buffer_tests {
         let ptr = data_ref.as_ptr();
         let page_size = page_size::get();
 
-        assert_eq!(
-            ptr as usize % page_size,
-            0,
-            "Buffer should be page-aligned"
-        );
+        assert_eq!(ptr as usize % page_size, 0, "Buffer should be page-aligned");
     }
 
     #[test]
