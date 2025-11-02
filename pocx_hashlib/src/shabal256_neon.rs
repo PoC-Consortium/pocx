@@ -60,13 +60,6 @@ macro_rules! vrotlq_n_u32 {
     };
 }
 
-/// Helper macro to perform right rotation on NEON vectors
-macro_rules! vrotrq_n_u32 {
-    ($a:expr, $n:expr) => {
-        vorrq_u32(vshrq_n_u32::<$n>($a), vshlq_n_u32::<{32 - $n}>($a))
-    };
-}
-
 /// 4-way parallel Shabal256 using ARM NEON intrinsics
 ///
 /// Processes 4 independent Shabal256 hashes simultaneously using 128-bit NEON vectors.
