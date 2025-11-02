@@ -80,6 +80,7 @@ pub enum SimdExtension {
     Sse2,
     #[cfg_attr(not(target_arch = "aarch64"), allow(dead_code))]
     Neon,
+    #[allow(dead_code)]
     None,
 }
 

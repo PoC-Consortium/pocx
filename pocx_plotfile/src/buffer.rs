@@ -72,6 +72,7 @@ impl PageAlignedByteBuffer {
     }
 
     /// Returns an immutable reference to the buffer
+    #[allow(dead_code)]
     pub fn get_buffer_ref(&self) -> &Vec<u8> {
         self.data.as_ref().unwrap()
     }
