@@ -408,8 +408,15 @@ fn test_large_parameter_handling() {
     ];
 
     for (warps, compression) in large_params {
-        let plotfile_result =
-            PoCXPlotFile::new(temp_path, &account, &seed, warps, compression as u8, false, false);
+        let plotfile_result = PoCXPlotFile::new(
+            temp_path,
+            &account,
+            &seed,
+            warps,
+            compression as u8,
+            false,
+            false,
+        );
 
         if let Ok(mut plotfile) = plotfile_result {
             plotfile.access = AccessType::Dummy;
