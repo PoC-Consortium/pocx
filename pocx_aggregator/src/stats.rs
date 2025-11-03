@@ -149,8 +149,8 @@ impl MinerInfo {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CurrentBlockBest {
     pub height: u64,
-    pub best_poc_time: Option<u64>,       // in seconds
-    pub best_quality: Option<u64>,        // raw quality value
+    pub best_poc_time: Option<u64>, // in seconds
+    pub best_quality: Option<u64>,  // raw quality value
     pub best_account_id: Option<String>,
     pub best_machine_id: Option<String>,
 }
@@ -403,7 +403,9 @@ impl Stats {
 
                 (
                     info.account_id.clone(),
-                    info.machine_id.clone().unwrap_or_else(|| "unknown".to_string()),
+                    info.machine_id
+                        .clone()
+                        .unwrap_or_else(|| "unknown".to_string()),
                     last_seen_secs_ago,
                     estimated_capacity_tib,
                     submissions_24h,
@@ -444,10 +446,7 @@ impl Stats {
         // Aggregate by machine: group by machine_id
         let mut machine_map: HashMap<String, Vec<usize>> = HashMap::new();
         for (idx, (_, machine_id, _, _, _, _, _, _, _)) in pair_data.iter().enumerate() {
-            machine_map
-                .entry(machine_id.clone())
-                .or_default()
-                .push(idx);
+            machine_map.entry(machine_id.clone()).or_default().push(idx);
         }
 
         let mut machines: Vec<MachineSummary> = machine_map
@@ -479,10 +478,7 @@ impl Stats {
 
                 // Calculate average submission percentage instead of sum
                 let avg_submission_percentage = if !indices.is_empty() {
-                    let total_pct: f64 = indices
-                        .iter()
-                        .map(|&idx| pair_data[idx].5)
-                        .sum();
+                    let total_pct: f64 = indices.iter().map(|&idx| pair_data[idx].5).sum();
                     total_pct / indices.len() as f64
                 } else {
                     0.0
@@ -502,20 +498,15 @@ impl Stats {
             .collect();
 
         // Sort machines: active first, then by machine_id for stability
-        machines.sort_by(|a, b| {
-            match b.is_active.cmp(&a.is_active) {
-                std::cmp::Ordering::Equal => a.machine_id.cmp(&b.machine_id),
-                other => other,
-            }
+        machines.sort_by(|a, b| match b.is_active.cmp(&a.is_active) {
+            std::cmp::Ordering::Equal => a.machine_id.cmp(&b.machine_id),
+            other => other,
         });
 
         // Aggregate by account: group by account_id
         let mut account_map: HashMap<String, Vec<usize>> = HashMap::new();
         for (idx, (account_id, _, _, _, _, _, _, _, _)) in pair_data.iter().enumerate() {
-            account_map
-                .entry(account_id.clone())
-                .or_default()
-                .push(idx);
+            account_map.entry(account_id.clone()).or_default().push(idx);
         }
 
         let mut accounts: Vec<AccountSummary> = account_map
@@ -547,10 +538,7 @@ impl Stats {
 
                 // Calculate average submission percentage instead of sum
                 let avg_submission_percentage = if !indices.is_empty() {
-                    let total_pct: f64 = indices
-                        .iter()
-                        .map(|&idx| pair_data[idx].5)
-                        .sum();
+                    let total_pct: f64 = indices.iter().map(|&idx| pair_data[idx].5).sum();
                     total_pct / indices.len() as f64
                 } else {
                     0.0
@@ -570,11 +558,9 @@ impl Stats {
             .collect();
 
         // Sort accounts: active first, then by account_id for stability
-        accounts.sort_by(|a, b| {
-            match b.is_active.cmp(&a.is_active) {
-                std::cmp::Ordering::Equal => a.account_id.cmp(&b.account_id),
-                other => other,
-            }
+        accounts.sort_by(|a, b| match b.is_active.cmp(&a.is_active) {
+            std::cmp::Ordering::Equal => a.account_id.cmp(&b.account_id),
+            other => other,
         });
 
         // Count active machines
@@ -588,7 +574,10 @@ impl Stats {
             .count();
 
         // Calculate total capacity
-        let total_capacity_tib: f64 = pair_data.iter().map(|(_, _, _, cap, _, _, _, _, _)| cap).sum();
+        let total_capacity_tib: f64 = pair_data
+            .iter()
+            .map(|(_, _, _, cap, _, _, _, _, _)| cap)
+            .sum();
         let total_capacity_bytes = (total_capacity_tib * 1_099_511_627_776.0) as u64;
         let total_capacity = ByteSize::b(total_capacity_bytes).to_string();
 
