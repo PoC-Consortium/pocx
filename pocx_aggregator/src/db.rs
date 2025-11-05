@@ -265,17 +265,22 @@ impl Database {
     }
 
     /// Get all recent submissions (for loading on startup)
-    pub fn get_all_recent_submissions(&self, limit_overall: i64) -> Result<Vec<Submission>> {
+    /// Loads submissions from the last 24 hours to match dashboard display
+    pub fn get_all_recent_submissions(&self, _limit_overall: i64) -> Result<Vec<Submission>> {
         use crate::schema::submissions::dsl::*;
+        use chrono::Duration;
 
         let mut conn = self
             .pool
             .get()
             .map_err(|e| Error::Config(format!("Failed to get connection: {}", e)))?;
 
+        // Load last 24 hours of submissions
+        let cutoff = chrono::Utc::now().naive_utc() - Duration::hours(24);
+
         let results = submissions
+            .filter(timestamp.gt(cutoff))
             .order(timestamp.desc())
-            .limit(limit_overall)
             .load::<Submission>(&mut conn)
             .map_err(|e| Error::Config(format!("Failed to load submissions: {}", e)))?;
 
