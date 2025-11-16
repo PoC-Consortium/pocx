@@ -97,9 +97,12 @@ impl Stream for Interval {
         // Wait for the delay to be done
         match self.delay.as_mut().poll(cx) {
             Poll::Ready(()) => {
-                // Update next time and create new delay
+                // Always schedule next fire from current time to prevent catch-up bursts
+                // When requests take longer than interval duration (e.g., timeouts),
+                // this ensures we wait the full interval before the next attempt
                 let duration = self.duration;
-                self.next_time += duration;
+                let now = TokioInstant::now();
+                self.next_time = now + duration;
                 self.delay = Box::pin(sleep_until(self.next_time));
 
                 // Return the current instant
