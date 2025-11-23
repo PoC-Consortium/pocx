@@ -1,8 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches: [ master ]
   pull_request:
     branches: [ master ]
 
@@ -23,19 +21,26 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      # TODO: Temporarily disabled on macOS due to GitHub Actions bug
+      # See: https://github.com/actions/runner-images/issues/13341
+      # hashFiles() fails on macOS 14/15 runners (Nov 2025)
+      # Re-enable once the bug is fixed
       - name: Cache cargo registry
+        if: runner.os != 'macOS'
         uses: actions/cache@v4
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
+        if: runner.os != 'macOS'
         uses: actions/cache@v4
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache target directory
+        if: runner.os != 'macOS'
         uses: actions/cache@v4
         with:
           path: target
@@ -156,19 +161,26 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # TODO: Temporarily disabled on macOS due to GitHub Actions bug
+      # See: https://github.com/actions/runner-images/issues/13341
+      # hashFiles() fails on macOS 14/15 runners (Nov 2025)
+      # Re-enable once the bug is fixed
       - name: Cache cargo registry
+        if: runner.os != 'macOS'
         uses: actions/cache@v4
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
+        if: runner.os != 'macOS'
         uses: actions/cache@v4
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache target directory
+        if: runner.os != 'macOS'
         uses: actions/cache@v4
         with:
           path: target

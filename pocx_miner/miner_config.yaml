@@ -1,24 +1,37 @@
 # PoCX Miner Configuration
 
 # network
-chains:                               
-  - name: 'PoCX Testnet'
-    base_url: 'http://127.0.0.1:8081/'
-    api_path: 'pocx'  # PoCX JSON-RPC 2.0 endpoint
+chains:
+  # Bitcoin-PoCX Mainnet (default)
+  - name: 'Bitcoin-PoCX Mainnet'
+    base_url: 'http://127.0.0.1:8332/'
+    api_path: ''  # Empty for Bitcoin-PoCX
     # auth_token: 'your-bearer-token-here'  # Optional bearer token for authentication
     block_time_seconds: 120  # Block time for network capacity calculation (default: 120s = 2 minutes)
     # target_quality: 1000000  # Optional: Only submit if quality < this, default: unlimited
-    
+
     # Optional: Custom headers (advanced usage)
     # headers:
     #   'X-Custom-Header': 'your-value-here'
-    
-    # Optional: Per-account overrides (advanced usage)  
+
+    # Optional: Per-account overrides (advanced usage)
     # accounts:
     #   - account: 'your-account-address-here'
     #     target_quality: 500000  # Account-specific quality limit
     #     headers:
     #       'X-Account-Specific': 'value'
+
+  # Bitcoin-PoCX Testnet
+  # - name: 'Bitcoin-PoCX Testnet'
+  #   base_url: 'http://127.0.0.1:18332/'
+  #   api_path: ''  # Empty for Bitcoin-PoCX
+  #   block_time_seconds: 120
+
+  # PoCX Mockchain (for local testing)
+  # - name: 'PoCX Mockchain'
+  #   base_url: 'http://127.0.0.1:8081/'
+  #   api_path: 'pocx'  # PoCX JSON-RPC 2.0 endpoint
+  #   block_time_seconds: 120
 
 get_mining_info_interval: 1000        # default 1000ms
 timeout: 5000                         # default 5000ms

@@ -23,7 +23,7 @@ cargo test -p pocx_plotfile
 
 ## Documentation
 
-For detailed API documentation and advanced usage, see the [Wiki](../wiki/API-Reference.md).
+For detailed documentation and advanced usage, see the [Wiki](https://github.com/PoC-Consortium/pocx/wiki).
 
 ## License
 

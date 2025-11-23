@@ -23,7 +23,7 @@ cargo test -p pocx_protocol
 
 ## Documentation
 
-For detailed API reference and protocol specifications, see the [Wiki](../wiki/API-Reference.md).
+For detailed protocol specifications, see the [Wiki](https://github.com/PoC-Consortium/pocx/wiki).
 
 ## License
 
