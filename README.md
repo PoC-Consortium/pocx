@@ -87,11 +87,12 @@ show_progress: true
 
 ## Documentation
 
-For comprehensive documentation, see the [Wiki](wiki/):
-- **[Plotter Guide](wiki/Plotter-Guide.md)** - Complete guide to plot file generation
-- **[Miner Guide](wiki/Miner-Guide.md)** - Mining configuration and operation
-- **[Plot Format Specification](wiki/Plot-Format.md)** - Technical format details
-- **[Technical Details](wiki/Technical-Details.md)** - Nonce construction and security analysis
+For comprehensive documentation, see the [Wiki](https://github.com/PoC-Consortium/pocx/wiki):
+- **[Plotter Guide](https://github.com/PoC-Consortium/pocx/wiki/Plotter-Guide)** - Complete guide to plot file generation
+- **[Miner Guide](https://github.com/PoC-Consortium/pocx/wiki/Miner-Guide)** - Mining configuration and operation
+- **[Aggregator Guide](https://github.com/PoC-Consortium/pocx/wiki/Aggregator-Guide)** - Mining proxy configuration and setup
+- **[Plot Format Specification](https://github.com/PoC-Consortium/pocx/wiki/Plot-Format)** - Technical format details
+- **[Technical Details](https://github.com/PoC-Consortium/pocx/wiki/Technical-Details)** - Nonce construction and security analysis
 
 ## Development
 
