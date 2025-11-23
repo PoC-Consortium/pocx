@@ -1,6 +1,5 @@
 # Rust
 target/
-Cargo.lock
 **/*.rs.bk
 *.pdb
 debug/
@@ -89,6 +88,7 @@ audit-results.json
 # Fuzz testing
 /fuzz/artifacts/
 /fuzz/corpus/
+**/fuzz/Cargo.lock
 
 # Documentation
 /docs/
