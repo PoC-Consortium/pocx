@@ -126,14 +126,14 @@ jobs:
             opencl: false
 
           # macOS x86_64
-          - os: macos-13
+          - os: macos-15
             target: x86_64-apple-darwin
             cross: false
             features: simd
             opencl: false
 
           # macOS x86_64 with OpenCL
-          - os: macos-13
+          - os: macos-15
             target: x86_64-apple-darwin
             cross: false
             features: simd,opencl
