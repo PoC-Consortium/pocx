@@ -16,8 +16,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Reuse the exact same build process from CI
-  # No testing needed - master is already tested via PR workflow
+  # Single binary per platform - OpenCL is dynamically loaded at runtime
   build:
     name: Build - ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
@@ -29,70 +28,37 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             cross: false
-            features: simd
-            opencl: false
-
-          # Linux x86_64 with OpenCL
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            cross: false
-            features: simd,opencl
-            opencl: true
 
           # Linux ARM64
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             cross: true
-            features: ""
-            opencl: false
 
           # Android ARM64
           - os: ubuntu-latest
             target: aarch64-linux-android
             cross: true
-            features: ""
-            opencl: false
 
           # Windows x86_64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             cross: false
-            features: simd
-            opencl: false
 
           # macOS x86_64
           - os: macos-15
             target: x86_64-apple-darwin
             cross: false
-            features: simd
-            opencl: false
-
-          # macOS x86_64 with OpenCL
-          - os: macos-15
-            target: x86_64-apple-darwin
-            cross: false
-            features: simd,opencl
-            opencl: true
 
           # macOS ARM64 (Apple Silicon)
           - os: macos-14
             target: aarch64-apple-darwin
             cross: false
-            features: ""
-            opencl: false
-
-          # macOS ARM64 with OpenCL
-          - os: macos-14
-            target: aarch64-apple-darwin
-            cross: false
-            features: opencl
-            opencl: true
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
@@ -119,37 +85,22 @@ jobs:
         run: |
           cargo install cross --git https://github.com/cross-rs/cross --locked || true
 
-      - name: Install OpenCL headers (Linux)
-        if: matrix.opencl && runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ocl-icd-opencl-dev
-
       - name: Build release binaries
         run: |
-          FEATURES_FLAG=""
-          if [ -n "${{ matrix.features }}" ]; then
-            FEATURES_FLAG="--no-default-features --features ${{ matrix.features }}"
-          else
-            FEATURES_FLAG="--no-default-features"
-          fi
-
           if [ "${{ matrix.cross }}" = "true" ]; then
             cross build --release --target ${{ matrix.target }} \
               -p pocx_miner \
               -p pocx_plotter \
               -p pocx_verifier \
               -p pocx_aggregator \
-              -p pocx_mockchain \
-              $FEATURES_FLAG
+              -p pocx_mockchain
           else
             cargo build --release --target ${{ matrix.target }} \
               -p pocx_miner \
               -p pocx_plotter \
               -p pocx_verifier \
               -p pocx_aggregator \
-              -p pocx_mockchain \
-              $FEATURES_FLAG
+              -p pocx_mockchain
           fi
         shell: bash
         timeout-minutes: 60
@@ -168,11 +119,6 @@ jobs:
             VERSION="v0.0.1-test"
           fi
 
-          SUFFIX=""
-          if [ "${{ matrix.opencl }}" = "true" ]; then
-            SUFFIX="-opencl"
-          fi
-
           # Copy binaries to staging
           cp target/${{ matrix.target }}/release/pocx_miner staging/
           cp target/${{ matrix.target }}/release/pocx_plotter staging/
@@ -187,7 +133,7 @@ jobs:
           cp pocx_mockchain/mockchain_config.toml staging/
 
           # Create archive
-          ARCHIVE_NAME="pocx-${VERSION}-${{ matrix.target }}${SUFFIX}.tar.gz"
+          ARCHIVE_NAME="pocx-${VERSION}-${{ matrix.target }}.tar.gz"
           tar -czf "release-artifacts/${ARCHIVE_NAME}" -C staging .
         shell: bash
 
@@ -225,7 +171,7 @@ jobs:
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.target }}${{ matrix.opencl && '-opencl' || '' }}
+          name: release-${{ matrix.target }}
           path: release-artifacts/*
           retention-days: 7
 
@@ -279,15 +225,18 @@ jobs:
 
             Pre-built binaries for all supported platforms.
 
+            **Single Binary Design:** OpenCL GPU acceleration is dynamically loaded at runtime.
+            The same binary works on systems with or without OpenCL installed.
+
             **Platforms:**
-            - Linux x86_64 / ARM64 (with/without OpenCL)
+            - Linux x86_64 / ARM64
             - Android ARM64
             - Windows x86_64
-            - macOS x86_64 / ARM64 (with/without OpenCL)
+            - macOS x86_64 / ARM64 (Apple Silicon)
 
             **Binaries:**
             - `pocx_miner` - Mining client
-            - `pocx_plotter` - Plot file generator
+            - `pocx_plotter` - Plot file generator (GPU accelerated when OpenCL available)
             - `pocx_verifier` - Plot verification tool
             - `pocx_aggregator` - Mining proxy/aggregator
             - `pocx_mockchain` - Mock blockchain for testing

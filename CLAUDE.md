@@ -41,25 +41,22 @@ The repository contains 8 Rust crates:
 ## Development Requirements
 
 ### Rust Toolchain
-- **Required Version**: Rust 1.91.0-nightly or later
-- **Why Nightly**: Required for AVX512 intrinsics (will switch to stable once stabilized)
+- **Required Version**: Rust 1.75.0 stable or later
+- **SIMD Support**: AVX512 and NEON intrinsics are fully stable
 - **Components**: rustfmt, clippy
 - **CI Tools**: cargo-audit, cargo-deny (auto-installed by CI scripts if missing)
 
 ### Installation
 ```bash
-# Install nightly toolchain with required components
-rustup toolchain install nightly --component rustfmt clippy
-
-# Set as project default
-rustup override set nightly
+# Install stable toolchain with required components
+rustup toolchain install stable --component rustfmt clippy
 
 # Optional: Install CI tools manually (CI scripts auto-install if missing)
 cargo install cargo-audit cargo-deny
 ```
 
-### Optional Dependencies
-- **OpenCL**: For GPU acceleration in pocx_plotter (requires OpenCL SDK)
+### Optional Runtime Dependencies
+- **OpenCL**: For GPU acceleration in pocx_plotter (dynamically loaded at runtime - no SDK needed to build)
 - **SQLite**: Automatically handled by diesel for pocx_mockchain
 
 ## Common Development Commands

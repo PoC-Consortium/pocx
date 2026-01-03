@@ -32,7 +32,9 @@ use opencl3::command_queue::{CommandQueue, CL_QUEUE_PROFILING_ENABLE};
 use opencl3::context::Context;
 use opencl3::device::{Device, CL_DEVICE_TYPE_GPU};
 use opencl3::kernel::{ExecuteKernel, Kernel};
-use opencl3::memory::{Buffer, ClMem, CL_MAP_READ, CL_MEM_ALLOC_HOST_PTR, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE};
+use opencl3::memory::{
+    Buffer, ClMem, CL_MAP_READ, CL_MEM_ALLOC_HOST_PTR, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE,
+};
 use opencl3::platform::get_platforms;
 use opencl3::program::Program;
 use opencl3::types::{CL_BLOCKING, CL_NON_BLOCKING};
@@ -97,13 +99,14 @@ impl GpuContext {
         let program = Program::create_and_build_from_source(&context, SRC, "")
             .expect("Failed to build OpenCL program");
 
-        let queue_a = CommandQueue::create_default_with_properties(&context, CL_QUEUE_PROFILING_ENABLE, 0)
-            .expect("Failed to create command queue A");
-        let queue_b = CommandQueue::create_default_with_properties(&context, CL_QUEUE_PROFILING_ENABLE, 0)
-            .expect("Failed to create command queue B");
+        let queue_a =
+            CommandQueue::create_default_with_properties(&context, CL_QUEUE_PROFILING_ENABLE, 0)
+                .expect("Failed to create command queue A");
+        let queue_b =
+            CommandQueue::create_default_with_properties(&context, CL_QUEUE_PROFILING_ENABLE, 0)
+                .expect("Failed to create command queue B");
 
-        let kernel = Kernel::create(&program, "calculate_nonces")
-            .expect("Failed to create kernel");
+        let kernel = Kernel::create(&program, "calculate_nonces").expect("Failed to create kernel");
 
         let kernel_workgroup_size = get_kernel_work_group_size(&kernel, &device, kws_override);
         let workgroup_count = cores;
@@ -177,7 +180,15 @@ impl GpuContext {
             let buffer_ptr_host: *mut u8 = unsafe {
                 let mut mapped_ptr: *mut std::ffi::c_void = ptr::null_mut();
                 queue_b
-                    .enqueue_map_buffer::<u8>(&buffer_host, CL_BLOCKING, CL_MAP_READ, 0, buffer_size, &mut mapped_ptr, &[])
+                    .enqueue_map_buffer::<u8>(
+                        &buffer_host,
+                        CL_BLOCKING,
+                        CL_MAP_READ,
+                        0,
+                        buffer_size,
+                        &mut mapped_ptr,
+                        &[],
+                    )
                     .expect("Failed to map host buffer");
                 mapped_ptr as *mut u8
             };
@@ -197,24 +208,14 @@ impl GpuContext {
                 }
             } else {
                 unsafe {
-                    Buffer::<u8>::create(
-                        &context,
-                        CL_MEM_READ_WRITE,
-                        buffer_size,
-                        ptr::null_mut(),
-                    )
-                    .expect("Failed to create GPU buffer A")
+                    Buffer::<u8>::create(&context, CL_MEM_READ_WRITE, buffer_size, ptr::null_mut())
+                        .expect("Failed to create GPU buffer A")
                 }
             };
 
             let buffer_gpu_b = unsafe {
-                Buffer::<u8>::create(
-                    &context,
-                    CL_MEM_READ_WRITE,
-                    buffer_size,
-                    ptr::null_mut(),
-                )
-                .expect("Failed to create GPU buffer B")
+                Buffer::<u8>::create(&context, CL_MEM_READ_WRITE, buffer_size, ptr::null_mut())
+                    .expect("Failed to create GPU buffer B")
             };
 
             let buffer_host = if nvidia { None } else { Some(buffer_host) };
@@ -304,9 +305,7 @@ fn get_kernel_work_group_size(kernel: &Kernel, device: &Device, kws_override: us
     if kws_override != 0 {
         return kws_override;
     }
-    kernel
-        .get_work_group_size(device.id())
-        .unwrap_or(256)
+    kernel.get_work_group_size(device.id()).unwrap_or(256)
 }
 
 pub fn gpu_get_info(gpus: &[String], quiet: bool, kws_override: usize) -> u64 {
@@ -353,8 +352,7 @@ pub fn gpu_get_info(gpus: &[String], quiet: bool, kws_override: usize) -> u64 {
         let context = Context::from_device(&device).expect("Failed to create context");
         let program = Program::create_and_build_from_source(&context, SRC, "")
             .expect("Failed to build program");
-        let kernel = Kernel::create(&program, "calculate_nonces")
-            .expect("Failed to create kernel");
+        let kernel = Kernel::create(&program, "calculate_nonces").expect("Failed to create kernel");
         let kernel_workgroup_size = get_kernel_work_group_size(&kernel, &device, kws_override);
 
         let gpu_cores = if gpu_cores == 0 {
@@ -426,7 +424,10 @@ pub fn gpu_init(gpus: &[String], zcb: bool, kws_override: usize) -> Vec<Arc<Mute
 
         let device = Device::new(devices[gpu_id]);
         let max_compute_units = device.max_compute_units().unwrap_or(0) as usize;
-        let vendor = device.vendor().unwrap_or_else(|_| "Unknown".to_string()).to_uppercase();
+        let vendor = device
+            .vendor()
+            .unwrap_or_else(|_| "Unknown".to_string())
+            .to_uppercase();
         let nvidia = vendor.contains("NVIDIA");
 
         let gpu_cores = if gpu_cores == 0 {
@@ -476,7 +477,10 @@ pub fn gpu_hash(gpu_context: &Arc<Mutex<GpuContext>>, task: &GpuTask) {
                 .expect("Failed to enqueue kernel");
         }
     }
-    gpu_context.queue_a.finish().expect("Failed to finish queue");
+    gpu_context
+        .queue_a
+        .finish()
+        .expect("Failed to finish queue");
 }
 
 pub fn gpu_transfer_to_host(
@@ -498,8 +502,17 @@ pub fn gpu_transfer_to_host(
         // Zero-copy mode: map GPU buffer to host temporarily
         let mut mapped_ptr: *mut std::ffi::c_void = ptr::null_mut();
         unsafe {
-            gpu_context.queue_b
-                .enqueue_map_buffer::<u8>(src_buffer, CL_BLOCKING, CL_MAP_READ, 0, buffer_size, &mut mapped_ptr, &[])
+            gpu_context
+                .queue_b
+                .enqueue_map_buffer::<u8>(
+                    src_buffer,
+                    CL_BLOCKING,
+                    CL_MAP_READ,
+                    0,
+                    buffer_size,
+                    &mut mapped_ptr,
+                    &[],
+                )
                 .expect("Failed to map buffer");
         }
         let ptr = mapped_ptr as *const u8;
@@ -509,20 +522,27 @@ pub fn gpu_transfer_to_host(
 
         // Unmap the buffer
         unsafe {
-            gpu_context.queue_a
+            gpu_context
+                .queue_a
                 .enqueue_unmap_mem_object(src_buffer.get(), mapped_ptr, &[])
                 .expect("Failed to unmap buffer");
         }
-        gpu_context.queue_a.finish().expect("Failed to finish queue");
+        gpu_context
+            .queue_a
+            .finish()
+            .expect("Failed to finish queue");
         return;
     } else {
         // Pinned memory mode: use persistent mapped buffer
-        let ptr = gpu_context.buffer_ptr_host.expect("buffer_ptr_host not set");
+        let ptr = gpu_context
+            .buffer_ptr_host
+            .expect("buffer_ptr_host not set");
 
         // Copy from GPU to pinned host buffer
         let slice = unsafe { from_raw_parts_mut(ptr, buffer_size) };
         unsafe {
-            gpu_context.queue_b
+            gpu_context
+                .queue_b
                 .enqueue_read_buffer(src_buffer, CL_BLOCKING, 0, slice, &[])
                 .expect("Failed to read buffer");
         }
@@ -554,17 +574,29 @@ pub fn gpu_hash_and_transfer_to_host(
     let buffer_ptr = if gpu_context.mapping {
         // Zero-copy mode: map transfer buffer while computing
         unsafe {
-            gpu_context.queue_b
-                .enqueue_map_buffer::<u8>(transfer_buffer, CL_BLOCKING, CL_MAP_READ, 0, buffer_size, &mut mapped_ptr, &[])
+            gpu_context
+                .queue_b
+                .enqueue_map_buffer::<u8>(
+                    transfer_buffer,
+                    CL_BLOCKING,
+                    CL_MAP_READ,
+                    0,
+                    buffer_size,
+                    &mut mapped_ptr,
+                    &[],
+                )
                 .expect("Failed to map buffer");
         }
         mapped_ptr as *const u8
     } else {
         // Pinned memory mode: start async copy to persistent mapped buffer
-        let ptr = gpu_context.buffer_ptr_host.expect("buffer_ptr_host not set");
+        let ptr = gpu_context
+            .buffer_ptr_host
+            .expect("buffer_ptr_host not set");
         let slice = unsafe { from_raw_parts_mut(ptr, buffer_size) };
         unsafe {
-            gpu_context.queue_b
+            gpu_context
+                .queue_b
                 .enqueue_read_buffer(transfer_buffer, CL_NON_BLOCKING, 0, slice, &[])
                 .expect("Failed to enqueue read buffer");
         }
@@ -596,7 +628,10 @@ pub fn gpu_hash_and_transfer_to_host(
     }
 
     // Wait for transfer to complete
-    gpu_context.queue_b.finish().expect("Failed to finish transfer queue");
+    gpu_context
+        .queue_b
+        .finish()
+        .expect("Failed to finish transfer queue");
 
     // Process transferred data
     unpack_shuffle_scatter(buffer_ptr, &gpu_context, transfer_task);
@@ -604,22 +639,37 @@ pub fn gpu_hash_and_transfer_to_host(
     // Unmap if in mapping mode
     if gpu_context.mapping && !mapped_ptr.is_null() {
         unsafe {
-            gpu_context.queue_a
+            gpu_context
+                .queue_a
                 .enqueue_unmap_mem_object(transfer_buffer.get(), mapped_ptr, &[])
                 .expect("Failed to unmap buffer");
         }
     }
 
     // Wait for compute to finish
-    gpu_context.queue_a.finish().expect("Failed to finish compute queue");
+    gpu_context
+        .queue_a
+        .finish()
+        .expect("Failed to finish compute queue");
 }
 
 fn upload_base58(gpu_context: &Arc<Mutex<GpuContext>>, address_payload: &[u8; 20], blocking: bool) {
     let gpu_context = gpu_context.lock().unwrap();
     let mut base58 = gpu_context.base58.borrow_mut();
     unsafe {
-        gpu_context.queue_a
-            .enqueue_write_buffer(&mut *base58, if blocking { CL_BLOCKING } else { CL_NON_BLOCKING }, 0, address_payload, &[])
+        gpu_context
+            .queue_a
+            .enqueue_write_buffer(
+                &mut *base58,
+                if blocking {
+                    CL_BLOCKING
+                } else {
+                    CL_NON_BLOCKING
+                },
+                0,
+                address_payload,
+                &[],
+            )
             .expect("Failed to write base58 buffer");
     }
 }
@@ -628,8 +678,19 @@ fn upload_seed(gpu_context: &Arc<Mutex<GpuContext>>, seed: [u8; 32], blocking: b
     let gpu_context = gpu_context.lock().unwrap();
     let mut seed_buf = gpu_context.seed.borrow_mut();
     unsafe {
-        gpu_context.queue_a
-            .enqueue_write_buffer(&mut *seed_buf, if blocking { CL_BLOCKING } else { CL_NON_BLOCKING }, 0, &seed, &[])
+        gpu_context
+            .queue_a
+            .enqueue_write_buffer(
+                &mut *seed_buf,
+                if blocking {
+                    CL_BLOCKING
+                } else {
+                    CL_NON_BLOCKING
+                },
+                0,
+                &seed,
+                &[],
+            )
             .expect("Failed to write seed buffer");
     }
 }

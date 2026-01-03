@@ -1355,7 +1355,7 @@ mod tests {
         // Create or reuse existing file
         if !shared_file.exists() && fs::write(&shared_file, vec![0u8; WARP_SIZE as usize]).is_err()
         {
-            return; // Skip if can't create file
+            // Skip if can't create file
         }
 
         // Test invalid hex in filename using symlink (Unix only)
@@ -1520,7 +1520,7 @@ mod tests {
         // Create or reuse existing file
         if !shared_file.exists() && fs::write(&shared_file, vec![0u8; WARP_SIZE as usize]).is_err()
         {
-            return; // Skip if can't create file
+            // Skip if can't create file
         }
 
         // Test filename with edge case compression value using symlink (Unix only)

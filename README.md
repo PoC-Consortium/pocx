@@ -2,7 +2,7 @@
 
 [![Release](https://img.shields.io/github/v/release/PoC-Consortium/pocx)](https://github.com/PoC-Consortium/pocx/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Rust](https://img.shields.io/badge/rust-%3E%3D1.91.0--nightly-brightgreen.svg)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/rust-%3E%3D1.75.0-brightgreen.svg)](https://www.rust-lang.org)
 
 PoCX is a high-performance Proof-of-Capacity (PoC) cryptocurrency mining framework written in Rust. It provides tools for plot generation, mining, verification, and testing for PoC-based blockchains.
 
@@ -25,9 +25,8 @@ Proof of Capacity is an eco-friendly consensus algorithm that uses pre-computed 
 ### Prerequisites
 
 ```bash
-# Install Rust nightly toolchain
-rustup toolchain install nightly --component rustfmt clippy
-rustup override set nightly
+# Install Rust stable toolchain (1.75.0 or later)
+rustup toolchain install stable --component rustfmt clippy
 ```
 
 ### Build & Run
