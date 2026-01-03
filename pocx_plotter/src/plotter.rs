@@ -30,6 +30,7 @@ use std::time::{Duration, Instant};
 use sysinfo::System;
 
 use crate::error::{PoCXPlotterError, Result};
+use crate::get_plotter_callback;
 
 use crate::buffer::PageAlignedByteBuffer;
 use crate::compressor::create_chunk_compressor_thread;
@@ -342,6 +343,11 @@ impl Plotter {
             println!("#TOTAL:{}", total_warps);
         }
 
+        // Notify callback of start
+        if let Some(cb) = get_plotter_callback() {
+            cb.on_started(total_warps, resume);
+        }
+
         if !task.quiet {
             println!(
                 "RAM: Total={:.2} GiB, Available={:.2} GiB, Usage={:.2} GiB",
@@ -578,6 +584,11 @@ impl Plotter {
                     session_nonces as f64 * 1000.0 / (elapsed as f64 + 1.0) * 60.0 * 60.0 / 8192.0
                 );
             }
+        }
+
+        // Notify callback of completion
+        if let Some(cb) = get_plotter_callback() {
+            cb.on_complete(total_warps, elapsed);
         }
 
         Ok(())

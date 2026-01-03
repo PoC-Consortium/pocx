@@ -20,6 +20,7 @@
 
 use crate::buffer::PageAlignedByteBuffer;
 use crate::compressor::CompressorTask;
+use crate::get_plotter_callback;
 use crate::cpu_hasher::{hash_cpu, CpuTask, SafePointer};
 #[cfg(feature = "opencl")]
 use crate::gpu_hasher::{create_gpu_hasher_thread, GpuTask};
@@ -151,7 +152,7 @@ pub fn create_scheduler_thread(
             for _ in 0..task.cpu_threads {
                 let task_size = min(CPU_TASK_SIZE, nonces_to_hash - requested);
                 if task_size > 0 {
-                    let task = hash_cpu(
+                    let cpu_task = hash_cpu(
                         tx.clone(),
                         CpuTask {
                             cache: SafePointer::new(bs.as_mut_ptr()),
@@ -163,7 +164,7 @@ pub fn create_scheduler_thread(
                             local_nonces: task_size,
                         },
                     );
-                    thread_pool.spawn(task);
+                    thread_pool.spawn(cpu_task);
                 }
                 requested += task_size;
             }
@@ -254,6 +255,11 @@ pub fn create_scheduler_thread(
 
             if task.line_progress {
                 println!("#HASH_DELTA:{}", warps_to_hash);
+            }
+
+            // Notify callback of hashing progress
+            if let Some(cb) = get_plotter_callback() {
+                cb.on_hashing_progress(warps_to_hash);
             }
 
             if hash_progress[pointer] == task.warps[pointer] {

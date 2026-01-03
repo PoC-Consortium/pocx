@@ -52,6 +52,9 @@ pub enum PoCXPlotterError {
 
     /// Configuration errors
     Config(String),
+
+    /// Internal errors (panics, unexpected states)
+    Internal(String),
 }
 
 impl fmt::Display for PoCXPlotterError {
@@ -67,6 +70,7 @@ impl fmt::Display for PoCXPlotterError {
             PoCXPlotterError::Channel(msg) => write!(f, "Communication error: {}", msg),
             PoCXPlotterError::Hardware(msg) => write!(f, "Hardware error: {}", msg),
             PoCXPlotterError::Config(msg) => write!(f, "Configuration error: {}", msg),
+            PoCXPlotterError::Internal(msg) => write!(f, "Internal error: {}", msg),
         }
     }
 }
@@ -337,6 +341,7 @@ mod tests {
             PoCXPlotterError::Channel("test".to_string()),
             PoCXPlotterError::Hardware("test".to_string()),
             PoCXPlotterError::Config("test".to_string()),
+            PoCXPlotterError::Internal("test".to_string()),
         ];
 
         for error in errors {
