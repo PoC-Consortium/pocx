@@ -29,7 +29,7 @@ pub enum PoCXPlotterError {
 
     /// OpenCL-specific errors
     #[cfg(feature = "opencl")]
-    OpenCl(ocl_core::Error),
+    OpenCl(opencl3::error_codes::ClError),
 
     /// System information errors
     #[allow(dead_code)]
@@ -89,8 +89,8 @@ impl From<std::io::Error> for PoCXPlotterError {
 }
 
 #[cfg(feature = "opencl")]
-impl From<ocl_core::Error> for PoCXPlotterError {
-    fn from(err: ocl_core::Error) -> Self {
+impl From<opencl3::error_codes::ClError> for PoCXPlotterError {
+    fn from(err: opencl3::error_codes::ClError) -> Self {
         PoCXPlotterError::OpenCl(err)
     }
 }

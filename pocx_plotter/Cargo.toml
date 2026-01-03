@@ -29,13 +29,13 @@ name = "pocx_plotter"
 path = "src/main.rs"
 
 [features]
-default = ["simd"]
-opencl = ["ocl-core"]
+default = ["simd", "opencl"]
+opencl = ["opencl3"]
 simd = []
 
 [dependencies]
 crossbeam-channel = { workspace = true }
-ocl-core = { version = "0.11", optional = true }
+opencl3 = { version = "0.10", features = ["dynamic"], optional = true }
 clap = { workspace = true }
 sysinfo = "0.32"
 num_cpus = { workspace = true }

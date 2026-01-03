@@ -103,7 +103,8 @@ cfg_if! {
                     path.chars().count() as u32
                 )
             } == 0  {
-                panic!("get volume path name");
+                // Return empty string for invalid paths instead of panicking
+                return String::new();
             };
             let res = String::from_utf16_lossy(&volume_encoded);
             let v: Vec<&str> = res.split('\u{00}').collect();
