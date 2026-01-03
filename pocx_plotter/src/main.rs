@@ -576,9 +576,9 @@ mod security_tests {
         let result = PageAlignedByteBuffer::new(0);
         assert!(result.is_err(), "Should reject zero-sized buffer");
 
-        // Test extremely large size rejection (if system allows the test)
-        let huge_size = 32 * 1024 * 1024 * 1024; // 32 GB
-        let result = PageAlignedByteBuffer::new(huge_size);
+        // Test extremely large size rejection
+        // Use usize::MAX which is guaranteed to fail allocation
+        let result = PageAlignedByteBuffer::new(usize::MAX);
         assert!(result.is_err(), "Should reject excessively large buffer");
     }
 

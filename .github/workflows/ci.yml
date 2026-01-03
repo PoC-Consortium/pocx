@@ -16,8 +16,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
@@ -64,8 +64,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -89,7 +89,7 @@ jobs:
         run: cargo test --workspace
         timeout-minutes: 30
 
-  # Multi-platform builds
+  # Multi-platform builds - single binary per platform (OpenCL dynamically loaded)
   build:
     name: Build - ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
@@ -101,63 +101,32 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             cross: false
-            features: simd
-            opencl: false
-
-          # Linux x86_64 with OpenCL
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            cross: false
-            features: simd,opencl
-            opencl: true
 
           # Linux ARM64
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             cross: true
-            features: ""
-            opencl: false
 
           # Windows x86_64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             cross: false
-            features: simd
-            opencl: false
 
           # macOS x86_64
           - os: macos-15
             target: x86_64-apple-darwin
             cross: false
-            features: simd
-            opencl: false
-
-          # macOS x86_64 with OpenCL
-          - os: macos-15
-            target: x86_64-apple-darwin
-            cross: false
-            features: simd,opencl
-            opencl: true
 
           # macOS ARM64 (Apple Silicon)
           - os: macos-14
             target: aarch64-apple-darwin
             cross: false
-            features: ""
-            opencl: false
-
-          # macOS ARM64 with OpenCL
-          - os: macos-14
-            target: aarch64-apple-darwin
-            cross: false
-            features: opencl
-            opencl: true
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
@@ -191,37 +160,22 @@ jobs:
         run: |
           cargo install cross --git https://github.com/cross-rs/cross --locked || true
 
-      - name: Install OpenCL headers (Linux)
-        if: matrix.opencl && runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ocl-icd-opencl-dev
-
       - name: Build binaries
         run: |
-          FEATURES_FLAG=""
-          if [ -n "${{ matrix.features }}" ]; then
-            FEATURES_FLAG="--no-default-features --features ${{ matrix.features }}"
-          else
-            FEATURES_FLAG="--no-default-features"
-          fi
-
           if [ "${{ matrix.cross }}" = "true" ]; then
             cross build --release --target ${{ matrix.target }} \
               -p pocx_miner \
               -p pocx_plotter \
               -p pocx_verifier \
               -p pocx_aggregator \
-              -p pocx_mockchain \
-              $FEATURES_FLAG
+              -p pocx_mockchain
           else
             cargo build --release --target ${{ matrix.target }} \
               -p pocx_miner \
               -p pocx_plotter \
               -p pocx_verifier \
               -p pocx_aggregator \
-              -p pocx_mockchain \
-              $FEATURES_FLAG
+              -p pocx_mockchain
           fi
         shell: bash
         timeout-minutes: 60
@@ -230,15 +184,11 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           mkdir -p artifacts
-          SUFFIX=""
-          if [ "${{ matrix.opencl }}" = "true" ]; then
-            SUFFIX="-opencl"
-          fi
-          cp target/${{ matrix.target }}/release/pocx_miner artifacts/pocx_miner-${{ matrix.target }}${SUFFIX}
-          cp target/${{ matrix.target }}/release/pocx_plotter artifacts/pocx_plotter-${{ matrix.target }}${SUFFIX}
-          cp target/${{ matrix.target }}/release/pocx_verifier artifacts/pocx_verifier-${{ matrix.target }}${SUFFIX}
-          cp target/${{ matrix.target }}/release/pocx_aggregator artifacts/pocx_aggregator-${{ matrix.target }}${SUFFIX}
-          cp target/${{ matrix.target }}/release/pocx_mockchain artifacts/pocx_mockchain-${{ matrix.target }}${SUFFIX}
+          cp target/${{ matrix.target }}/release/pocx_miner artifacts/pocx_miner-${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/pocx_plotter artifacts/pocx_plotter-${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/pocx_verifier artifacts/pocx_verifier-${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/pocx_aggregator artifacts/pocx_aggregator-${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/pocx_mockchain artifacts/pocx_mockchain-${{ matrix.target }}
           chmod +x artifacts/*
 
       - name: Prepare artifacts (Windows)
@@ -255,7 +205,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: binaries-${{ matrix.target }}${{ matrix.opencl && '-opencl' || '' }}
+          name: binaries-${{ matrix.target }}
           path: artifacts/*
           retention-days: 90
 

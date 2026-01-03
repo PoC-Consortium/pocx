@@ -127,10 +127,16 @@ mod tests {
         let context = match std::panic::catch_unwind(|| gpu_init(&["0:0:0".to_owned()], false, 0)) {
             Ok(ctx) => ctx,
             Err(_) => {
-                println!("Skipping GPU test: No OpenCL platforms available");
+                println!("Skipping GPU test: gpu_init panicked (no OpenCL runtime)");
                 return;
             }
         };
+
+        // Skip if no GPUs were found
+        if context.is_empty() {
+            println!("Skipping GPU test: No OpenCL devices available");
+            return;
+        }
 
         // create task
         let gpu_task = GpuTask {

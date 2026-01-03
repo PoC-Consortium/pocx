@@ -72,7 +72,7 @@ cfg_if! {
                     handle,
                     TokenElevation,
                     elevation,
-                    size as u32,
+                    size,
                     &mut ret_size,
                 )
             };
@@ -176,8 +176,8 @@ mod tests {
         // Test the Windows elevation check
         let elevated = is_elevated();
 
-        // Should return either true or false, not panic
-        assert!(elevated == true || elevated == false);
+        // Should return without panicking - value doesn't matter for this test
+        let _ = elevated;
     }
 
     #[cfg(windows)]

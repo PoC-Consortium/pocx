@@ -8,7 +8,8 @@ use_small_heuristics = "Default"
 reorder_imports = true
 reorder_modules = true
 remove_nested_parens = true
-normalize_comments = true
-wrap_comments = true
-format_code_in_doc_comments = true
-comment_width = 80
+# Note: These options require nightly rustfmt, commented out for stable compatibility
+# normalize_comments = true
+# wrap_comments = true
+# format_code_in_doc_comments = true
+# comment_width = 80

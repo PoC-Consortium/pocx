@@ -250,9 +250,9 @@ cfg_if! {
             result &= obtain_priviledge();
 
             let file = if use_direct_io {
-                open_rw_using_direct_io(&file)
+                open_rw_using_direct_io(file)
             } else {
-                open_rw(&file)
+                open_rw(file)
             };
 
             let file = match file {

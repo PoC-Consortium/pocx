@@ -1211,43 +1211,49 @@ mod tests {
         }
 
         // Test 1: Create symlink with invalid filename to test parsing without extra
-        // 1GB file
-        let invalid_file = test_dir.join("pocx_test_invalid.pocx");
-        let _ = fs::remove_file(&invalid_file);
-        if std::os::unix::fs::symlink(&test_file, &invalid_file).is_ok() {
-            let result = PoCXPlotFile::open(&invalid_file, AccessType::Dummy, false);
-            match result {
-                Err(PoCXPlotFileError::InvalidFilename(_)) => {
-                    // Test passed
-                }
-                other => {
-                    println!(
-                        "Debug invalid filename: Expected InvalidFilename error, got: {:?}",
-                        other
-                    );
-                    // Accept any error - the test is about filename parsing
-                }
-            }
+        // 1GB file (Unix only - symlinks work differently on Windows)
+        #[cfg(unix)]
+        {
+            let invalid_file = test_dir.join("pocx_test_invalid.pocx");
             let _ = fs::remove_file(&invalid_file);
+            if std::os::unix::fs::symlink(&test_file, &invalid_file).is_ok() {
+                let result = PoCXPlotFile::open(&invalid_file, AccessType::Dummy, false);
+                match result {
+                    Err(PoCXPlotFileError::InvalidFilename(_)) => {
+                        // Test passed
+                    }
+                    other => {
+                        println!(
+                            "Debug invalid filename: Expected InvalidFilename error, got: {:?}",
+                            other
+                        );
+                        // Accept any error - the test is about filename parsing
+                    }
+                }
+                let _ = fs::remove_file(&invalid_file);
+            }
         }
 
-        // Test 2: Create symlink with invalid extension
-        let invalid_ext = test_dir.join("0000000000000000000000000000000000000000_0000000000000000000000000000000000000000000000000000000000000000_1_X1.txt");
-        let _ = fs::remove_file(&invalid_ext);
-        if std::os::unix::fs::symlink(&test_file, &invalid_ext).is_ok() {
-            let result = PoCXPlotFile::open(&invalid_ext, AccessType::Dummy, false);
-            match result {
-                Err(PoCXPlotFileError::InvalidExtension(_)) => {
-                    // Test passed
-                }
-                Err(_other_error) => {
-                    // Accept other filename-related errors too
-                }
-                Ok(_) => {
-                    panic!("Expected InvalidExtension error but file opened successfully");
-                }
-            }
+        // Test 2: Create symlink with invalid extension (Unix only)
+        #[cfg(unix)]
+        {
+            let invalid_ext = test_dir.join("0000000000000000000000000000000000000000_0000000000000000000000000000000000000000000000000000000000000000_1_X1.txt");
             let _ = fs::remove_file(&invalid_ext);
+            if std::os::unix::fs::symlink(&test_file, &invalid_ext).is_ok() {
+                let result = PoCXPlotFile::open(&invalid_ext, AccessType::Dummy, false);
+                match result {
+                    Err(PoCXPlotFileError::InvalidExtension(_)) => {
+                        // Test passed
+                    }
+                    Err(_other_error) => {
+                        // Accept other filename-related errors too
+                    }
+                    Ok(_) => {
+                        panic!("Expected InvalidExtension error but file opened successfully");
+                    }
+                }
+                let _ = fs::remove_file(&invalid_ext);
+            }
         }
 
         let _ = fs::remove_file(&test_file); // Clean up the shared file
@@ -1349,31 +1355,34 @@ mod tests {
         // Create or reuse existing file
         if !shared_file.exists() && fs::write(&shared_file, vec![0u8; WARP_SIZE as usize]).is_err()
         {
-            return; // Skip if can't create file
+            // Skip if can't create file
         }
 
-        // Test invalid hex in filename using symlink
-        let invalid_hex_file = test_dir.join(
-            "zzzz_1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef_1_X1.pocx",
-        );
+        // Test invalid hex in filename using symlink (Unix only)
+        #[cfg(unix)]
+        {
+            let invalid_hex_file = test_dir.join(
+                "zzzz_1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef_1_X1.pocx",
+            );
 
-        let _ = fs::remove_file(&invalid_hex_file);
-        if std::os::unix::fs::symlink(&shared_file, &invalid_hex_file).is_ok() {
-            let result = PoCXPlotFile::open(&invalid_hex_file, AccessType::Dummy, false);
-            match result {
-                Err(PoCXPlotFileError::HexDecode(_)) => {
-                    // Test passed
-                }
-                other => {
-                    println!(
-                        "Debug hex decode: Expected HexDecode error, got: {:?}",
-                        other
-                    );
-                    // Accept any error - the test is about filename parsing,
-                    // not file access
-                }
-            }
             let _ = fs::remove_file(&invalid_hex_file);
+            if std::os::unix::fs::symlink(&shared_file, &invalid_hex_file).is_ok() {
+                let result = PoCXPlotFile::open(&invalid_hex_file, AccessType::Dummy, false);
+                match result {
+                    Err(PoCXPlotFileError::HexDecode(_)) => {
+                        // Test passed
+                    }
+                    other => {
+                        println!(
+                            "Debug hex decode: Expected HexDecode error, got: {:?}",
+                            other
+                        );
+                        // Accept any error - the test is about filename parsing,
+                        // not file access
+                    }
+                }
+                let _ = fs::remove_file(&invalid_hex_file);
+            }
         }
     }
 
@@ -1511,24 +1520,27 @@ mod tests {
         // Create or reuse existing file
         if !shared_file.exists() && fs::write(&shared_file, vec![0u8; WARP_SIZE as usize]).is_err()
         {
-            return; // Skip if can't create file
+            // Skip if can't create file
         }
 
-        // Test filename with edge case compression value using symlink
-        let edge_case_file = test_dir.join("0000000000000000000000000000000000000000_0000000000000000000000000000000000000000000000000000000000000000_1_X255.pocx");
-        let _ = fs::remove_file(&edge_case_file);
-        if std::os::unix::fs::symlink(&shared_file, &edge_case_file).is_ok() {
-            let result = PoCXPlotFile::open(&edge_case_file, AccessType::Dummy, false);
-            match result {
-                Ok(plotfile) => {
-                    assert_eq!(plotfile.meta.compression, 255);
-                }
-                Err(_e) => {
-                    // Test passed - we're testing filename parsing, errors are
-                    // expected
-                }
-            }
+        // Test filename with edge case compression value using symlink (Unix only)
+        #[cfg(unix)]
+        {
+            let edge_case_file = test_dir.join("0000000000000000000000000000000000000000_0000000000000000000000000000000000000000000000000000000000000000_1_X255.pocx");
             let _ = fs::remove_file(&edge_case_file);
+            if std::os::unix::fs::symlink(&shared_file, &edge_case_file).is_ok() {
+                let result = PoCXPlotFile::open(&edge_case_file, AccessType::Dummy, false);
+                match result {
+                    Ok(plotfile) => {
+                        assert_eq!(plotfile.meta.compression, 255);
+                    }
+                    Err(_e) => {
+                        // Test passed - we're testing filename parsing, errors are
+                        // expected
+                    }
+                }
+                let _ = fs::remove_file(&edge_case_file);
+            }
         }
 
         // Don't test 0-warp files since they don't work with the current
