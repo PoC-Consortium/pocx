@@ -69,7 +69,17 @@ pub fn create_scheduler_thread(
             .map(|x| gpu_init(x, task.zcb, task.kws_override));
 
         #[cfg(feature = "opencl")]
-        let gpus = gpu_contexts.unwrap_or_default();
+        let gpus = match gpu_contexts {
+            Some(Ok(contexts)) => contexts,
+            Some(Err(e)) => {
+                // GPU initialization failed - report error and stop
+                if let Some(cb) = get_plotter_callback() {
+                    cb.on_error(&e);
+                }
+                return;
+            }
+            None => Vec::new(),
+        };
         #[cfg(feature = "opencl")]
         let mut gpu_threads = Vec::new();
         #[cfg(feature = "opencl")]

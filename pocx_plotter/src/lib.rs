@@ -47,6 +47,8 @@ pub mod xpu_scheduler;
 pub use buffer::PageAlignedByteBuffer;
 pub use error::{PoCXPlotterError, Result};
 pub use plotter::{Plotter, PlotterTask};
+#[cfg(feature = "opencl")]
+pub use ocl::{get_gpu_device_info, GpuDeviceInfo};
 
 use std::sync::Arc;
 
@@ -247,6 +249,20 @@ impl PlotterTaskBuilder {
 
     pub fn benchmark(mut self, enabled: bool) -> Self {
         self.benchmark = enabled;
+        self
+    }
+
+    /// Enable zero-copy buffers for integrated GPUs (APUs)
+    #[cfg(feature = "opencl")]
+    pub fn zcb(mut self, enabled: bool) -> Self {
+        self.zcb = enabled;
+        self
+    }
+
+    /// Override kernel workgroup size (0 = auto-detect)
+    #[cfg(feature = "opencl")]
+    pub fn kws_override(mut self, size: usize) -> Self {
+        self.kws_override = size;
         self
     }
 

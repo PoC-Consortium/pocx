@@ -85,28 +85,28 @@ impl GpuContext {
         nvidia: bool,
         mapping: bool,
         kws_override: usize,
-    ) -> GpuContext {
-        let platforms = get_platforms().expect("Failed to get OpenCL platforms");
+    ) -> Result<GpuContext, String> {
+        let platforms = get_platforms().map_err(|e| format!("Failed to get OpenCL platforms: {:?}", e))?;
         let platform = platforms[gpu_platform];
 
         let devices = platform
             .get_devices(CL_DEVICE_TYPE_GPU)
-            .expect("Failed to get GPU devices");
+            .map_err(|e| format!("Failed to get GPU devices: {:?}", e))?;
         let device = Device::new(devices[gpu_id]);
 
-        let context = Context::from_device(&device).expect("Failed to create context");
+        let context = Context::from_device(&device).map_err(|e| format!("Failed to create context: {:?}", e))?;
 
         let program = Program::create_and_build_from_source(&context, SRC, "")
-            .expect("Failed to build OpenCL program");
+            .map_err(|e| format!("Failed to build OpenCL program: {:?}", e))?;
 
         let queue_a =
             CommandQueue::create_default_with_properties(&context, CL_QUEUE_PROFILING_ENABLE, 0)
-                .expect("Failed to create command queue A");
+                .map_err(|e| format!("Failed to create command queue A: {:?}", e))?;
         let queue_b =
             CommandQueue::create_default_with_properties(&context, CL_QUEUE_PROFILING_ENABLE, 0)
-                .expect("Failed to create command queue B");
+                .map_err(|e| format!("Failed to create command queue B: {:?}", e))?;
 
-        let kernel = Kernel::create(&program, "calculate_nonces").expect("Failed to create kernel");
+        let kernel = Kernel::create(&program, "calculate_nonces").map_err(|e| format!("Failed to create kernel: {:?}", e))?;
 
         let kernel_workgroup_size = get_kernel_work_group_size(&kernel, &device, kws_override);
         let workgroup_count = cores;
@@ -119,11 +119,11 @@ impl GpuContext {
         // Create buffers
         let base58 = unsafe {
             Buffer::<u8>::create(&context, CL_MEM_READ_ONLY, 20, ptr::null_mut())
-                .expect("Failed to create base58 buffer")
+                .map_err(|e| format!("Failed to create base58 buffer: {:?}", e))?
         };
         let seed = unsafe {
             Buffer::<u8>::create(&context, CL_MEM_READ_ONLY, 32, ptr::null_mut())
-                .expect("Failed to create seed buffer")
+                .map_err(|e| format!("Failed to create seed buffer: {:?}", e))?
         };
 
         // mapping = zero copy buffers, no mapping = pinned memory for fast DMA
@@ -136,7 +136,7 @@ impl GpuContext {
                     buffer_size,
                     ptr::null_mut(),
                 )
-                .expect("Failed to create GPU buffer A")
+                .map_err(|e| format!("Failed to create GPU buffer A: {:?}", e))?
             };
             let buffer_gpu_b = unsafe {
                 Buffer::<u8>::create(
@@ -145,10 +145,10 @@ impl GpuContext {
                     buffer_size,
                     ptr::null_mut(),
                 )
-                .expect("Failed to create GPU buffer B")
+                .map_err(|e| format!("Failed to create GPU buffer B: {:?}", e))?
             };
 
-            GpuContext {
+            Ok(GpuContext {
                 context,
                 queue_a,
                 queue_b,
@@ -163,7 +163,7 @@ impl GpuContext {
                 buffer_gpu_a,
                 buffer_gpu_b,
                 worksize,
-            }
+            })
         } else {
             // Pinned memory mode: create host buffer and map it persistently
             let buffer_host = unsafe {
@@ -173,7 +173,7 @@ impl GpuContext {
                     buffer_size,
                     ptr::null_mut(),
                 )
-                .expect("Failed to create host buffer")
+                .map_err(|e| format!("Failed to create host buffer: {:?}. Try reducing GPU cores.", e))?
             };
 
             // Map the host buffer persistently for fast DMA access
@@ -189,7 +189,7 @@ impl GpuContext {
                         &mut mapped_ptr,
                         &[],
                     )
-                    .expect("Failed to map host buffer");
+                    .map_err(|e| format!("Failed to map host buffer: {:?}", e))?;
                 mapped_ptr as *mut u8
             };
 
@@ -204,23 +204,23 @@ impl GpuContext {
                         buffer_size,
                         ptr::null_mut(),
                     )
-                    .expect("Failed to create GPU buffer A")
+                    .map_err(|e| format!("Failed to create GPU buffer A: {:?}. Try reducing GPU cores.", e))?
                 }
             } else {
                 unsafe {
                     Buffer::<u8>::create(&context, CL_MEM_READ_WRITE, buffer_size, ptr::null_mut())
-                        .expect("Failed to create GPU buffer A")
+                        .map_err(|e| format!("Failed to create GPU buffer A: {:?}. Try reducing GPU cores.", e))?
                 }
             };
 
             let buffer_gpu_b = unsafe {
                 Buffer::<u8>::create(&context, CL_MEM_READ_WRITE, buffer_size, ptr::null_mut())
-                    .expect("Failed to create GPU buffer B")
+                    .map_err(|e| format!("Failed to create GPU buffer B: {:?}. Try reducing GPU cores.", e))?
             };
 
             let buffer_host = if nvidia { None } else { Some(buffer_host) };
 
-            GpuContext {
+            Ok(GpuContext {
                 context,
                 queue_a,
                 queue_b,
@@ -235,7 +235,7 @@ impl GpuContext {
                 buffer_gpu_a,
                 buffer_gpu_b,
                 worksize,
-            }
+            })
         }
     }
 }
@@ -306,6 +306,86 @@ fn get_kernel_work_group_size(kernel: &Kernel, device: &Device, kws_override: us
         return kws_override;
     }
     kernel.get_work_group_size(device.id()).unwrap_or(256)
+}
+
+/// GPU device information with kernel workgroup size
+#[derive(Debug, Clone)]
+pub struct GpuDeviceInfo {
+    pub platform_index: usize,
+    pub device_index: usize,
+    pub platform_name: String,
+    pub vendor: String,
+    pub name: String,
+    pub compute_units: usize,
+    pub kernel_workgroup_size: usize,
+    pub memory_bytes: u64,
+    pub opencl_version: String,
+    pub is_apu: bool,
+}
+
+/// Get detailed GPU info including kernel workgroup sizes
+pub fn get_gpu_device_info() -> Vec<GpuDeviceInfo> {
+    let mut devices = Vec::new();
+
+    let platforms = match get_platforms() {
+        Ok(p) if !p.is_empty() => p,
+        _ => return devices,
+    };
+
+    for (i, platform) in platforms.iter().enumerate() {
+        let platform_name = platform.name().unwrap_or_else(|_| "Unknown".to_string());
+
+        let gpu_devices = match platform.get_devices(CL_DEVICE_TYPE_GPU) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+
+        for (j, device_id) in gpu_devices.iter().enumerate() {
+            let device = Device::new(*device_id);
+            let context = match Context::from_device(&device) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            let program = match Program::create_and_build_from_source(&context, SRC, "") {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+
+            let kernel = match Kernel::create(&program, "calculate_nonces") {
+                Ok(k) => k,
+                Err(_) => continue,
+            };
+
+            let compute_units = device.max_compute_units().unwrap_or(0) as usize;
+            let kernel_workgroup_size = get_kernel_work_group_size(&kernel, &device, 0);
+            let vendor = device.vendor().unwrap_or_else(|_| "Unknown".to_string());
+            let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
+            let memory_bytes = device.global_mem_size().unwrap_or(0);
+            let opencl_version = device.version().unwrap_or_else(|_| "Unknown".to_string());
+            let host_unified = device.host_unified_memory().unwrap_or(false);
+
+            // Check if APU (integrated graphics)
+            let is_apu = host_unified
+                || (vendor.to_uppercase().contains("INTEL") && !name.to_uppercase().contains("ARC"))
+                || (name.to_uppercase().contains("RADEON GRAPHICS"));
+
+            devices.push(GpuDeviceInfo {
+                platform_index: i,
+                device_index: j,
+                platform_name: platform_name.clone(),
+                vendor: vendor.trim().to_string(),
+                name: name.trim().to_string(),
+                compute_units,
+                kernel_workgroup_size,
+                memory_bytes,
+                opencl_version,
+                is_apu,
+            });
+        }
+    }
+
+    devices
 }
 
 pub fn gpu_get_info(gpus: &[String], quiet: bool, kws_override: usize) -> u64 {
@@ -386,40 +466,36 @@ pub fn gpu_get_info(gpus: &[String], quiet: bool, kws_override: usize) -> u64 {
     total_mem_needed
 }
 
-pub fn gpu_init(gpus: &[String], zcb: bool, kws_override: usize) -> Vec<Arc<Mutex<GpuContext>>> {
+pub fn gpu_init(gpus: &[String], zcb: bool, kws_override: usize) -> Result<Vec<Arc<Mutex<GpuContext>>>, String> {
     let mut result = Vec::new();
 
     let platforms = match get_platforms() {
         Ok(p) => p,
-        Err(_) => return result,
+        Err(e) => return Err(format!("Failed to get OpenCL platforms: {:?}", e)),
     };
 
     for gpu in gpus.iter() {
         let parts: Vec<&str> = gpu.split(':').collect();
-        let platform_id = parts[0].parse::<usize>().unwrap();
-        let gpu_id = parts[1].parse::<usize>().unwrap();
-        let gpu_cores = parts[2].parse::<usize>().unwrap();
+        if parts.len() < 3 {
+            return Err(format!("Invalid GPU ID format: {}. Expected platform:device:cores", gpu));
+        }
+        let platform_id = parts[0].parse::<usize>()
+            .map_err(|_| format!("Invalid platform ID in GPU: {}", gpu))?;
+        let gpu_id = parts[1].parse::<usize>()
+            .map_err(|_| format!("Invalid device ID in GPU: {}", gpu))?;
+        let gpu_cores = parts[2].parse::<usize>()
+            .map_err(|_| format!("Invalid cores in GPU: {}", gpu))?;
 
         if platform_id >= platforms.len() {
-            println!("Error: Selected OpenCL platform doesn't exist.");
-            println!("Shutting down...");
-            process::exit(0);
+            return Err(format!("OpenCL platform {} doesn't exist (only {} platforms found)", platform_id, platforms.len()));
         }
 
         let platform = &platforms[platform_id];
-        let devices = match platform.get_devices(CL_DEVICE_TYPE_GPU) {
-            Ok(d) => d,
-            Err(_) => {
-                println!("Error: Failed to get GPU devices");
-                println!("Shutting down...");
-                process::exit(0);
-            }
-        };
+        let devices = platform.get_devices(CL_DEVICE_TYPE_GPU)
+            .map_err(|e| format!("Failed to get GPU devices: {:?}", e))?;
 
         if gpu_id >= devices.len() {
-            println!("Error: Selected OpenCL device doesn't exist");
-            println!("Shutting down...");
-            process::exit(0);
+            return Err(format!("OpenCL device {} doesn't exist on platform {} (only {} devices found)", gpu_id, platform_id, devices.len()));
         }
 
         let device = Device::new(devices[gpu_id]);
@@ -436,16 +512,17 @@ pub fn gpu_init(gpus: &[String], zcb: bool, kws_override: usize) -> Vec<Arc<Mute
             min(gpu_cores, max_compute_units)
         };
 
-        result.push(Arc::new(Mutex::new(GpuContext::new(
+        let context = GpuContext::new(
             platform_id,
             gpu_id,
             gpu_cores,
             nvidia,
             zcb,
             kws_override,
-        ))));
+        )?;
+        result.push(Arc::new(Mutex::new(context)));
     }
-    result
+    Ok(result)
 }
 
 pub fn gpu_hash(gpu_context: &Arc<Mutex<GpuContext>>, task: &GpuTask) {
