@@ -109,6 +109,8 @@ impl PlotterCallback for NoOpPlotterCallback {
 static PLOTTER_CALLBACK: std::sync::OnceLock<Arc<dyn PlotterCallback>> = std::sync::OnceLock::new();
 
 /// Set the global plotter callback
+/// NOTE: Only the first call takes effect. Subsequent calls are silently ignored
+/// due to OnceLock semantics. This is fine since the callback remains valid.
 pub fn set_plotter_callback(callback: Arc<dyn PlotterCallback>) {
     let _ = PLOTTER_CALLBACK.set(callback);
 }
@@ -119,9 +121,14 @@ pub fn get_plotter_callback() -> Option<Arc<dyn PlotterCallback>> {
 }
 
 /// Clear the global plotter callback (useful for resetting between runs)
+/// NOTE: This is a no-op. OnceLock cannot be cleared or replaced.
+/// The first registered callback persists for the app lifetime.
+/// This is fine in practice since the AppHandle remains valid.
+#[allow(dead_code)]
 pub fn clear_plotter_callback() {
-    // OnceLock doesn't have a clear method, so we use a different approach
-    // The callback will be replaced on next set_plotter_callback call
+    // OnceLock doesn't have a clear method and cannot be reset.
+    // The first callback registered stays for the entire app lifetime.
+    // This works because Tauri's AppHandle is valid for the app's lifetime.
 }
 
 /// Run the plotter with panic safety
