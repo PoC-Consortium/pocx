@@ -88,21 +88,12 @@ pub fn create_chunk_compressor_thread(
             - resume;
 
         for read_buffer in rx_full_plot_buffers {
-            // Check for stop request
-            if is_stop_requested() {
-                // Send shutdown signals to all writers
-                for writer in tx_full_write_buffers {
-                    let _ = writer.send(WriterTask::EndTask);
-                }
-                break;
-            }
-
             let mutex_read_buffer = &(read_buffer.buffer).get_buffer();
             let mut mutex_read_buffer =
                 lock_mutex(mutex_read_buffer).expect("Read buffer mutex poisoned");
 
-            // get write buffer
-            let write_buffer = rx_empty_write_buffers
+             // get write buffer           
+             let write_buffer = rx_empty_write_buffers
                 .recv()
                 .expect("Can't receive empty write buffer - channel closed");
 
@@ -148,7 +139,7 @@ pub fn create_chunk_compressor_thread(
             compressor_progress[read_buffer.path_pointer] += read_buffer.warps_to_compress;
 
             // thread end
-            if total_warps == compressor_progress.iter().sum::<u64>() {
+            if is_stop_requested() || total_warps == compressor_progress.iter().sum::<u64>() {
                 // shutdown signals for all writers
                 for writer in tx_full_write_buffers {
                     if writer.send(WriterTask::EndTask).is_err() {

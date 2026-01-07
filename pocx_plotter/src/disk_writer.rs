@@ -22,7 +22,6 @@
 
 use crate::buffer::PageAlignedByteBuffer;
 use crate::get_plotter_callback;
-use crate::is_stop_requested;
 use crate::plotter::{PlotterTask, WARP_SIZE};
 use crossbeam_channel::{Receiver, Sender};
 use pocx_plotfile::PoCXPlotFile;
@@ -49,14 +48,6 @@ pub fn create_writer_thread(
 ) -> impl FnOnce() {
     move || {
         for write_task in rx_buffers_to_writer {
-            // Check for stop request
-            if is_stop_requested() {
-                if let Some(pb) = pb {
-                    pb.finish_with_message("Stopped by user.");
-                }
-                break;
-            }
-
             match write_task {
                 WriterTask::EndTask => {
                     if let Some(pb) = pb {

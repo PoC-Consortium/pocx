@@ -194,11 +194,6 @@ pub fn create_scheduler_thread(
             // control loop
             let rx = &rx;
             for msg in rx {
-                // Check for stop request in control loop
-                if is_stop_requested() {
-                    break;
-                }
-
                 match msg {
                     // schedule next cpu task
                     HasherMessage::CpuRequestForWork => {
@@ -302,7 +297,7 @@ pub fn create_scheduler_thread(
             pointer %= task.output_paths.len();
 
             // thread end
-            if task.number_of_plots.iter().sum::<u64>() == plotfile_progress.iter().sum::<u64>() {
+            if is_stop_requested() || (task.number_of_plots.iter().sum::<u64>() == plotfile_progress.iter().sum::<u64>()) {
                 if let Some(pb) = &pb {
                     pb.finish_with_message("Hasher done.");
                 }
