@@ -54,6 +54,7 @@ pub enum PoCXPlotterError {
     Config(String),
 
     /// Internal errors (panics, unexpected states)
+    #[allow(dead_code)] // Used by library consumers via run_plotter_safe()
     Internal(String),
 }
 

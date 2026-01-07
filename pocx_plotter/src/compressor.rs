@@ -27,6 +27,7 @@ use crate::error::lock_mutex;
 
 use crate::buffer::PageAlignedByteBuffer;
 use crate::disk_writer::WriterTask;
+use crate::is_stop_requested;
 use crate::plotter::{PlotterTask, DOUBLE_HASH_SIZE};
 
 #[cfg(not(test))]
@@ -87,6 +88,15 @@ pub fn create_chunk_compressor_thread(
             - resume;
 
         for read_buffer in rx_full_plot_buffers {
+            // Check for stop request
+            if is_stop_requested() {
+                // Send shutdown signals to all writers
+                for writer in tx_full_write_buffers {
+                    let _ = writer.send(WriterTask::EndTask);
+                }
+                break;
+            }
+
             let mutex_read_buffer = &(read_buffer.buffer).get_buffer();
             let mut mutex_read_buffer =
                 lock_mutex(mutex_read_buffer).expect("Read buffer mutex poisoned");

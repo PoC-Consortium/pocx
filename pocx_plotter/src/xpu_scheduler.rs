@@ -21,6 +21,7 @@
 use crate::buffer::PageAlignedByteBuffer;
 use crate::compressor::CompressorTask;
 use crate::get_plotter_callback;
+use crate::is_stop_requested;
 use crate::cpu_hasher::{hash_cpu, CpuTask, SafePointer};
 #[cfg(feature = "opencl")]
 use crate::gpu_hasher::{create_gpu_hasher_thread, GpuTask};
@@ -119,6 +120,17 @@ pub fn create_scheduler_thread(
         let mut pointer = 0_usize;
 
         for buffer in rx_empty_buffers {
+            // Check for stop request at the start of each buffer iteration
+            if is_stop_requested() {
+                println!("\nPlotting stopped by user.");
+                // Shutdown GPU threads
+                #[cfg(feature = "opencl")]
+                for gpu in &gpu_channels {
+                    let _ = gpu.0.send(None);
+                }
+                break;
+            }
+
             let mut_bs = &buffer.get_buffer();
             let mut bs = mut_bs.lock().unwrap();
             let buffer_size = (*bs).len() as u64;
@@ -182,6 +194,11 @@ pub fn create_scheduler_thread(
             // control loop
             let rx = &rx;
             for msg in rx {
+                // Check for stop request in control loop
+                if is_stop_requested() {
+                    break;
+                }
+
                 match msg {
                     // schedule next cpu task
                     HasherMessage::CpuRequestForWork => {

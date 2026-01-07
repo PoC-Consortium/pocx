@@ -29,6 +29,26 @@
 #[macro_use]
 extern crate cfg_if;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Global stop flag for graceful termination
+static STOP_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+/// Request the plotter to stop as soon as possible
+pub fn request_stop() {
+    STOP_REQUESTED.store(true, Ordering::SeqCst);
+}
+
+/// Check if stop has been requested
+pub fn is_stop_requested() -> bool {
+    STOP_REQUESTED.load(Ordering::SeqCst)
+}
+
+/// Clear the stop request (call before starting a new plot)
+pub fn clear_stop_request() {
+    STOP_REQUESTED.store(false, Ordering::SeqCst);
+}
+
 pub mod buffer;
 pub mod compressor;
 pub mod cpu_hasher;
@@ -110,6 +130,9 @@ pub fn clear_plotter_callback() {
 /// plotter crashes from taking down the host application.
 pub fn run_plotter_safe(task: PlotterTask) -> Result<()> {
     use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    // Clear any previous stop request before starting
+    clear_stop_request();
 
     let result = catch_unwind(AssertUnwindSafe(|| {
         let plotter = Plotter::new();

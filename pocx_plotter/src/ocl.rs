@@ -310,6 +310,7 @@ fn get_kernel_work_group_size(kernel: &Kernel, device: &Device, kws_override: us
 
 /// GPU device information with kernel workgroup size
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Used by library consumers (Tauri), not binary
 pub struct GpuDeviceInfo {
     pub platform_index: usize,
     pub device_index: usize,
@@ -324,6 +325,7 @@ pub struct GpuDeviceInfo {
 }
 
 /// Get detailed GPU info including kernel workgroup sizes
+#[allow(dead_code)] // Used by library consumers (Tauri), not binary
 pub fn get_gpu_device_info() -> Vec<GpuDeviceInfo> {
     let mut devices = Vec::new();
 
