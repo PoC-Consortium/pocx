@@ -163,6 +163,25 @@ impl Plotter {
             }
         }
 
+        // Check if resuming an existing plot file (must happen before disk space check)
+        let mut resume = 0;
+        if let Some(seed) = task.seed {
+            let optimized_plot_file = PoCXPlotFile::new(
+                &task.output_paths[0],
+                &task.address_payload,
+                &seed,
+                task.warps[0],
+                task.compress,
+                false,
+                false,
+            );
+            if let Ok(mut plot_file) = optimized_plot_file {
+                if let Ok(progress) = plot_file.read_resume_info() {
+                    resume = progress;
+                }
+            }
+        }
+
         // work out number of warps and files to plot if not fully specified and check
         // target disk
         for (i, w) in task.warps.iter_mut().enumerate() {
@@ -223,7 +242,8 @@ impl Plotter {
                         )
                     })?;
 
-                if !task.benchmark && required_space >= space {
+                // Skip disk space check if resuming - file is already preallocated
+                if !task.benchmark && resume == 0 && required_space >= space {
                     return Err(PoCXPlotterError::Config(format!(
                         "Insufficient disk space, MiB_required={:.2}, MiB_available={:.2}, path={}",
                         (*w * WARP_SIZE * task.number_of_plots[i]) as f64 / 1024.0 / 1024.0,
@@ -309,26 +329,6 @@ impl Plotter {
             maximum_mem_for_writing / mem_write,
             task.output_paths.len() as u64,
         );
-
-        // check if file exists needs resume
-        let mut resume = 0;
-        if let Some(seed) = task.seed {
-            let optimized_plot_file = PoCXPlotFile::new(
-                &task.output_paths[0],
-                &task.address_payload,
-                &seed,
-                task.warps[0],
-                task.compress,
-                false,
-                false,
-            );
-            if let Ok(mut i) = optimized_plot_file {
-                let progress = i.read_resume_info();
-                if let Ok(j) = progress {
-                    resume = j;
-                }
-            }
-        }
 
         let total_planned_warps = task
             .warps
