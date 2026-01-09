@@ -5,9 +5,6 @@ use pocx_protocol::{
     JsonRpcClient, MiningInfo as JsonRpcMiningInfo, ProtocolError,
     SubmitNonceParams as JsonRpcSubmitParams, SubmitNonceResult,
 };
-use reqwest::header::{HeaderMap, HeaderName};
-use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
 use url::Url;
 
@@ -15,43 +12,18 @@ use url::Url;
 #[derive(Clone, Debug)]
 pub struct ProtocolClient {
     jsonrpc_client: JsonRpcClient,
-    headers: Arc<HeaderMap>,
 }
 
 impl ProtocolClient {
     /// Create a new JSON-RPC protocol client.
     pub fn new(
         url: Url,
-        api_path: String,
         timeout: u64,
         auth_token: Option<String>,
-        additional_headers: HashMap<String, String>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let mut headers = HeaderMap::new();
-
-        // Always set the standard User-Agent
-        headers.insert("User-Agent", "PoCX-Miner/1.0.0".parse().unwrap());
-
-        // Add additional headers
-        for (key, value) in additional_headers {
-            let header_name = HeaderName::from_bytes(&key.into_bytes()).unwrap();
-            headers.insert(header_name, value.parse().unwrap());
-        }
-
         let timeout_duration = Duration::from_millis(timeout);
 
-        // Build the JSON-RPC URL
-        let jsonrpc_url = {
-            let mut new_url = url.clone();
-            new_url
-                .path_segments_mut()
-                .map_err(|_| "cannot be base")?
-                .pop_if_empty()
-                .push(&api_path);
-            new_url
-        };
-
-        let mut client = JsonRpcClient::new(jsonrpc_url.as_str())?.with_timeout(timeout_duration);
+        let mut client = JsonRpcClient::new(url.as_str())?.with_timeout(timeout_duration);
 
         if let Some(token) = auth_token {
             client = client.with_auth_token(token);
@@ -59,31 +31,11 @@ impl ProtocolClient {
 
         Ok(Self {
             jsonrpc_client: client,
-            headers: Arc::new(headers),
         })
     }
 
-    /// Create a new client with additional headers merged into existing ones
-    pub fn with_additional_headers(&self, additional_headers: HashMap<String, String>) -> Self {
-        let mut new_headers = (*self.headers).clone();
-
-        for (key, value) in additional_headers {
-            let header_name = HeaderName::from_bytes(&key.into_bytes()).unwrap();
-            new_headers.insert(header_name, value.parse().unwrap());
-        }
-
-        Self {
-            jsonrpc_client: self.jsonrpc_client.clone(),
-            headers: Arc::new(new_headers),
-        }
-    }
-
     /// Get current mining info using JSON-RPC.
-    pub async fn get_mining_info(
-        &self,
-        _url: Url,
-        _api_path: &str,
-    ) -> Result<MiningInfo, FetchError> {
+    pub async fn get_mining_info(&self) -> Result<MiningInfo, FetchError> {
         match self.jsonrpc_client.get_mining_info().await {
             Ok(jsonrpc_mining_info) => Ok(convert_jsonrpc_to_mining_info(jsonrpc_mining_info)),
             Err(ProtocolError::NetworkError(e)) => Err(FetchError::Http(e)),

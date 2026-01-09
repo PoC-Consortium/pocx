@@ -1814,6 +1814,7 @@ dependencies = [
 name = "pocx_miner"
 version = "1.0.0"
 dependencies = [
+ "anyhow",
  "bytesize",
  "cfg-if",
  "clap",
@@ -1930,6 +1931,7 @@ name = "pocx_protocol"
 version = "1.0.0"
 dependencies = [
  "async-trait",
+ "base64",
  "futures",
  "log",
  "mockito",

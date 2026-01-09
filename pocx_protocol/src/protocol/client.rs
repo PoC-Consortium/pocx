@@ -18,10 +18,11 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
+use log::{debug, error, trace};
 use reqwest::{header, Client, ClientBuilder};
 use serde::{de::DeserializeOwned, Serialize};
 use std::time::Duration;
-use tracing::{debug, error, trace};
 
 use crate::protocol::{
     errors::{ProtocolError, Result},
@@ -101,8 +102,11 @@ impl JsonRpcClient {
             .header(header::CONTENT_TYPE, "application/json")
             .json(&request);
 
+        // Use Basic auth with base64 encoding (required for Bitcoin Core RPC)
+        // Token format: "username:password" (e.g., cookie content "__cookie__:randomhex")
         if let Some(ref token) = self.auth_token {
-            req_builder = req_builder.header(header::AUTHORIZATION, format!("Bearer {}", token));
+            let encoded = STANDARD.encode(token);
+            req_builder = req_builder.header(header::AUTHORIZATION, format!("Basic {}", encoded));
         }
 
         let response = req_builder
@@ -111,12 +115,23 @@ impl JsonRpcClient {
             .map_err(ProtocolError::NetworkError)?;
 
         if !response.status().is_success() {
-            error!("HTTP error: {} {}", response.status(), response.url());
-            return Err(ProtocolError::Other(format!(
-                "HTTP error: {} {}",
-                response.status(),
-                response.url()
-            )));
+            let status = response.status();
+            let url = response.url().clone();
+
+            if status == reqwest::StatusCode::UNAUTHORIZED {
+                error!("AUTH ERROR: 401 Unauthorized - Invalid or missing credentials for {}", url);
+                return Err(ProtocolError::AuthInvalid);
+            } else if status == reqwest::StatusCode::FORBIDDEN {
+                error!("AUTH ERROR: 403 Forbidden - Access denied to {}", url);
+                return Err(ProtocolError::AuthRequired);
+            } else {
+                error!("HTTP error: {} {}", status, url);
+                return Err(ProtocolError::Other(format!(
+                    "HTTP error: {} {}",
+                    status,
+                    url
+                )));
+            }
         }
 
         let response_text = response.text().await.map_err(ProtocolError::NetworkError)?;

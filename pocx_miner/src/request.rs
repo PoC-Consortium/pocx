@@ -18,10 +18,11 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use crate::callback::{with_callback, AcceptedDeadline};
 use crate::com::api::{FetchError, MiningInfo, NonceSubmission, SubmissionParameters};
 use crate::com::protocol_client::ProtocolClient;
 use crate::future::prio_retry::PrioRetry;
-use crate::miner::{ChainAccount, SubmissionMode};
+use crate::miner::SubmissionMode;
 use futures::channel::mpsc;
 use futures::StreamExt;
 use std::collections::HashMap;
@@ -31,11 +32,6 @@ use url::Url;
 #[derive(Clone)]
 pub struct RequestHandler {
     client: ProtocolClient,
-    // These fields are used extensively in mining logic, clippy false positive
-    #[allow(dead_code)]
-    chain_accounts: Vec<ChainAccount>,
-    #[allow(dead_code)]
-    chain_headers: HashMap<String, String>,
     tx_submit_data: mpsc::UnboundedSender<SubmissionParameters>,
     // Per-account submission channels, used by demultiplexer for routing
     #[allow(dead_code)]
@@ -47,16 +43,11 @@ pub struct RequestHandler {
 impl RequestHandler {
     pub fn new(
         url: Url,
-        api_path: String,
         timeout: u64,
-        chain_headers: HashMap<String, String>,
-        chain_accounts: Vec<ChainAccount>,
         auth_token: Option<String>,
         submission_mode: SubmissionMode,
     ) -> RequestHandler {
-        let default_headers = chain_headers.clone();
-
-        let client = ProtocolClient::new(url, api_path, timeout, auth_token, default_headers)
+        let client = ProtocolClient::new(url, timeout, auth_token)
             .expect("Failed to create protocol client");
 
         let (tx_submit_data, rx_submit_nonce_data) = mpsc::unbounded();
@@ -66,25 +57,18 @@ impl RequestHandler {
         // Route based on submission mode
         if submission_mode == SubmissionMode::Wallet {
             // Wallet mode: single global queue (PrioRetry keeps best quality globally)
-            RequestHandler::start_wallet_handler(
-                client.clone(),
-                rx_submit_nonce_data,
-                chain_accounts.clone(),
-            );
+            RequestHandler::start_wallet_handler(client.clone(), rx_submit_nonce_data);
         } else {
             // Pool mode: per-account queues
             RequestHandler::start_demultiplexer(
                 client.clone(),
                 rx_submit_nonce_data,
-                chain_accounts.clone(),
                 account_senders.clone(),
             );
         }
 
         RequestHandler {
             client,
-            chain_accounts,
-            chain_headers,
             tx_submit_data,
             account_senders,
         }
@@ -94,7 +78,6 @@ impl RequestHandler {
     fn start_demultiplexer(
         client: ProtocolClient,
         mut rx: mpsc::UnboundedReceiver<SubmissionParameters>,
-        chain_accounts: Vec<ChainAccount>,
         account_senders: std::sync::Arc<
             std::sync::Mutex<HashMap<String, mpsc::UnboundedSender<SubmissionParameters>>>,
         >,
@@ -118,7 +101,6 @@ impl RequestHandler {
                             client.clone(),
                             rx_account,
                             account_id.clone(),
-                            chain_accounts.clone(),
                             tx.clone(), // Requeue sender for retries
                         );
 
@@ -143,7 +125,6 @@ impl RequestHandler {
         client: ProtocolClient,
         rx: mpsc::UnboundedReceiver<SubmissionParameters>,
         account_id: String,
-        chain_accounts: Vec<ChainAccount>,
         requeue_tx: mpsc::UnboundedSender<SubmissionParameters>,
     ) {
         let stream = PrioRetry::new(rx, Duration::from_secs(3));
@@ -151,17 +132,7 @@ impl RequestHandler {
         tokio::task::spawn(async move {
             let mut stream = Box::pin(stream);
             while let Some(submission_params) = stream.next().await {
-                let mut client = client.clone();
-
-                // Apply account-specific headers if they exist
-                if let Some(account) = chain_accounts.iter().find(|acc| acc.account == account_id) {
-                    client = client.with_additional_headers(account.headers.clone());
-                }
-
-                match client
-                    .submit_nonce(&submission_params.nonce_submission)
-                    .await
-                {
+                match client.submit_nonce(&submission_params.nonce_submission).await {
                     Ok(res) => {
                         if submission_params.nonce_submission.quality != res.quality_adjusted {
                             log_quality_mismatch(
@@ -173,13 +144,35 @@ impl RequestHandler {
                                 &submission_params.nonce_submission,
                                 res.poc_time,
                             );
+                            // Callback for deadline accepted
+                            let accepted = AcceptedDeadline {
+                                chain: submission_params.chain.clone(),
+                                account: submission_params.nonce_submission.account_id.clone(),
+                                height: submission_params.nonce_submission.block_height,
+                                nonce: submission_params.nonce_submission.nonce,
+                                quality_raw: submission_params.quality_raw,
+                                compression: submission_params.nonce_submission.compression,
+                                poc_time: res.poc_time,
+                            };
+                            with_callback(|cb| cb.on_deadline_accepted(&accepted));
                         }
                     }
                     Err(FetchError::Pool(e)) => {
-                        // Very intuitive, if some pools send an empty message they are
-                        // experiencing too much load expect the submission to be resent later.
+                        // If pool sends empty message or "limit exceeded", they are
+                        // experiencing too much load - retry later
                         if e.message.is_empty() || e.message == "limit exceeded" {
                             log_server_busy(&submission_params.nonce_submission);
+                            // Callback for retry
+                            let accepted = AcceptedDeadline {
+                                chain: submission_params.chain.clone(),
+                                account: submission_params.nonce_submission.account_id.clone(),
+                                height: submission_params.nonce_submission.block_height,
+                                nonce: submission_params.nonce_submission.nonce,
+                                quality_raw: submission_params.quality_raw,
+                                compression: submission_params.nonce_submission.compression,
+                                poc_time: u64::MAX,
+                            };
+                            with_callback(|cb| cb.on_deadline_retry(&accepted, "server busy"));
                             // Requeue for retry with exponential backoff via PrioRetry
                             if let Err(send_err) = requeue_tx.unbounded_send(submission_params) {
                                 log::error!(
@@ -194,10 +187,32 @@ impl RequestHandler {
                                 e.code,
                                 &e.message,
                             );
+                            // Callback for rejection
+                            let accepted = AcceptedDeadline {
+                                chain: submission_params.chain.clone(),
+                                account: submission_params.nonce_submission.account_id.clone(),
+                                height: submission_params.nonce_submission.block_height,
+                                nonce: submission_params.nonce_submission.nonce,
+                                quality_raw: submission_params.quality_raw,
+                                compression: submission_params.nonce_submission.compression,
+                                poc_time: u64::MAX,
+                            };
+                            with_callback(|cb| cb.on_deadline_rejected(&accepted, e.code, &e.message));
                         }
                     }
                     Err(FetchError::Http(x)) => {
                         log_submission_failed(&submission_params.nonce_submission, &x.to_string());
+                        // Callback for retry
+                        let accepted = AcceptedDeadline {
+                            chain: submission_params.chain.clone(),
+                            account: submission_params.nonce_submission.account_id.clone(),
+                            height: submission_params.nonce_submission.block_height,
+                            nonce: submission_params.nonce_submission.nonce,
+                            quality_raw: submission_params.quality_raw,
+                            compression: submission_params.nonce_submission.compression,
+                            poc_time: u64::MAX,
+                        };
+                        with_callback(|cb| cb.on_deadline_retry(&accepted, &x.to_string()));
                         // Requeue for retry with exponential backoff via PrioRetry
                         if let Err(send_err) = requeue_tx.unbounded_send(submission_params) {
                             log::error!(
@@ -212,30 +227,17 @@ impl RequestHandler {
         });
     }
 
-    /// Wallet mode: single global queue handler (global best quality via
-    /// PrioRetry's Ord)
+    /// Wallet mode: single global queue handler (global best quality via PrioRetry's Ord)
     fn start_wallet_handler(
         client: ProtocolClient,
         rx: mpsc::UnboundedReceiver<SubmissionParameters>,
-        chain_accounts: Vec<ChainAccount>,
     ) {
         let stream = PrioRetry::new(rx, Duration::from_secs(3));
 
         tokio::task::spawn(async move {
             let mut stream = Box::pin(stream);
             while let Some(submission_params) = stream.next().await {
-                let mut client = client.clone();
-                let account_id = submission_params.nonce_submission.account_id.clone();
-
-                // Apply account-specific headers if they exist
-                if let Some(account) = chain_accounts.iter().find(|acc| acc.account == account_id) {
-                    client = client.with_additional_headers(account.headers.clone());
-                }
-
-                match client
-                    .submit_nonce(&submission_params.nonce_submission)
-                    .await
-                {
+                match client.submit_nonce(&submission_params.nonce_submission).await {
                     Ok(res) => {
                         if submission_params.nonce_submission.quality != res.quality_adjusted {
                             log_quality_mismatch(
@@ -247,41 +249,77 @@ impl RequestHandler {
                                 &submission_params.nonce_submission,
                                 res.poc_time,
                             );
+                            // Callback for deadline accepted
+                            let accepted = AcceptedDeadline {
+                                chain: submission_params.chain.clone(),
+                                account: submission_params.nonce_submission.account_id.clone(),
+                                height: submission_params.nonce_submission.block_height,
+                                nonce: submission_params.nonce_submission.nonce,
+                                quality_raw: submission_params.quality_raw,
+                                compression: submission_params.nonce_submission.compression,
+                                poc_time: res.poc_time,
+                            };
+                            with_callback(|cb| cb.on_deadline_accepted(&accepted));
                         }
                     }
                     Err(FetchError::Pool(e)) => {
                         if e.message.is_empty() || e.message == "limit exceeded" {
                             log_server_busy(&submission_params.nonce_submission);
-                            // Note: In wallet mode, we don't requeue -
-                            // PrioRetry already
-                            // keeps the best quality item, and a newer better
-                            // item will
-                            // replace this one naturally
+                            // Callback for retry (even though we don't requeue in wallet mode)
+                            let accepted = AcceptedDeadline {
+                                chain: submission_params.chain.clone(),
+                                account: submission_params.nonce_submission.account_id.clone(),
+                                height: submission_params.nonce_submission.block_height,
+                                nonce: submission_params.nonce_submission.nonce,
+                                quality_raw: submission_params.quality_raw,
+                                compression: submission_params.nonce_submission.compression,
+                                poc_time: u64::MAX,
+                            };
+                            with_callback(|cb| cb.on_deadline_retry(&accepted, "server busy"));
+                            // In wallet mode, we don't requeue - PrioRetry keeps best quality
+                            // and newer better items replace this one naturally
                         } else {
                             log_submission_not_accepted(
                                 &submission_params.nonce_submission,
                                 e.code,
                                 &e.message,
                             );
+                            // Callback for rejection
+                            let accepted = AcceptedDeadline {
+                                chain: submission_params.chain.clone(),
+                                account: submission_params.nonce_submission.account_id.clone(),
+                                height: submission_params.nonce_submission.block_height,
+                                nonce: submission_params.nonce_submission.nonce,
+                                quality_raw: submission_params.quality_raw,
+                                compression: submission_params.nonce_submission.compression,
+                                poc_time: u64::MAX,
+                            };
+                            with_callback(|cb| cb.on_deadline_rejected(&accepted, e.code, &e.message));
                         }
                     }
                     Err(FetchError::Http(x)) => {
                         log_submission_failed(&submission_params.nonce_submission, &x.to_string());
-                        // Note: In wallet mode, we don't requeue - if mining
-                        // continues, a better quality
-                        // will naturally be found and replace this
+                        // Callback for retry
+                        let accepted = AcceptedDeadline {
+                            chain: submission_params.chain.clone(),
+                            account: submission_params.nonce_submission.account_id.clone(),
+                            height: submission_params.nonce_submission.block_height,
+                            nonce: submission_params.nonce_submission.nonce,
+                            quality_raw: submission_params.quality_raw,
+                            compression: submission_params.nonce_submission.compression,
+                            poc_time: u64::MAX,
+                        };
+                        with_callback(|cb| cb.on_deadline_retry(&accepted, &x.to_string()));
+                        // In wallet mode, we don't requeue - if mining continues,
+                        // a better quality will naturally replace this one
                     }
                 }
             }
         });
     }
 
-    pub async fn get_mining_info(
-        &self,
-        url: Url,
-        api_path: &str,
-    ) -> Result<MiningInfo, FetchError> {
-        self.client.get_mining_info(url, api_path).await
+    pub async fn get_mining_info(&self) -> Result<MiningInfo, FetchError> {
+        self.client.get_mining_info().await
     }
 
     pub fn submit_nonce(&self, submission_parameters: SubmissionParameters) {
@@ -336,26 +374,14 @@ fn log_server_busy(nonce_submission: &NonceSubmission) {
 mod tests {
     use super::*;
     use crate::com::api::NonceSubmission;
-    use std::collections::HashMap;
     use url::Url;
 
     #[tokio::test]
     async fn test_request_handler_creation() {
         let url = Url::parse("http://localhost:8080").unwrap();
-        let api_path = "/pocx".to_string();
         let timeout = 5000;
-        let chain_headers = HashMap::new();
-        let chain_accounts = Vec::new();
 
-        let handler = RequestHandler::new(
-            url,
-            api_path,
-            timeout,
-            chain_headers,
-            chain_accounts,
-            None,
-            SubmissionMode::Pool,
-        );
+        let handler = RequestHandler::new(url, timeout, None, SubmissionMode::Pool);
 
         // Verify handler was created (struct exists)
         let _ = &handler.client;
@@ -363,58 +389,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_request_handler_with_headers() {
+    async fn test_request_handler_with_auth() {
         let url = Url::parse("http://localhost:8080").unwrap();
-        let api_path = "/pocx".to_string();
         let timeout = 5000;
-        let mut chain_headers = HashMap::new();
-        chain_headers.insert("X-Custom-Header".to_string(), "test-value".to_string());
-        let chain_accounts = Vec::new();
+        let auth_token = Some("user:password".to_string());
 
-        let handler = RequestHandler::new(
-            url,
-            api_path,
-            timeout,
-            chain_headers,
-            chain_accounts,
-            None,
-            SubmissionMode::Pool,
-        );
+        let handler = RequestHandler::new(url, timeout, auth_token, SubmissionMode::Pool);
 
-        // Verify handler was created with custom headers
+        // Verify handler was created with auth
         let _ = &handler.client;
         let _ = &handler.tx_submit_data;
     }
 
     #[tokio::test]
-    async fn test_request_handler_with_account_headers() {
+    async fn test_request_handler_wallet_mode() {
         let url = Url::parse("http://localhost:8080").unwrap();
-        let api_path = "/pocx".to_string();
         let timeout = 5000;
 
-        let mut chain_headers = HashMap::new();
-        chain_headers.insert("X-Chain-Header".to_string(), "chain-value".to_string());
+        let handler = RequestHandler::new(url, timeout, None, SubmissionMode::Wallet);
 
-        let mut account_headers = HashMap::new();
-        account_headers.insert("X-Account-Header".to_string(), "account-value".to_string());
-
-        let chain_accounts = vec![ChainAccount {
-            account: "test-account-123".to_string(),
-            target_quality: Some(500000),
-            headers: account_headers,
-        }];
-
-        let handler = RequestHandler::new(
-            url,
-            api_path,
-            timeout,
-            chain_headers,
-            chain_accounts,
-            None,
-            SubmissionMode::Pool,
-        );
-
-        // Verify handler was created with custom headers
+        // Verify handler was created in wallet mode
         let _ = &handler.client;
         let _ = &handler.tx_submit_data;
     }
@@ -423,10 +417,7 @@ mod tests {
     async fn test_nonce_submission_parameters() {
         let handler = RequestHandler::new(
             Url::parse("http://localhost:8080").unwrap(),
-            "/pocx".to_string(),
             5000,
-            HashMap::new(),
-            Vec::new(),
             None,
             SubmissionMode::Pool,
         );
@@ -443,6 +434,7 @@ mod tests {
         };
 
         let submission_params = SubmissionParameters {
+            chain: "Test Chain".to_string(),
             nonce_submission,
             block_count: 100,
             quality_raw: 500,
@@ -557,15 +549,7 @@ mod tests {
             assert!(url.is_ok(), "Should parse valid URL: {}", url_str);
 
             if let Ok(parsed_url) = url {
-                let handler = RequestHandler::new(
-                    parsed_url,
-                    "/pocx".to_string(),
-                    5000,
-                    HashMap::new(),
-                    Vec::new(),
-                    None,
-                    SubmissionMode::Pool,
-                );
+                let handler = RequestHandler::new(parsed_url, 5000, None, SubmissionMode::Pool);
                 let _ = &handler.client;
             }
         }
@@ -577,45 +561,9 @@ mod tests {
         let timeout_values = [1000, 5000, 10000, 30000, 60000];
 
         for &timeout in &timeout_values {
-            let handler = RequestHandler::new(
-                url.clone(),
-                "/pocx".to_string(),
-                timeout,
-                HashMap::new(),
-                Vec::new(),
-                None,
-                SubmissionMode::Pool,
-            );
+            let handler = RequestHandler::new(url.clone(), timeout, None, SubmissionMode::Pool);
 
             // Verify handler creation with different timeout values
-            let _ = &handler.client;
-            let _ = &handler.tx_submit_data;
-        }
-    }
-
-    #[tokio::test]
-    async fn test_api_path_variations() {
-        let url = Url::parse("http://localhost:8080").unwrap();
-        let api_paths = [
-            "/pocx".to_string(),
-            "/api/v1/mining".to_string(),
-            "/pool/submit".to_string(),
-            "".to_string(),
-            "/".to_string(),
-        ];
-
-        for api_path in &api_paths {
-            let handler = RequestHandler::new(
-                url.clone(),
-                api_path.clone(),
-                5000,
-                HashMap::new(),
-                Vec::new(),
-                None,
-                SubmissionMode::Pool,
-            );
-
-            // Verify handler creation with different API paths
             let _ = &handler.client;
             let _ = &handler.tx_submit_data;
         }

@@ -1,66 +1,127 @@
 # PoCX Miner Configuration
+#
+# Authentication Types:
+#   - none:      No authentication (for open pools or testing)
+#   - user_pass: Username/password (Basic auth)
+#   - cookie:    Bitcoin Core cookie file (requires cookie_path)
+#
+# Submission Modes:
+#   - wallet: Solo mining - submits best deadline globally (for local node)
+#   - pool:   Pool mining - submits per-account (for mining pools)
+#
+# Cookie Paths:
+#   Windows: C:\Users\<user>\AppData\Local\Bitcoin-PoCX\testnet\.cookie
+#   Linux:   ~/.bitcoin-pocx/testnet/.cookie
+#   macOS:   ~/Library/Application Support/Bitcoin-PoCX/testnet/.cookie
 
-# network
 chains:
-  # Bitcoin-PoCX Mainnet (default)
-  - name: 'Bitcoin-PoCX Mainnet'
-    base_url: 'http://127.0.0.1:8332/'
-    api_path: ''  # Empty for Bitcoin-PoCX
-    # auth_token: 'your-bearer-token-here'  # Optional bearer token for authentication
-    block_time_seconds: 120  # Block time for network capacity calculation (default: 120s = 2 minutes)
-    # target_quality: 1000000  # Optional: Only submit if quality < this, default: unlimited
+  # Solo mining via local Bitcoin-PoCX node (testnet)
+  - name: 'Bitcoin-PoCX Testnet'
+    rpc_transport: http
+    rpc_host: '127.0.0.1'
+    rpc_port: 18332
+    rpc_auth:
+      type: cookie
+      # Windows:
+      cookie_path: 'C:\Users\YourName\AppData\Local\Bitcoin-PoCX\testnet\.cookie'
+      # Linux:
+      # cookie_path: '/home/yourname/.bitcoin-pocx/testnet/.cookie'
+    block_time_seconds: 120
+    submission_mode: wallet
 
-    # Optional: Custom headers (advanced usage)
-    # headers:
-    #   'X-Custom-Header': 'your-value-here'
-
-    # Optional: Per-account overrides (advanced usage)
-    # accounts:
-    #   - account: 'your-account-address-here'
-    #     target_quality: 500000  # Account-specific quality limit
-    #     headers:
-    #       'X-Account-Specific': 'value'
-
-  # Bitcoin-PoCX Testnet
-  # - name: 'Bitcoin-PoCX Testnet'
-  #   base_url: 'http://127.0.0.1:18332/'
-  #   api_path: ''  # Empty for Bitcoin-PoCX
+  # Solo mining via local Bitcoin-PoCX node (mainnet)
+  # - name: 'Bitcoin-PoCX Mainnet'
+  #   rpc_transport: http
+  #   rpc_host: '127.0.0.1'
+  #   rpc_port: 8332
+  #   rpc_auth:
+  #     type: cookie
+  #     # Windows:
+  #     cookie_path: 'C:\Users\YourName\AppData\Local\Bitcoin-PoCX\.cookie'
+  #     # Linux:
+  #     # cookie_path: '/home/yourname/.bitcoin-pocx/.cookie'
   #   block_time_seconds: 120
+  #   submission_mode: wallet
 
-  # PoCX Mockchain (for local testing)
-  # - name: 'PoCX Mockchain'
-  #   base_url: 'http://127.0.0.1:8081/'
-  #   api_path: 'pocx'  # PoCX JSON-RPC 2.0 endpoint
+  # Pool mining with API key authentication
+  # - name: 'PoCX Pool'
+  #   rpc_transport: https
+  #   rpc_host: 'pool.pocx.io'
+  #   rpc_port: 443
+  #   rpc_auth:
+  #     type: user_pass
+  #     username: 'miner'
+  #     password: 'your-api-key-here'
   #   block_time_seconds: 120
+  #   submission_mode: pool
 
-get_mining_info_interval: 1000        # default 1000ms
-timeout: 5000                         # default 5000ms
+  # Pool mining without authentication (open pool)
+  # - name: 'Community Pool'
+  #   rpc_transport: http
+  #   rpc_host: 'pool.example.com'
+  #   rpc_port: 8080
+  #   rpc_auth:
+  #     type: none
+  #   block_time_seconds: 120
+  #   submission_mode: pool
 
-# hdd 
-plot_dirs: 
-  - '/tmp/plots'
+  # Local node with RPC username/password (bitcoin.conf: rpcuser/rpcpassword)
+  # - name: 'Local Node (RPC Auth)'
+  #   rpc_transport: http
+  #   rpc_host: '127.0.0.1'
+  #   rpc_port: 18332
+  #   rpc_auth:
+  #     type: user_pass
+  #     username: 'rpcuser'
+  #     password: 'rpcpassword'
+  #   block_time_seconds: 120
+  #   submission_mode: wallet
 
-hdd_use_direct_io: true               # default true
-hdd_wakeup_after: 30                  # default 30s
-hdd_read_cache_in_warps: 16           # default: 16 warps
+  # Local node with no auth (node started with -miningserver to disable auth for mining RPC)
+  # - name: 'Local Node (No Auth)'
+  #   rpc_transport: http
+  #   rpc_host: '127.0.0.1'
+  #   rpc_port: 18332
+  #   rpc_auth:
+  #     type: none
+  #   block_time_seconds: 120
+  #   submission_mode: wallet
 
-# mining
-enable_on_the_fly_compression: true   # default true
+# Network settings
+get_mining_info_interval: 1000   # Poll interval in ms (default: 1000)
+timeout: 5000                    # Request timeout in ms (default: 5000)
 
-# cpu 
-cpu_threads: 0                        # default 0 (=auto: number of logical cpu cores)
-cpu_thread_pinning: true              # default true
+# Plot directories - add all drives containing .pocx plot files
+plot_dirs:
+  - 'D:\'
+  # - 'E:\'
+  # - 'F:\'
+  # - '/mnt/plots'              # Linux example
 
-# logging
-show_progress: true                   # default true  
- 
-benchmark: 'disabled'                 # default disabled, options (disabled, I/O, CPU)
+# HDD settings
+hdd_use_direct_io: true          # Bypass OS cache (default: true)
+hdd_wakeup_after: 30             # Wake HDD after idle seconds (default: 30, 0=disabled)
+hdd_read_cache_in_warps: 16      # Read buffer size in warps (default: 16)
 
-console_log_level: 'info'             # default Info, options (off, error, warn, info, debug, trace)
-logfile_log_level: 'warn'             # default Warn, options (off, error, warn, info, debug, trace)
-logfile_max_count: 10                 # maximum number of log files to keep
-logfile_max_size : 20                 # maximum size per logfile in MiB
+# Mining settings
+enable_on_the_fly_compression: true  # Compress uncompressed plots while mining (default: true)
 
-# Low noise log patterns
+# CPU settings
+cpu_threads: 0                   # 0 = auto-detect (default: all logical cores)
+cpu_thread_pinning: true         # Pin threads to cores (default: true)
+
+# Display settings
+show_progress: true              # Show progress bar (default: true)
+
+# Benchmark mode (for testing)
+benchmark: 'disabled'            # Options: disabled, I/O, CPU
+
+# Logging
+console_log_level: 'info'        # Options: off, error, warn, info, debug, trace
+logfile_log_level: 'warn'        # Options: off, error, warn, info, debug, trace
+logfile_max_count: 10            # Max log files to keep
+logfile_max_size: 20             # Max size per log file in MiB
+
+# Log format patterns
 console_log_pattern: "{({d(%H:%M:%S)} [{l}]):16.16} {m}{n}"
 logfile_log_pattern: "{({d(%Y-%m-%d %H:%M:%S)} [{l}]):26.26} {m}{n}"

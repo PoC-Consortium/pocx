@@ -30,6 +30,7 @@ use pocx_plotfile::NUM_SCOOPS;
 pub struct HashingTask {
     pub buffer: PageAlignedByteBuffer,
     pub chain_id: usize,
+    pub chain_name: String,
     pub block_count: u64,
     pub generation_signature_bytes: [u8; 32],
     pub account_id: String,
@@ -60,6 +61,7 @@ pub fn calc_qualities(task: HashingTask) -> impl FnOnce() {
             .unbounded_send((
                 task.chain_id,
                 SubmissionParameters {
+                    chain: task.chain_name,
                     quality_raw: quality, // raw_quality (Shabal-256 hash result)
                     block_count: task.block_count,
                     nonce_submission: NonceSubmission {
