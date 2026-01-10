@@ -70,6 +70,16 @@ fn default_rpc_port() -> u16 {
     8080
 }
 
+/// Per-account configuration overrides.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ChainAccount {
+    /// Account address (hex-encoded payload from plot files)
+    pub account: String,
+    /// Account-specific quality limit (overrides chain-level target_quality)
+    #[serde(default)]
+    pub target_quality: Option<u64>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Chain {
     /// Display name for this chain
@@ -106,6 +116,10 @@ pub struct Chain {
     /// Optional target quality threshold
     #[serde(default)]
     pub target_quality: Option<u64>,
+
+    /// Per-account configuration overrides
+    #[serde(default)]
+    pub accounts: Vec<ChainAccount>,
 }
 
 impl Chain {
@@ -227,6 +241,7 @@ impl ChainState {
         mining_info: &MiningInfo,
         _chain_name: &str,
         chain_target_quality: Option<u64>,
+        chain_accounts: &[ChainAccount], // Per-account config overrides
         known_account_payloads: &[String], // Hex payloads from plot files
         submission_mode: SubmissionMode,
     ) {
@@ -240,9 +255,16 @@ impl ChainState {
         }
 
         for account_payload in known_account_payloads {
+            // Look up account-specific target quality
+            let account_target = chain_accounts
+                .iter()
+                .find(|acc| acc.account == *account_payload)
+                .and_then(|acc| acc.target_quality)
+                .unwrap_or(u64::MAX);
+
             let chain_target = chain_target_quality.unwrap_or(u64::MAX);
             let pool_target = mining_info.target_quality.unwrap_or(u64::MAX);
-            let effective_target = chain_target.min(pool_target);
+            let effective_target = account_target.min(chain_target).min(pool_target);
 
             self.account_id_to_target_quality
                 .insert(account_payload.clone(), effective_target);
@@ -529,6 +551,7 @@ impl Miner {
             // Capture values needed for update_mining_info
             let chain_name = chain.name.clone();
             let chain_target_quality = chain.target_quality;
+            let chain_accounts = chain.accounts.clone();
             let submission_mode = chain.submission_mode.clone();
             let known_accounts = self.known_account_payloads.clone();
             task::spawn(async move {
@@ -543,6 +566,7 @@ impl Miner {
                                     &mining_info,
                                     &chain_name,
                                     chain_target_quality,
+                                    &chain_accounts,
                                     &known_accounts,
                                     submission_mode,
                                 );
@@ -591,6 +615,7 @@ impl Miner {
             // Capture values needed for update_mining_info
             let chain_name = chain.name.clone();
             let chain_target_quality = chain.target_quality;
+            let chain_accounts = chain.accounts.clone();
             let submission_mode = chain.submission_mode.clone();
             let known_accounts = self.known_account_payloads.clone();
             task::spawn(async move {
@@ -625,6 +650,7 @@ impl Miner {
                                             &mining_info,
                                             &chain_name,
                                             chain_target_quality,
+                                            &chain_accounts,
                                             &known_accounts,
                                             submission_mode.clone(),
                                         );

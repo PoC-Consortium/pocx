@@ -75,7 +75,9 @@ mod utils;
 
 // Re-export main types for library usage
 pub use config::{Benchmark, Cfg, CfgBuilder};
-pub use miner::{genesis_base_target, Chain, Miner, RpcAuth, RpcTransport, SubmissionMode};
+pub use miner::{
+    genesis_base_target, Chain, ChainAccount, Miner, RpcAuth, RpcTransport, SubmissionMode,
+};
 
 // Re-export callback system
 pub use callback::{

@@ -37,6 +37,12 @@ chains:
       # cookie_path: '/home/yourname/.bitcoin-pocx/testnet/.cookie'
     block_time_seconds: 120
     submission_mode: wallet
+    # Optional: Chain-level quality limit (only submit if quality < this value)
+    # target_quality: 1000000
+    # Optional: Per-account overrides (account = hex-encoded payload from plot filename)
+    # accounts:
+    #   - account: '0123456789abcdef...'
+    #     target_quality: 500000  # Account-specific quality limit
 
   # Solo mining via IPC socket (Unix - faster than HTTP for local node)
   # - name: 'Bitcoin-PoCX IPC'
