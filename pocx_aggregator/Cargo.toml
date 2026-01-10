@@ -1,6 +1,6 @@
 [package]
 name = "pocx_aggregator"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 license = "MIT"
 authors = ["Proof of Capacity Consortium"]
 description = "High-performance mining aggregator for PoCX protocol"
@@ -20,7 +20,7 @@ path = "src/main.rs"
 
 [dependencies]
 # Protocol - workspace crate
-pocx_protocol = { path = "../pocx_protocol" }
+pocx_protocol = { version = "1.0.0-rc.5", path = "../pocx_protocol" }
 
 # Async runtime
 tokio = { workspace = true }
@@ -59,6 +59,7 @@ chrono = { workspace = true }
 url = { workspace = true }
 reqwest = { workspace = true }
 crossbeam-channel = { workspace = true }
+base64 = { workspace = true }
 num-bigint = "0.4"
 num-traits = "0.2"
 bytesize = "2.1"

@@ -55,36 +55,8 @@ use std::time::{Duration, Instant};
 use tokio::task;
 use url::Url;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum RpcTransport {
-    #[default]
-    Http,
-    Https,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum RpcAuth {
-    #[default]
-    None,
-    UserPass {
-        username: String,
-        password: String,
-    },
-    Cookie {
-        #[serde(default)]
-        cookie_path: Option<String>,
-    },
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum SubmissionMode {
-    #[default]
-    Pool, // Per-account tracking and submission (pool mining)
-    Wallet, // Global best tracking and submission (solo mining)
-}
+// Re-export shared RPC types from pocx_protocol
+pub use pocx_protocol::{RpcAuth, RpcTransport, SubmissionMode};
 
 fn default_submission_mode() -> SubmissionMode {
     SubmissionMode::Pool
@@ -102,90 +74,89 @@ fn default_rpc_port() -> u16 {
 pub struct Chain {
     /// Display name for this chain
     pub name: String,
+
+    /// Transport protocol (http, https, ipc)
     #[serde(default)]
     pub rpc_transport: RpcTransport,
 
+    /// RPC host address (ignored for IPC transport)
     #[serde(default = "default_rpc_host")]
     pub rpc_host: String,
 
+    /// RPC port (ignored for IPC transport)
     #[serde(default = "default_rpc_port")]
     pub rpc_port: u16,
 
+    /// IPC socket path (required for IPC transport)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ipc_path: Option<String>,
+
+    /// Authentication configuration
     #[serde(default)]
     pub rpc_auth: RpcAuth,
 
+    /// Expected block time in seconds
     #[serde(default = "default_block_time")]
     pub block_time_seconds: u64,
 
+    /// Submission mode (pool or wallet)
     #[serde(default = "default_submission_mode")]
     pub submission_mode: SubmissionMode,
 
+    /// Optional target quality threshold
     #[serde(default)]
     pub target_quality: Option<u64>,
 }
 
 impl Chain {
-    pub fn build_url(&self) -> Result<Url, url::ParseError> {
-        let scheme = match self.rpc_transport {
-            RpcTransport::Http => "http",
-            RpcTransport::Https => "https",
-        };
-        Url::parse(&format!("{}://{}:{}", scheme, self.rpc_host, self.rpc_port))
+    /// Build URL for HTTP/HTTPS transport. Returns None for IPC transport.
+    pub fn build_url(&self) -> Option<Url> {
+        match self.rpc_transport {
+            RpcTransport::Http => {
+                Url::parse(&format!("http://{}:{}", self.rpc_host, self.rpc_port)).ok()
+            }
+            RpcTransport::Https => {
+                Url::parse(&format!("https://{}:{}", self.rpc_host, self.rpc_port)).ok()
+            }
+            RpcTransport::Ipc => None,
+        }
+    }
+
+    /// Check if this chain uses IPC transport.
+    pub fn is_ipc(&self) -> bool {
+        self.rpc_transport == RpcTransport::Ipc
+    }
+
+    /// Get endpoint description for logging.
+    pub fn endpoint(&self) -> String {
+        match self.rpc_transport {
+            RpcTransport::Http => format!("http://{}:{}", self.rpc_host, self.rpc_port),
+            RpcTransport::Https => format!("https://{}:{}", self.rpc_host, self.rpc_port),
+            RpcTransport::Ipc => self
+                .ipc_path
+                .clone()
+                .unwrap_or_else(|| "<no path>".to_string()),
+        }
+    }
+
+    /// Validate chain configuration.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.rpc_transport == RpcTransport::Ipc && self.ipc_path.is_none() {
+            return Err(format!(
+                "[{}] IPC transport requires ipc_path to be specified",
+                self.name
+            ));
+        }
+        Ok(())
     }
 
     #[allow(dead_code)]
     pub fn get_auth_token(&self) -> Option<String> {
-        match &self.rpc_auth {
-            RpcAuth::None => None,
-            RpcAuth::UserPass { username, password } => Some(format!("{}:{}", username, password)),
-            RpcAuth::Cookie { cookie_path } => {
-                if let Some(path) = cookie_path {
-                    std::fs::read_to_string(path)
-                        .ok()
-                        .map(|s| s.trim().to_string())
-                } else {
-                    None
-                }
-            }
-        }
+        self.rpc_auth.get_token()
     }
 
     pub fn get_auth_token_or_exit(&self) -> Option<String> {
-        match &self.rpc_auth {
-            RpcAuth::None => {
-                info!("[{}] Auth: none", self.name);
-                None
-            }
-            RpcAuth::UserPass { username, password } => {
-                info!("[{}] Auth: user_pass (user={})", self.name, username);
-                Some(format!("{}:{}", username, password))
-            }
-            RpcAuth::Cookie { cookie_path } => {
-                if let Some(path) = cookie_path {
-                    match std::fs::read_to_string(path) {
-                        Ok(content) => {
-                            info!("[{}] Auth: cookie loaded from '{}'", self.name, path);
-                            Some(content.trim().to_string())
-                        }
-                        Err(e) => {
-                            error!(
-                                "[{}] Auth: cookie FAILED - cannot read '{}': {}",
-                                self.name, path, e
-                            );
-                            error!("Miner cannot start without valid authentication. Exiting.");
-                            std::process::exit(1);
-                        }
-                    }
-                } else {
-                    error!(
-                        "[{}] Auth: cookie type requires cookie_path to be specified",
-                        self.name
-                    );
-                    error!("Miner cannot start without valid authentication. Exiting.");
-                    std::process::exit(1);
-                }
-            }
-        }
+        self.rpc_auth.get_token_or_exit(&self.name)
     }
 }
 
@@ -435,21 +406,46 @@ impl Miner {
         let mut request_handler = Vec::new();
         info!("Chain Configuration:");
         for (i, chain) in cfg.chains.iter().enumerate() {
-            let base_url = chain.build_url().expect("error parsing server url");
-            info!("Priority {} : ({}) {}", i + 1, chain.name, base_url);
+            // Validate chain configuration
+            if let Err(e) = chain.validate() {
+                error!("Chain configuration error: {}", e);
+                std::process::exit(1);
+            }
+
+            let endpoint_str = chain.endpoint();
+            info!("Priority {} : ({}) {}", i + 1, chain.name, endpoint_str);
 
             // Validate and get auth token - exit if cookie auth fails
             let auth_token = chain.get_auth_token_or_exit();
 
             chain_states.push(Arc::new(Mutex::new(ChainState::default())));
 
-            request_handler.push(RequestHandler::new(
-                base_url,
-                cfg.timeout,
-                auth_token,
-                cfg.chains[i].submission_mode.clone(),
-                shutdown_token.clone(),
-            ));
+            // Create request handler based on transport type
+            let handler = if chain.is_ipc() {
+                let ipc_path = chain
+                    .ipc_path
+                    .clone()
+                    .expect("IPC path required for IPC transport");
+                RequestHandler::new_ipc(
+                    ipc_path,
+                    cfg.timeout,
+                    auth_token,
+                    cfg.chains[i].submission_mode.clone(),
+                    shutdown_token.clone(),
+                )
+            } else {
+                let base_url = chain
+                    .build_url()
+                    .expect("Failed to build URL for HTTP/HTTPS transport");
+                RequestHandler::new(
+                    base_url,
+                    cfg.timeout,
+                    auth_token,
+                    cfg.chains[i].submission_mode.clone(),
+                    shutdown_token.clone(),
+                )
+            };
+            request_handler.push(handler);
         }
 
         let dummy_io = matches!(cfg.benchmark, Some(Benchmark::Cpu));

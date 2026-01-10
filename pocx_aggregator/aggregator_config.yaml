@@ -1,8 +1,37 @@
 # PoCX Aggregator Configuration
+#
+# The aggregator sits between miners and the upstream pool/wallet, providing:
+#   - Mining info caching (reduces upstream load)
+#   - Submission deduplication and best-quality filtering
+#   - Per-miner statistics and capacity tracking
+#
+# Transport Types (upstream):
+#   - http:  HTTP transport (default)
+#   - https: HTTPS transport (for remote pools)
+#   - ipc:   IPC transport (Unix socket / Windows named pipe)
+#
+# Authentication Types (upstream):
+#   - none:      No authentication
+#   - user_pass: Username/password (Basic auth)
+#   - cookie:    Bitcoin Core cookie file (requires cookie_path)
+#
+# Submission Modes:
+#   - pool:   Per-account best tracking (for pool mining)
+#   - wallet: Global best tracking (for solo mining via wallet)
 
-# Listen address for miner connections
-# Default: 0.0.0.0:8080
-listen_address: "0.0.0.0:8080"
+# Server configuration for downstream miner connections
+server:
+  # Address to listen on for miner connections
+  # Default: 0.0.0.0:8080
+  listen_address: "0.0.0.0:8080"
+
+  # Optional authentication for downstream connections
+  # When enabled, miners must provide Basic auth credentials
+  auth:
+    enabled: false
+    # basic_auth:
+    #   username: "aggregator"
+    #   password: "secret"
 
 # Expected block time in seconds (used for capacity estimation and database retention)
 # PoCX: 120, Burst: 240
@@ -12,12 +41,40 @@ block_time_secs: 120
 # Upstream pool or wallet configuration
 upstream:
   name: "primary_pool"
-  url: "http://pool.example.com:8080/pocx"
-  # Optional authentication token
-  # auth_token: "your_secret_token"
-  # Submission mode: "pool" (per-account best) or "wallet" (global best)
-  # Default: pool
+
+  # HTTP/HTTPS upstream (pool)
+  rpc_transport: http
+  rpc_host: "pool.example.com"
+  rpc_port: 8080
+  rpc_auth:
+    type: none
   submission_mode: pool
+
+  # IPC upstream (local wallet) - Unix
+  # rpc_transport: ipc
+  # ipc_path: "/home/user/.bitcoin-pocx/testnet/bitcoind.sock"
+  # rpc_auth:
+  #   type: cookie
+  #   cookie_path: "/home/user/.bitcoin-pocx/testnet/.cookie"
+  # submission_mode: wallet
+
+  # IPC upstream (local wallet) - Windows
+  # rpc_transport: ipc
+  # ipc_path: '\\.\pipe\bitcoin-pocx-testnet'
+  # rpc_auth:
+  #   type: cookie
+  #   cookie_path: 'C:\Users\YourName\AppData\Local\Bitcoin-PoCX\testnet\.cookie'
+  # submission_mode: wallet
+
+  # HTTPS upstream with Basic auth
+  # rpc_transport: https
+  # rpc_host: "pool.pocx.io"
+  # rpc_port: 443
+  # rpc_auth:
+  #   type: user_pass
+  #   username: "aggregator"
+  #   password: "your-password"
+  # submission_mode: pool
 
 # Cache settings
 cache:

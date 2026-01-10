@@ -1,6 +1,6 @@
 [package]
 name = "pocx_protocol"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 license = "MIT"
 authors = [
     "Proof of Capacity Consortium",
@@ -19,6 +19,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
 reqwest = { workspace = true }
 async-trait = { workspace = true }
 thiserror = { workspace = true }

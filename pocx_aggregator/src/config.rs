@@ -22,11 +22,14 @@ use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+// Re-export shared types from pocx_protocol for convenience
+pub use pocx_protocol::{BasicAuthConfig, RpcAuth, RpcServerAuth, RpcTransport, SubmissionMode};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    /// Address to listen on for miner connections
-    #[serde(default = "default_listen_address")]
-    pub listen_address: String,
+    /// Server configuration for downstream miner connections
+    #[serde(default)]
+    pub server: ServerConfig,
 
     /// Upstream pool or wallet configuration
     pub upstream: UpstreamConfig,
@@ -53,31 +56,124 @@ pub struct Config {
     pub logging: LoggingConfig,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum SubmissionMode {
-    /// Per-account tracking and submission (default for pool aggregators)
-    #[default]
-    Pool,
-    /// Global best tracking and submission (for solo mining aggregators)
-    Wallet,
+/// Server configuration for downstream connections (miners connecting to aggregator).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerConfig {
+    /// Address to listen on for miner connections
+    #[serde(default = "default_listen_address")]
+    pub listen_address: String,
+
+    /// Optional authentication for downstream connections
+    #[serde(default)]
+    pub auth: RpcServerAuth,
 }
 
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            listen_address: default_listen_address(),
+            auth: RpcServerAuth::default(),
+        }
+    }
+}
+
+/// Upstream configuration - aligned with miner's Chain config style.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpstreamConfig {
     /// Pool/wallet name
     pub name: String,
 
-    /// Pool/wallet URL (e.g., "http://pool.example.com:8080/pocx")
-    pub url: String,
+    /// Transport protocol (http, https, ipc)
+    #[serde(default)]
+    pub rpc_transport: RpcTransport,
 
-    /// Optional authentication token
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub auth_token: Option<String>,
+    /// RPC host address (ignored for IPC transport)
+    #[serde(default = "default_rpc_host")]
+    pub rpc_host: String,
+
+    /// RPC port (ignored for IPC transport)
+    #[serde(default = "default_rpc_port")]
+    pub rpc_port: u16,
+
+    /// IPC socket path (required for IPC transport)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ipc_path: Option<String>,
+
+    /// Authentication configuration
+    #[serde(default)]
+    pub rpc_auth: RpcAuth,
 
     /// Submission mode: Pool (per-account best) or Wallet (global best)
     #[serde(default)]
     pub submission_mode: SubmissionMode,
+}
+
+impl UpstreamConfig {
+    /// Build URL for HTTP/HTTPS transport. Returns None for IPC transport.
+    pub fn build_url(&self) -> Option<String> {
+        match self.rpc_transport {
+            RpcTransport::Http => Some(format!("http://{}:{}", self.rpc_host, self.rpc_port)),
+            RpcTransport::Https => Some(format!("https://{}:{}", self.rpc_host, self.rpc_port)),
+            RpcTransport::Ipc => None,
+        }
+    }
+
+    /// Check if this upstream uses IPC transport.
+    pub fn is_ipc(&self) -> bool {
+        self.rpc_transport == RpcTransport::Ipc
+    }
+
+    /// Get endpoint description for logging.
+    pub fn endpoint(&self) -> String {
+        match self.rpc_transport {
+            RpcTransport::Http => format!("http://{}:{}", self.rpc_host, self.rpc_port),
+            RpcTransport::Https => format!("https://{}:{}", self.rpc_host, self.rpc_port),
+            RpcTransport::Ipc => self
+                .ipc_path
+                .clone()
+                .unwrap_or_else(|| "<no path>".to_string()),
+        }
+    }
+
+    /// Validate upstream configuration.
+    pub fn validate(&self) -> Result<()> {
+        if self.name.is_empty() {
+            return Err(Error::Config("Upstream name cannot be empty".to_string()));
+        }
+
+        match self.rpc_transport {
+            RpcTransport::Ipc => {
+                if self.ipc_path.is_none() {
+                    return Err(Error::Config(
+                        "IPC transport requires ipc_path to be specified".to_string(),
+                    ));
+                }
+            }
+            RpcTransport::Http | RpcTransport::Https => {
+                if self.rpc_host.is_empty() {
+                    return Err(Error::Config("rpc_host cannot be empty".to_string()));
+                }
+                if self.rpc_port == 0 {
+                    return Err(Error::Config("rpc_port cannot be 0".to_string()));
+                }
+                // Validate URL format
+                let url_str = self.build_url().unwrap();
+                if let Err(e) = url::Url::parse(&url_str) {
+                    return Err(Error::Config(format!(
+                        "Upstream has invalid URL '{}': {}",
+                        url_str, e
+                    )));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get auth token or exit on failure.
+    pub fn get_auth_token_or_exit(&self) -> Option<String> {
+        self.rpc_auth.get_token_or_exit(&self.name)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -180,20 +276,7 @@ impl Config {
     /// Validate configuration
     fn validate(&self) -> Result<()> {
         // Validate upstream config
-        if self.upstream.name.is_empty() {
-            return Err(Error::Config("Upstream name cannot be empty".to_string()));
-        }
-        if self.upstream.url.is_empty() {
-            return Err(Error::Config("Upstream URL cannot be empty".to_string()));
-        }
-
-        // Validate URL format
-        if let Err(e) = url::Url::parse(&self.upstream.url) {
-            return Err(Error::Config(format!(
-                "Upstream has invalid URL '{}': {}",
-                self.upstream.url, e
-            )));
-        }
+        self.upstream.validate()?;
 
         // Validate cache TTL
         if self.cache.mining_info_ttl_secs == 0 {
@@ -209,6 +292,13 @@ impl Config {
             ));
         }
 
+        // Validate server auth if enabled
+        if self.server.auth.enabled && self.server.auth.basic_auth.is_none() {
+            return Err(Error::Config(
+                "Server auth is enabled but no credentials configured".to_string(),
+            ));
+        }
+
         Ok(())
     }
 }
@@ -216,6 +306,14 @@ impl Config {
 // Default values
 fn default_listen_address() -> String {
     "0.0.0.0:8080".to_string()
+}
+
+fn default_rpc_host() -> String {
+    "127.0.0.1".to_string()
+}
+
+fn default_rpc_port() -> u16 {
+    8080
 }
 
 fn default_mining_info_ttl() -> u64 {
@@ -259,33 +357,105 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_config_validation() {
-        let config = Config {
-            listen_address: "0.0.0.0:8080".to_string(),
-            upstream: UpstreamConfig {
-                name: "".to_string(),
-                url: "http://localhost:8080".to_string(),
-                auth_token: None,
-                submission_mode: SubmissionMode::Pool,
-            },
-            block_time_secs: 120,
-            cache: CacheConfig::default(),
-            database: DatabaseConfig::default(),
-            dashboard: None,
-            logging: LoggingConfig::default(),
+    fn test_config_validation_empty_name() {
+        let upstream = UpstreamConfig {
+            name: "".to_string(),
+            rpc_transport: RpcTransport::Http,
+            rpc_host: "localhost".to_string(),
+            rpc_port: 8080,
+            ipc_path: None,
+            rpc_auth: RpcAuth::None,
+            submission_mode: SubmissionMode::Pool,
         };
 
-        assert!(config.validate().is_err());
+        assert!(upstream.validate().is_err());
     }
 
     #[test]
-    fn test_valid_config() {
-        let config = Config {
+    fn test_valid_http_upstream() {
+        let upstream = UpstreamConfig {
+            name: "test".to_string(),
+            rpc_transport: RpcTransport::Http,
+            rpc_host: "localhost".to_string(),
+            rpc_port: 8080,
+            ipc_path: None,
+            rpc_auth: RpcAuth::None,
+            submission_mode: SubmissionMode::Pool,
+        };
+
+        assert!(upstream.validate().is_ok());
+        assert_eq!(upstream.endpoint(), "http://localhost:8080");
+        assert!(!upstream.is_ipc());
+    }
+
+    #[test]
+    fn test_valid_ipc_upstream() {
+        let upstream = UpstreamConfig {
+            name: "test".to_string(),
+            rpc_transport: RpcTransport::Ipc,
+            rpc_host: "localhost".to_string(),
+            rpc_port: 8080,
+            ipc_path: Some("/tmp/socket.sock".to_string()),
+            rpc_auth: RpcAuth::Cookie { cookie_path: None },
+            submission_mode: SubmissionMode::Wallet,
+        };
+
+        assert!(upstream.validate().is_ok());
+        assert_eq!(upstream.endpoint(), "/tmp/socket.sock");
+        assert!(upstream.is_ipc());
+    }
+
+    #[test]
+    fn test_invalid_ipc_upstream_no_path() {
+        let upstream = UpstreamConfig {
+            name: "test".to_string(),
+            rpc_transport: RpcTransport::Ipc,
+            rpc_host: "localhost".to_string(),
+            rpc_port: 8080,
+            ipc_path: None,
+            rpc_auth: RpcAuth::None,
+            submission_mode: SubmissionMode::Pool,
+        };
+
+        assert!(upstream.validate().is_err());
+    }
+
+    #[test]
+    fn test_server_config_with_auth() {
+        let server = ServerConfig {
             listen_address: "0.0.0.0:8080".to_string(),
+            auth: RpcServerAuth {
+                enabled: true,
+                basic_auth: Some(BasicAuthConfig {
+                    username: "admin".to_string(),
+                    password: "secret".to_string(),
+                }),
+            },
+        };
+
+        assert!(server.auth.validate_credentials("admin", "secret"));
+        assert!(!server.auth.validate_credentials("admin", "wrong"));
+    }
+
+    #[test]
+    fn test_server_config_no_auth() {
+        let server = ServerConfig::default();
+        assert!(!server.auth.is_required());
+        // Any credentials should pass when auth is disabled
+        assert!(server.auth.validate_credentials("any", "thing"));
+    }
+
+    #[test]
+    fn test_full_config_validation() {
+        let config = Config {
+            server: ServerConfig::default(),
             upstream: UpstreamConfig {
                 name: "test".to_string(),
-                url: "http://localhost:8080".to_string(),
-                auth_token: None,
+                rpc_transport: RpcTransport::Http,
+                rpc_host: "localhost".to_string(),
+                rpc_port: 8080,
+                ipc_path: None,
+                rpc_auth: RpcAuth::None,
                 submission_mode: SubmissionMode::Pool,
             },
             block_time_secs: 120,
@@ -296,5 +466,34 @@ mod tests {
         };
 
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_config_with_enabled_auth_but_no_credentials() {
+        let config = Config {
+            server: ServerConfig {
+                listen_address: "0.0.0.0:8080".to_string(),
+                auth: RpcServerAuth {
+                    enabled: true,
+                    basic_auth: None, // No credentials
+                },
+            },
+            upstream: UpstreamConfig {
+                name: "test".to_string(),
+                rpc_transport: RpcTransport::Http,
+                rpc_host: "localhost".to_string(),
+                rpc_port: 8080,
+                ipc_path: None,
+                rpc_auth: RpcAuth::None,
+                submission_mode: SubmissionMode::Pool,
+            },
+            block_time_secs: 120,
+            cache: CacheConfig::default(),
+            database: DatabaseConfig::default(),
+            dashboard: None,
+            logging: LoggingConfig::default(),
+        };
+
+        assert!(config.validate().is_err());
     }
 }

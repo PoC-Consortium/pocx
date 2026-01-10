@@ -8,6 +8,24 @@ use pocx_protocol::{
 use std::time::Duration;
 use url::Url;
 
+/// Endpoint type for RPC connections.
+#[derive(Debug, Clone)]
+pub enum RpcEndpoint {
+    /// HTTP/HTTPS URL
+    Url(Url),
+    /// IPC socket path
+    Ipc(String),
+}
+
+impl std::fmt::Display for RpcEndpoint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RpcEndpoint::Url(url) => write!(f, "{}", url),
+            RpcEndpoint::Ipc(path) => write!(f, "ipc://{}", path),
+        }
+    }
+}
+
 /// A client for communicating with Pool/Proxy/Wallet using JSON-RPC protocol.
 #[derive(Clone, Debug)]
 pub struct ProtocolClient {
@@ -15,7 +33,7 @@ pub struct ProtocolClient {
 }
 
 impl ProtocolClient {
-    /// Create a new JSON-RPC protocol client.
+    /// Create a new JSON-RPC protocol client with HTTP/HTTPS URL.
     pub fn new(
         url: Url,
         timeout: u64,
@@ -32,6 +50,37 @@ impl ProtocolClient {
         Ok(Self {
             jsonrpc_client: client,
         })
+    }
+
+    /// Create a new JSON-RPC protocol client with IPC socket.
+    pub fn new_ipc(
+        path: &str,
+        timeout: u64,
+        auth_token: Option<String>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let timeout_duration = Duration::from_millis(timeout);
+
+        let mut client = JsonRpcClient::new_ipc(path)?.with_timeout(timeout_duration);
+
+        if let Some(token) = auth_token {
+            client = client.with_auth_token(token);
+        }
+
+        Ok(Self {
+            jsonrpc_client: client,
+        })
+    }
+
+    /// Create a new JSON-RPC protocol client from endpoint.
+    pub fn from_endpoint(
+        endpoint: RpcEndpoint,
+        timeout: u64,
+        auth_token: Option<String>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        match endpoint {
+            RpcEndpoint::Url(url) => Self::new(url, timeout, auth_token),
+            RpcEndpoint::Ipc(path) => Self::new_ipc(&path, timeout, auth_token),
+        }
     }
 
     /// Get current mining info using JSON-RPC.
@@ -145,5 +194,14 @@ mod tests {
         assert_eq!(jsonrpc_params.nonce, 123456);
         assert_eq!(jsonrpc_params.compression, 4);
         assert_eq!(jsonrpc_params.quality, Some(789));
+    }
+
+    #[test]
+    fn test_rpc_endpoint_display() {
+        let url_endpoint = RpcEndpoint::Url(Url::parse("http://localhost:8080").unwrap());
+        assert_eq!(format!("{}", url_endpoint), "http://localhost:8080/");
+
+        let ipc_endpoint = RpcEndpoint::Ipc("/tmp/socket.sock".to_string());
+        assert_eq!(format!("{}", ipc_endpoint), "ipc:///tmp/socket.sock");
     }
 }

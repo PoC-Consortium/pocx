@@ -23,8 +23,10 @@
 //! This crate provides:
 //! - JSON-RPC 2.0 protocol implementation (client and server)
 //! - Protocol types (MiningInfo, SubmitNonceParams, etc.)
+//! - Shared RPC configuration types
 //! - Error handling
 
+pub mod config;
 pub mod protocol;
 
 // Re-export main protocol types for convenience
@@ -32,6 +34,11 @@ pub use protocol::{
     extract_auth_token, GetMiningInfoParams, JsonRpcClient, JsonRpcDispatcher, JsonRpcError,
     JsonRpcHandler, JsonRpcId, JsonRpcRequest, JsonRpcResponse, MiningInfo, ProtocolError, Result,
     SubmitNonceParams, SubmitNonceResult, METHOD_GET_MINING_INFO, METHOD_SUBMIT_NONCE,
+};
+
+// Re-export config types
+pub use config::{
+    BasicAuthConfig, RpcAuth, RpcClientConfig, RpcServerAuth, RpcTransport, SubmissionMode,
 };
 
 #[cfg(test)]

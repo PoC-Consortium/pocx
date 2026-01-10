@@ -18,19 +18,20 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use crate::config::Config;
+use crate::config::{Config, RpcServerAuth};
 use crate::db::Database;
 use crate::error::{Error, Result};
 use crate::pool::PoolManager;
 use crate::stats::Stats;
 use axum::{
     extract::{ConnectInfo, State},
-    http::StatusCode,
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
-use log::{debug, error, info};
+use base64::{engine::general_purpose::STANDARD, Engine as _};
+use log::{debug, error, info, warn};
 use pocx_protocol::{
     JsonRpcError, JsonRpcId, JsonRpcRequest, JsonRpcResponse, MiningInfo, SubmitNonceParams,
     SubmitNonceResult, METHOD_GET_MINING_INFO, METHOD_SUBMIT_NONCE,
@@ -61,6 +62,7 @@ struct AppState {
     database: Database,
     current_height: Arc<RwLock<u64>>, // Track current height for submissions
     retention_blocks: u64,            // Database retention period in blocks (0 = keep forever)
+    server_auth: RpcServerAuth,       // Authentication config for downstream connections
 }
 
 use std::sync::Arc;
@@ -70,7 +72,7 @@ impl AggregatorServer {
     /// Create a new aggregator server
     pub async fn new(config: Config) -> Result<Self> {
         let pool_manager = PoolManager::new(
-            config.upstream.clone(),
+            &config.upstream,
             config.cache.mining_info_ttl_secs,
             config.cache.pool_timeout_secs,
         )?;
@@ -115,6 +117,14 @@ impl AggregatorServer {
     /// Run the server
     pub async fn run(self) -> Result<()> {
         let retention_blocks = self.config.retention_blocks();
+        let listen_address = self.config.server.listen_address.clone();
+        let server_auth = self.config.server.auth.clone();
+
+        if server_auth.is_required() {
+            info!("Server authentication: ENABLED (BasicAuth)");
+        } else {
+            info!("Server authentication: DISABLED");
+        }
 
         let state = AppState {
             pool_manager: self.pool_manager,
@@ -125,6 +135,7 @@ impl AggregatorServer {
             database: self.database,
             current_height: Arc::new(RwLock::new(0)), // Will be updated from mining_info
             retention_blocks,
+            server_auth,
         };
 
         // Build the main JSON-RPC router
@@ -134,16 +145,11 @@ impl AggregatorServer {
             .route("/stats", get(get_stats))
             .with_state(state);
 
-        let listener = tokio::net::TcpListener::bind(&self.config.listen_address)
+        let listener = tokio::net::TcpListener::bind(&listen_address)
             .await
-            .map_err(|e| {
-                Error::Server(format!(
-                    "Failed to bind to {}: {}",
-                    self.config.listen_address, e
-                ))
-            })?;
+            .map_err(|e| Error::Server(format!("Failed to bind to {}: {}", listen_address, e)))?;
 
-        info!("Aggregator listening on {}", self.config.listen_address);
+        info!("Aggregator listening on {}", listen_address);
 
         // Set up graceful shutdown
         let server = axum::serve(
@@ -165,10 +171,18 @@ impl AggregatorServer {
 async fn handle_jsonrpc(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(request): Json<Value>,
 ) -> Response {
     let client_ip = addr.ip().to_string();
     debug!("Received JSON-RPC request: {}", request);
+
+    // Validate authentication if required
+    if state.server_auth.is_required() {
+        if let Err(response) = validate_basic_auth(&headers, &state.server_auth, &client_ip) {
+            return response;
+        }
+    }
 
     // Parse the method from the request
     let method = match request.get("method").and_then(|m| m.as_str()) {
@@ -365,6 +379,94 @@ async fn get_stats(State(state): State<AppState>) -> impl IntoResponse {
 fn json_rpc_error(error: JsonRpcError, id: JsonRpcId) -> Response {
     let response: JsonRpcResponse<()> = JsonRpcResponse::error(error, id);
     (StatusCode::OK, Json(response)).into_response()
+}
+
+/// Validate Basic Auth credentials from request headers
+#[allow(clippy::result_large_err)]
+fn validate_basic_auth(
+    headers: &HeaderMap,
+    auth_config: &RpcServerAuth,
+    client_ip: &str,
+) -> std::result::Result<(), Response> {
+    let auth_header = headers.get(header::AUTHORIZATION);
+
+    let auth_value = match auth_header {
+        Some(value) => value.to_str().unwrap_or(""),
+        None => {
+            warn!(
+                "Auth required but no Authorization header from {}",
+                client_ip
+            );
+            return Err(json_rpc_error(
+                JsonRpcError {
+                    code: -32004,
+                    message: "Authentication required".to_string(),
+                    data: None,
+                },
+                JsonRpcId::Null,
+            ));
+        }
+    };
+
+    // Parse "Basic <base64(user:pass)>" format
+    if !auth_value.starts_with("Basic ") {
+        warn!("Invalid auth scheme from {}", client_ip);
+        return Err(json_rpc_error(
+            JsonRpcError {
+                code: -32005,
+                message: "Invalid authentication scheme".to_string(),
+                data: None,
+            },
+            JsonRpcId::Null,
+        ));
+    }
+
+    let encoded = &auth_value[6..];
+    let decoded = match STANDARD.decode(encoded) {
+        Ok(bytes) => String::from_utf8_lossy(&bytes).to_string(),
+        Err(_) => {
+            warn!("Invalid base64 in auth header from {}", client_ip);
+            return Err(json_rpc_error(
+                JsonRpcError {
+                    code: -32005,
+                    message: "Invalid authentication credentials".to_string(),
+                    data: None,
+                },
+                JsonRpcId::Null,
+            ));
+        }
+    };
+
+    // Split username:password
+    let parts: Vec<&str> = decoded.splitn(2, ':').collect();
+    if parts.len() != 2 {
+        warn!("Malformed credentials from {}", client_ip);
+        return Err(json_rpc_error(
+            JsonRpcError {
+                code: -32005,
+                message: "Invalid authentication credentials".to_string(),
+                data: None,
+            },
+            JsonRpcId::Null,
+        ));
+    }
+
+    let (username, password) = (parts[0], parts[1]);
+
+    if auth_config.validate_credentials(username, password) {
+        debug!("Auth successful for user '{}' from {}", username, client_ip);
+        Ok(())
+    } else {
+        warn!("Auth failed for user '{}' from {}", username, client_ip);
+        Err(json_rpc_error(
+            JsonRpcError {
+                code: -32005,
+                message: "Invalid authentication credentials".to_string(),
+                data: None,
+            },
+            JsonRpcId::Null,
+        ))
+    }
 }
 
 /// Graceful shutdown signal handler

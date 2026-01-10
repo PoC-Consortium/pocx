@@ -143,7 +143,7 @@ async fn main() {
     };
 
     let app = Router::new()
-        .route("/pocx", post(handle_jsonrpc))
+        .route("/", post(handle_jsonrpc))
         .layer(CorsLayer::permissive())
         .with_state(state);
 

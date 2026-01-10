@@ -1,5 +1,10 @@
 # PoCX Miner Configuration
 #
+# Transport Types:
+#   - http:  HTTP transport (default)
+#   - https: HTTPS transport (for remote pools)
+#   - ipc:   IPC transport (Unix socket / Windows named pipe)
+#
 # Authentication Types:
 #   - none:      No authentication (for open pools or testing)
 #   - user_pass: Username/password (Basic auth)
@@ -13,9 +18,13 @@
 #   Windows: C:\Users\<user>\AppData\Local\Bitcoin-PoCX\testnet\.cookie
 #   Linux:   ~/.bitcoin-pocx/testnet/.cookie
 #   macOS:   ~/Library/Application Support/Bitcoin-PoCX/testnet/.cookie
+#
+# IPC Paths:
+#   Unix:    /home/user/.bitcoin-pocx/testnet/bitcoind.sock
+#   Windows: \\.\pipe\bitcoin-pocx-testnet
 
 chains:
-  # Solo mining via local Bitcoin-PoCX node (testnet)
+  # Solo mining via local Bitcoin-PoCX node (testnet) - HTTP
   - name: 'Bitcoin-PoCX Testnet'
     rpc_transport: http
     rpc_host: '127.0.0.1'
@@ -28,6 +37,26 @@ chains:
       # cookie_path: '/home/yourname/.bitcoin-pocx/testnet/.cookie'
     block_time_seconds: 120
     submission_mode: wallet
+
+  # Solo mining via IPC socket (Unix - faster than HTTP for local node)
+  # - name: 'Bitcoin-PoCX IPC'
+  #   rpc_transport: ipc
+  #   ipc_path: '/home/yourname/.bitcoin-pocx/testnet/bitcoind.sock'
+  #   rpc_auth:
+  #     type: cookie
+  #     cookie_path: '/home/yourname/.bitcoin-pocx/testnet/.cookie'
+  #   block_time_seconds: 120
+  #   submission_mode: wallet
+
+  # Solo mining via IPC (Windows named pipe)
+  # - name: 'Bitcoin-PoCX IPC (Windows)'
+  #   rpc_transport: ipc
+  #   ipc_path: '\\.\pipe\bitcoin-pocx-testnet'
+  #   rpc_auth:
+  #     type: cookie
+  #     cookie_path: 'C:\Users\YourName\AppData\Local\Bitcoin-PoCX\testnet\.cookie'
+  #   block_time_seconds: 120
+  #   submission_mode: wallet
 
   # Solo mining via local Bitcoin-PoCX node (mainnet)
   # - name: 'Bitcoin-PoCX Mainnet'
@@ -43,7 +72,7 @@ chains:
   #   block_time_seconds: 120
   #   submission_mode: wallet
 
-  # Pool mining with API key authentication
+  # Pool mining with Basic auth
   # - name: 'PoCX Pool'
   #   rpc_transport: https
   #   rpc_host: 'pool.pocx.io'
@@ -51,7 +80,7 @@ chains:
   #   rpc_auth:
   #     type: user_pass
   #     username: 'miner'
-  #     password: 'your-api-key-here'
+  #     password: 'your-password-here'
   #   block_time_seconds: 120
   #   submission_mode: pool
 
