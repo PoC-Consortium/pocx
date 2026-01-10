@@ -21,6 +21,26 @@
 #[macro_use]
 extern crate cfg_if;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Global stop flag for graceful termination
+static STOP_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+/// Request the plotter to stop as soon as possible
+pub fn request_stop() {
+    STOP_REQUESTED.store(true, Ordering::SeqCst);
+}
+
+/// Check if stop has been requested
+pub fn is_stop_requested() -> bool {
+    STOP_REQUESTED.load(Ordering::SeqCst)
+}
+
+/// Clear the stop request (call before starting a new plot)
+pub fn clear_stop_request() {
+    STOP_REQUESTED.store(false, Ordering::SeqCst);
+}
+
 mod buffer;
 mod compressor;
 mod cpu_hasher;
@@ -35,6 +55,24 @@ mod utils;
 mod xpu_scheduler;
 
 use crate::error::{PoCXPlotterError, Result};
+
+// Callback infrastructure for binary mode (matches lib.rs)
+use std::sync::Arc;
+
+/// Callback trait for plotter progress updates
+pub trait PlotterCallback: Send + Sync {
+    fn on_started(&self, total_warps: u64, resume_offset: u64);
+    fn on_hashing_progress(&self, warps_delta: u64);
+    fn on_writing_progress(&self, warps_delta: u64);
+    fn on_complete(&self, total_warps: u64, duration_ms: u64);
+    fn on_error(&self, error: &str);
+}
+
+static PLOTTER_CALLBACK: std::sync::OnceLock<Arc<dyn PlotterCallback>> = std::sync::OnceLock::new();
+
+pub fn get_plotter_callback() -> Option<Arc<dyn PlotterCallback>> {
+    PLOTTER_CALLBACK.get().cloned()
+}
 use crate::plotter::{Plotter, PlotterTask};
 use crate::utils::set_low_prio;
 #[cfg(feature = "opencl")]

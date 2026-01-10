@@ -21,8 +21,10 @@
 use crate::buffer::PageAlignedByteBuffer;
 use crate::compressor::CompressorTask;
 use crate::cpu_hasher::{hash_cpu, CpuTask, SafePointer};
+use crate::get_plotter_callback;
 #[cfg(feature = "opencl")]
 use crate::gpu_hasher::{create_gpu_hasher_thread, GpuTask};
+use crate::is_stop_requested;
 #[cfg(feature = "opencl")]
 use crate::ocl::gpu_init;
 use crate::plotter::{PlotterTask, DIM, NONCE_SIZE, WARP_SIZE};
@@ -68,7 +70,17 @@ pub fn create_scheduler_thread(
             .map(|x| gpu_init(x, task.zcb, task.kws_override));
 
         #[cfg(feature = "opencl")]
-        let gpus = gpu_contexts.unwrap_or_default();
+        let gpus = match gpu_contexts {
+            Some(Ok(contexts)) => contexts,
+            Some(Err(e)) => {
+                // GPU initialization failed - report error and stop
+                if let Some(cb) = get_plotter_callback() {
+                    cb.on_error(&e);
+                }
+                return;
+            }
+            None => Vec::new(),
+        };
         #[cfg(feature = "opencl")]
         let mut gpu_threads = Vec::new();
         #[cfg(feature = "opencl")]
@@ -108,6 +120,17 @@ pub fn create_scheduler_thread(
         let mut pointer = 0_usize;
 
         for buffer in rx_empty_buffers {
+            // Check for stop request at the start of each buffer iteration
+            if is_stop_requested() {
+                println!("\nPlotting stopped by user.");
+                // Shutdown GPU threads
+                #[cfg(feature = "opencl")]
+                for gpu in &gpu_channels {
+                    let _ = gpu.0.send(None);
+                }
+                break;
+            }
+
             let mut_bs = &buffer.get_buffer();
             let mut bs = mut_bs.lock().unwrap();
             let buffer_size = (*bs).len() as u64;
@@ -151,7 +174,7 @@ pub fn create_scheduler_thread(
             for _ in 0..task.cpu_threads {
                 let task_size = min(CPU_TASK_SIZE, nonces_to_hash - requested);
                 if task_size > 0 {
-                    let task = hash_cpu(
+                    let cpu_task = hash_cpu(
                         tx.clone(),
                         CpuTask {
                             cache: SafePointer::new(bs.as_mut_ptr()),
@@ -163,7 +186,7 @@ pub fn create_scheduler_thread(
                             local_nonces: task_size,
                         },
                     );
-                    thread_pool.spawn(task);
+                    thread_pool.spawn(cpu_task);
                 }
                 requested += task_size;
             }
@@ -256,6 +279,11 @@ pub fn create_scheduler_thread(
                 println!("#HASH_DELTA:{}", warps_to_hash);
             }
 
+            // Notify callback of hashing progress
+            if let Some(cb) = get_plotter_callback() {
+                cb.on_hashing_progress(warps_to_hash);
+            }
+
             if hash_progress[pointer] == task.warps[pointer] {
                 plotfile_progress[pointer] += 1;
                 if plotfile_progress[pointer] < task.number_of_plots[pointer] {
@@ -269,7 +297,10 @@ pub fn create_scheduler_thread(
             pointer %= task.output_paths.len();
 
             // thread end
-            if task.number_of_plots.iter().sum::<u64>() == plotfile_progress.iter().sum::<u64>() {
+            if is_stop_requested()
+                || (task.number_of_plots.iter().sum::<u64>()
+                    == plotfile_progress.iter().sum::<u64>())
+            {
                 if let Some(pb) = &pb {
                     pb.finish_with_message("Hasher done.");
                 }

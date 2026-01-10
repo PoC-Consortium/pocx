@@ -1,6 +1,6 @@
 [package]
 name = "pocx_plotfile"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 license = "MIT"
 authors = [
     "Proof of Capacity Consortium",
@@ -18,7 +18,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 hex = { workspace = true }
-pocx_address = { path = "../pocx_address" }
+pocx_address = { version = "1.0.0-rc.5", path = "../pocx_address" }
 filetime = { workspace = true }
 cfg-if = { workspace = true }
 indicatif = { workspace = true }

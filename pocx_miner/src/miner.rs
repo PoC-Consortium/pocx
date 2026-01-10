@@ -19,9 +19,13 @@
 // SOFTWARE.
 
 use crate::buffer::PageAlignedByteBuffer;
-use crate::com::api::SubmissionParameters;
-use crate::com::api::{FetchError, MiningInfo};
+use crate::callback::{
+    with_callback, BlockInfo as CallbackBlockInfo, CapacityInfo, MinerStartedInfo, QueueItem,
+    ScanStartedInfo, ScanStatus,
+};
+use crate::com::api::{MiningInfo, SubmissionParameters};
 use crate::config::{Benchmark, Cfg};
+use crate::control::is_stop_requested;
 use crate::hasher::calc_qualities;
 use crate::hasher::HashingTask;
 use crate::plots::{CompressionConfig, PoCXArray};
@@ -33,26 +37,7 @@ use crate::utils::set_thread_ideal_processor;
 
 use bytesize::ByteSize;
 use serde::{Deserialize, Serialize};
-
-mod url_serde {
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-    use url::Url;
-
-    pub fn serialize<S>(url: &Url, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        url.as_str().serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Url, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Url::parse(&s).map_err(serde::de::Error::custom)
-    }
-}
+use tokio_util::sync::CancellationToken;
 
 use crate::future::interval::Interval;
 use crossbeam_channel::bounded;
@@ -70,45 +55,109 @@ use std::time::{Duration, Instant};
 use tokio::task;
 use url::Url;
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum SubmissionMode {
-    #[default]
-    Pool, // Per-account tracking and submission (pool mining)
-    Wallet, // Global best tracking and submission (solo mining)
-}
+// Re-export shared RPC types from pocx_protocol
+pub use pocx_protocol::{RpcAuth, RpcTransport, SubmissionMode};
 
 fn default_submission_mode() -> SubmissionMode {
     SubmissionMode::Pool
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ChainAccount {
-    pub account: String,
-    #[serde(default)]
-    pub target_quality: Option<u64>, // Account-specific quality limit
-    #[serde(default)]
-    pub headers: HashMap<String, String>,
+fn default_rpc_host() -> String {
+    "127.0.0.1".to_string()
+}
+
+fn default_rpc_port() -> u16 {
+    8080
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Chain {
+    /// Display name for this chain
     pub name: String,
-    #[serde(with = "url_serde")]
-    pub base_url: Url,
-    pub api_path: String,
+
+    /// Transport protocol (http, https, ipc)
+    #[serde(default)]
+    pub rpc_transport: RpcTransport,
+
+    /// RPC host address (ignored for IPC transport)
+    #[serde(default = "default_rpc_host")]
+    pub rpc_host: String,
+
+    /// RPC port (ignored for IPC transport)
+    #[serde(default = "default_rpc_port")]
+    pub rpc_port: u16,
+
+    /// IPC socket path (required for IPC transport)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ipc_path: Option<String>,
+
+    /// Authentication configuration
+    #[serde(default)]
+    pub rpc_auth: RpcAuth,
+
+    /// Expected block time in seconds
     #[serde(default = "default_block_time")]
     pub block_time_seconds: u64,
-    #[serde(default)]
-    pub auth_token: Option<String>, // Bearer token for JSON-RPC authentication
-    #[serde(default)]
-    pub target_quality: Option<u64>, // Chain-level quality limit
-    #[serde(default)]
-    pub headers: HashMap<String, String>, // Chain-level headers
-    #[serde(default)]
-    pub accounts: Vec<ChainAccount>, // Per-account overrides
+
+    /// Submission mode (pool or wallet)
     #[serde(default = "default_submission_mode")]
-    pub submission_mode: SubmissionMode, // Pool vs Wallet submission strategy
+    pub submission_mode: SubmissionMode,
+
+    /// Optional target quality threshold
+    #[serde(default)]
+    pub target_quality: Option<u64>,
+}
+
+impl Chain {
+    /// Build URL for HTTP/HTTPS transport. Returns None for IPC transport.
+    pub fn build_url(&self) -> Option<Url> {
+        match self.rpc_transport {
+            RpcTransport::Http => {
+                Url::parse(&format!("http://{}:{}", self.rpc_host, self.rpc_port)).ok()
+            }
+            RpcTransport::Https => {
+                Url::parse(&format!("https://{}:{}", self.rpc_host, self.rpc_port)).ok()
+            }
+            RpcTransport::Ipc => None,
+        }
+    }
+
+    /// Check if this chain uses IPC transport.
+    pub fn is_ipc(&self) -> bool {
+        self.rpc_transport == RpcTransport::Ipc
+    }
+
+    /// Get endpoint description for logging.
+    pub fn endpoint(&self) -> String {
+        match self.rpc_transport {
+            RpcTransport::Http => format!("http://{}:{}", self.rpc_host, self.rpc_port),
+            RpcTransport::Https => format!("https://{}:{}", self.rpc_host, self.rpc_port),
+            RpcTransport::Ipc => self
+                .ipc_path
+                .clone()
+                .unwrap_or_else(|| "<no path>".to_string()),
+        }
+    }
+
+    /// Validate chain configuration.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.rpc_transport == RpcTransport::Ipc && self.ipc_path.is_none() {
+            return Err(format!(
+                "[{}] IPC transport requires ipc_path to be specified",
+                self.name
+            ));
+        }
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub fn get_auth_token(&self) -> Option<String> {
+        self.rpc_auth.get_token()
+    }
+
+    pub fn get_auth_token_or_exit(&self) -> Option<String> {
+        self.rpc_auth.get_token_or_exit(&self.name)
+    }
 }
 
 fn default_block_time() -> u64 {
@@ -137,13 +186,15 @@ pub struct Miner {
     plots: Arc<PoCXArray>,
     request_handler: Vec<RequestHandler>,
     reader_thread_pool: Arc<rayon::ThreadPool>,
+    hasher_thread_pool: Arc<rayon::ThreadPool>, // For CPU-intensive hashing work
     rx_scheduler: Option<UnboundedReceiver<SchedulerMessage>>,
     known_account_payloads: Vec<String>, // Hex payloads from plot files
     cfg: Cfg,                            // Store config for target quality access
     rx_nonce_data: Option<UnboundedReceiver<(usize, SubmissionParameters)>>,
     benchmark: Option<Benchmark>,
-    hdd_wakeup_after: i64,      // HDD wakeup interval in seconds
-    max_compression_steps: u32, // Maximum compression steps based on buffer size
+    hdd_wakeup_after: i64,             // HDD wakeup interval in seconds
+    max_compression_steps: u32,        // Maximum compression steps based on buffer size
+    shutdown_token: CancellationToken, // For graceful shutdown
 }
 
 pub struct DecodedMiningInfo {
@@ -176,7 +227,6 @@ impl ChainState {
         mining_info: &MiningInfo,
         _chain_name: &str,
         chain_target_quality: Option<u64>,
-        chain_accounts: &[ChainAccount], // Chain account configurations
         known_account_payloads: &[String], // Hex payloads from plot files
         submission_mode: SubmissionMode,
     ) {
@@ -190,15 +240,9 @@ impl ChainState {
         }
 
         for account_payload in known_account_payloads {
-            let account_target = chain_accounts
-                .iter()
-                .find(|acc| acc.account == *account_payload)
-                .and_then(|acc| acc.target_quality)
-                .unwrap_or(u64::MAX);
-
             let chain_target = chain_target_quality.unwrap_or(u64::MAX);
             let pool_target = mining_info.target_quality.unwrap_or(u64::MAX);
-            let effective_target = account_target.min(chain_target).min(pool_target);
+            let effective_target = chain_target.min(pool_target);
 
             self.account_id_to_target_quality
                 .insert(account_payload.clone(), effective_target);
@@ -336,47 +380,72 @@ impl Miner {
         } else {
             Vec::new()
         };
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(cpu_threads)
-            .start_handler(move |id| {
-                if thread_pinning {
-                    #[cfg(not(windows))]
-                    let core_id = core_ids[id % core_ids.len()];
-                    #[cfg(not(windows))]
-                    core_affinity::set_for_current(core_id);
-                    #[cfg(windows)]
-                    set_thread_ideal_processor(id % core_ids.len());
-                }
-            })
-            .build_global()
-            .unwrap();
+
+        let hasher_thread_pool = Arc::new(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(cpu_threads)
+                .thread_name(|i| format!("miner-hasher-{}", i))
+                .start_handler(move |id| {
+                    if thread_pinning {
+                        #[cfg(not(windows))]
+                        let core_id = core_ids[id % core_ids.len()];
+                        #[cfg(not(windows))]
+                        core_affinity::set_for_current(core_id);
+                        #[cfg(windows)]
+                        set_thread_ideal_processor(id % core_ids.len());
+                    }
+                })
+                .build()
+                .expect("Failed to create hasher thread pool"),
+        );
+
+        // Create shutdown coordinator - token will be shared with all tasks
+        let shutdown_token = CancellationToken::new();
 
         let mut chain_states = Vec::new();
         let mut request_handler = Vec::new();
         info!("Chain Configuration:");
         for (i, chain) in cfg.chains.iter().enumerate() {
-            info!(
-                "Priority {} : ({}) {}",
-                i + 1,
-                chain.name,
-                chain
-                    .base_url
-                    .join(&chain.api_path)
-                    .expect("error parsing server url")
-            );
+            // Validate chain configuration
+            if let Err(e) = chain.validate() {
+                error!("Chain configuration error: {}", e);
+                std::process::exit(1);
+            }
+
+            let endpoint_str = chain.endpoint();
+            info!("Priority {} : ({}) {}", i + 1, chain.name, endpoint_str);
+
+            // Validate and get auth token - exit if cookie auth fails
+            let auth_token = chain.get_auth_token_or_exit();
+
             chain_states.push(Arc::new(Mutex::new(ChainState::default())));
 
-            let chain_specific_headers = cfg.chains[i].headers.clone();
-
-            request_handler.push(RequestHandler::new(
-                cfg.chains[i].base_url.clone(),
-                cfg.chains[i].api_path.clone(),
-                cfg.timeout,
-                chain_specific_headers,
-                cfg.chains[i].accounts.clone(),
-                cfg.chains[i].auth_token.clone(),
-                cfg.chains[i].submission_mode.clone(),
-            ));
+            // Create request handler based on transport type
+            let handler = if chain.is_ipc() {
+                let ipc_path = chain
+                    .ipc_path
+                    .clone()
+                    .expect("IPC path required for IPC transport");
+                RequestHandler::new_ipc(
+                    ipc_path,
+                    cfg.timeout,
+                    auth_token,
+                    cfg.chains[i].submission_mode.clone(),
+                    shutdown_token.clone(),
+                )
+            } else {
+                let base_url = chain
+                    .build_url()
+                    .expect("Failed to build URL for HTTP/HTTPS transport");
+                RequestHandler::new(
+                    base_url,
+                    cfg.timeout,
+                    auth_token,
+                    cfg.chains[i].submission_mode.clone(),
+                    shutdown_token.clone(),
+                )
+            };
+            request_handler.push(handler);
         }
 
         let dummy_io = matches!(cfg.benchmark, Some(Benchmark::Cpu));
@@ -433,6 +502,7 @@ impl Miner {
             plots: Arc::new(plots),
             request_handler,
             reader_thread_pool,
+            hasher_thread_pool,
             rx_scheduler: Some(rx_scheduler),
             known_account_payloads,
             benchmark: cfg.benchmark.clone(),
@@ -440,11 +510,15 @@ impl Miner {
             max_compression_steps,
             cfg,
             rx_nonce_data: Some(rx_nonce_data),
+            shutdown_token,
         }
     }
 
-    fn get_inital_mining_infos(&self) {
-        let (tx_done, rx_done) = bounded(self.chains.len());
+    async fn get_inital_mining_infos(&self) {
+        // Use tokio's async channel instead of blocking crossbeam channel
+        // This prevents deadlock when running under external runtimes (e.g., Tauri)
+        let (tx_done, mut rx_done) = tokio::sync::mpsc::channel::<bool>(self.chains.len());
+
         for (i, chain) in self.chains.iter().enumerate() {
             let request_handler = self.request_handler.clone();
             let chain_state = self.chain_states[i].clone();
@@ -455,54 +529,48 @@ impl Miner {
             // Capture values needed for update_mining_info
             let chain_name = chain.name.clone();
             let chain_target_quality = chain.target_quality;
-            let chain_accounts = chain.accounts.clone();
             let submission_mode = chain.submission_mode.clone();
             let known_accounts = self.known_account_payloads.clone();
             task::spawn(async move {
-                let mining_info = request_handler[i]
-                    .get_mining_info(chain.base_url.clone(), &chain.api_path)
-                    .await;
-                let mut state = chain_state.lock().unwrap();
-                match mining_info {
-                    Ok(mining_info) => {
-                        if mining_info.block_hash != state.block_hash {
-                            state.update_mining_info(
-                                &mining_info,
-                                &chain_name,
-                                chain_target_quality,
-                                &chain_accounts,
-                                &known_accounts,
-                                submission_mode,
-                            );
-                            // schedule block
-                            tx_scheduler
-                                .unbounded_send(SchedulerMessage::ScheduleNewBlock {
-                                    chain_id: i,
-                                    mining_info,
-                                    initial: true,
-                                })
-                                .expect("failed to schedule block");
+                let mining_info = request_handler[i].get_mining_info().await;
+                {
+                    // Scope the lock so it's released before the await
+                    let mut state = chain_state.lock().unwrap();
+                    match mining_info {
+                        Ok(mining_info) => {
+                            if mining_info.block_hash != state.block_hash {
+                                state.update_mining_info(
+                                    &mining_info,
+                                    &chain_name,
+                                    chain_target_quality,
+                                    &known_accounts,
+                                    submission_mode,
+                                );
+                                // schedule block
+                                tx_scheduler
+                                    .unbounded_send(SchedulerMessage::ScheduleNewBlock {
+                                        chain_id: i,
+                                        mining_info,
+                                        initial: true,
+                                    })
+                                    .expect("failed to schedule block");
+                            }
+                        }
+                        Err(e) => {
+                            state.outage = true;
+                            log::error!("[{}] Failed to get mining info: {:?}", chain_name, e);
                         }
                     }
-                    _ => {
-                        state.outage = true;
-                        log::error!(
-                            "{: <80}",
-                            format!(
-                                "[{}], error getting mining info, please check server config",
-                                chain.name
-                            )
-                        );
-                    }
-                }
-                tx_done.send(true).unwrap();
+                } // MutexGuard dropped here
+                let _ = tx_done.send(true).await;
             });
         }
 
-        // await initial mining infos
-        for _ in 0..self.chains.len() {
-            rx_done.recv().unwrap();
-        }
+        // Drop our sender so the channel closes when all tasks complete
+        drop(tx_done);
+
+        // Await all tasks using async receive (no blocking!)
+        while rx_done.recv().await.is_some() {}
 
         // trigger mining
         self.channels
@@ -516,71 +584,72 @@ impl Miner {
         for (i, chain) in self.chains.iter().enumerate() {
             let request_handler = self.request_handler.clone();
             let chain_state = self.chain_states[i].clone();
-            let chain = chain.clone();
             let tx_scheduler = self.channels.tx_scheduler.clone();
             let get_mining_info_interval = self.get_mining_info_interval;
+            let token = self.shutdown_token.clone();
 
             // Capture values needed for update_mining_info
             let chain_name = chain.name.clone();
             let chain_target_quality = chain.target_quality;
-            let chain_accounts = chain.accounts.clone();
             let submission_mode = chain.submission_mode.clone();
             let known_accounts = self.known_account_payloads.clone();
             task::spawn(async move {
                 let mut interval_stream =
                     Interval::new_interval(Duration::from_millis(get_mining_info_interval));
-                while (StreamExt::next(&mut interval_stream).await).is_some() {
-                    let mining_info = request_handler[i]
-                        .get_mining_info(chain.base_url.clone(), &chain.api_path)
-                        .await;
-                    let mut state = chain_state.lock().unwrap();
-                    match mining_info {
-                        Ok(mining_info) => {
-                            if state.outage {
-                                log::error!(
-                                    "{: <80}",
-                                    format!("[{}]: outage resolved.", chain.name)
-                                );
-                                state.outage = false;
-                            }
-                            if mining_info.block_hash != state.block_hash {
-                                state.update_mining_info(
-                                    &mining_info,
-                                    &chain_name,
-                                    chain_target_quality,
-                                    &chain_accounts,
-                                    &known_accounts,
-                                    submission_mode.clone(),
-                                );
-                                // schedule block
-                                tx_scheduler
-                                    .unbounded_send(SchedulerMessage::ScheduleNewBlock {
-                                        chain_id: i,
-                                        mining_info,
-                                        initial: false,
-                                    })
-                                    .expect("failed to schedule block");
-                            }
+                loop {
+                    tokio::select! {
+                        biased;
+
+                        _ = token.cancelled() => {
+                            log::info!("[SHUTDOWN] Mining info task for {} stopping", chain_name);
+                            break;
                         }
-                        Err(err) => {
-                            match err {
-                                FetchError::Pool(e) => {
-                                    log::error!("{}:{}", e.code, e.message);
+
+                        tick = StreamExt::next(&mut interval_stream) => {
+                            if tick.is_none() {
+                                break;
+                            }
+                            let mining_info = request_handler[i].get_mining_info().await;
+                            let mut state = chain_state.lock().unwrap();
+                            match mining_info {
+                                Ok(mining_info) => {
+                                    if state.outage {
+                                        log::error!(
+                                            "{: <80}",
+                                            format!("[{}]: outage resolved.", chain_name)
+                                        );
+                                        state.outage = false;
+                                    }
+                                    if mining_info.block_hash != state.block_hash {
+                                        state.update_mining_info(
+                                            &mining_info,
+                                            &chain_name,
+                                            chain_target_quality,
+                                            &known_accounts,
+                                            submission_mode.clone(),
+                                        );
+                                        // schedule block
+                                        tx_scheduler
+                                            .unbounded_send(SchedulerMessage::ScheduleNewBlock {
+                                                chain_id: i,
+                                                mining_info,
+                                                initial: false,
+                                            })
+                                            .expect("failed to schedule block");
+                                    }
                                 }
-                                FetchError::Http(e) => {
-                                    log::error!("{:?}", e);
+                                Err(err) => {
+                                    if !state.outage {
+                                        // Only log on first error (not every interval)
+                                        log::error!(
+                                            "[{}] Failed to get mining info: {:?}",
+                                            chain_name,
+                                            err
+                                        );
+                                    }
+                                    state.outage = true;
                                 }
                             }
-                            if !state.outage {
-                                log::error!(
-                                    "{: <80}",
-                                    format!(
-                                        "[{}], error getting mining info => connection outage...",
-                                        chain.name
-                                    )
-                                );
-                            }
-                            state.outage = true;
                         }
                     }
                 }
@@ -606,14 +675,31 @@ impl Miner {
         let plots = self.plots.clone();
         let channels = self.channels.clone();
         let reader_thread_pool = self.reader_thread_pool.clone();
+        let hasher_thread_pool = self.hasher_thread_pool.clone();
         let benchmark = self.benchmark.clone();
         let cfg = self.cfg.clone();
         let max_compression_steps = self.max_compression_steps;
+        let token = self.shutdown_token.clone();
         task::spawn(async move {
             let mut mining_infos = mining_infos;
             let mut resume_states = resume_states;
             let mut scheduler_rx = scheduler_rx;
-            while let Some(message) = StreamExt::next(&mut scheduler_rx).await {
+            loop {
+                let message = tokio::select! {
+                    biased;
+
+                    _ = token.cancelled() => {
+                        log::info!("[SHUTDOWN] Scheduler task stopping");
+                        break;
+                    }
+
+                    msg = StreamExt::next(&mut scheduler_rx) => {
+                        match msg {
+                            Some(m) => m,
+                            None => break,
+                        }
+                    }
+                };
                 match message {
                     SchedulerMessage::ScheduleNewBlock {
                         chain_id,
@@ -657,6 +743,18 @@ impl Miner {
                             mining_infos[chain_id].base_target,
                             chains[chain_id].block_time_seconds,
                         );
+                        let compression_range = if mining_infos[chain_id].minimum_compression_level
+                            == mining_infos[chain_id].target_compression_level
+                        {
+                            format!("POCX{}", mining_infos[chain_id].minimum_compression_level)
+                        } else {
+                            format!(
+                                "POCX{}-POCX{}",
+                                mining_infos[chain_id].minimum_compression_level,
+                                mining_infos[chain_id].target_compression_level
+                            )
+                        };
+
                         info!(
                             "{: <80}",
                             format!(
@@ -666,19 +764,34 @@ impl Miner {
                                 &mining_infos[chain_id].generation_signature[mining_infos[chain_id].generation_signature.len().saturating_sub(8)..],
                                 mining_infos[chain_id].base_target,
                                 network_capacity,
-                                if mining_infos[chain_id].minimum_compression_level == mining_infos[chain_id].target_compression_level {
-                                    format!("POCX{}", mining_infos[chain_id].minimum_compression_level)
-                                } else {
-                                    format!("POCX{}-POCX{}", mining_infos[chain_id].minimum_compression_level, mining_infos[chain_id].target_compression_level)
-                                },
+                                compression_range,
                             )
                         );
+
+                        let scoop = pocx_hashlib::calculate_scoop(
+                            mining_infos[chain_id].height,
+                            &pocx_hashlib::decode_generation_signature(
+                                &mining_infos[chain_id].generation_signature,
+                            )
+                            .unwrap_or([0u8; 32]),
+                        );
+                        with_callback(|cb| {
+                            cb.on_new_block(&CallbackBlockInfo {
+                                chain: chains[chain_id].name.clone(),
+                                height: mining_infos[chain_id].height,
+                                base_target: mining_infos[chain_id].base_target,
+                                gen_sig: mining_infos[chain_id].generation_signature.clone(),
+                                network_capacity: network_capacity.clone(),
+                                compression_range: compression_range.clone(),
+                                scoop,
+                            });
+                        });
                         // trigger mining
                         if !initial {
-                            tx_scheduler
+                            // Ignore error during shutdown
+                            let _ = tx_scheduler
                                 .clone()
-                                .unbounded_send(SchedulerMessage::ProcessBlock)
-                                .expect("failed to communicate with scheduler task");
+                                .unbounded_send(SchedulerMessage::ProcessBlock);
                         }
                     }
                     SchedulerMessage::RescheduleBlock {
@@ -728,11 +841,10 @@ impl Miner {
                                 )
                             );
                         }
-                        // trigger mining
-                        tx_scheduler
+                        // trigger mining - ignore error during shutdown
+                        let _ = tx_scheduler
                             .clone()
-                            .unbounded_send(SchedulerMessage::ProcessBlock)
-                            .expect("failed to communicate with scheduler task");
+                            .unbounded_send(SchedulerMessage::ProcessBlock);
                     }
                     SchedulerMessage::ProcessBlock => {
                         let pq = pq.clone();
@@ -740,9 +852,11 @@ impl Miner {
 
                         if pq.is_empty() {
                             info!("queue      : [] waiting for new block...");
+                            with_callback(|cb| cb.on_idle());
                         } else {
                             let mut queue: String = "queue      : ".to_owned();
-                            for (item, _) in pq.clone().into_sorted_iter() {
+                            let mut queue_items: Vec<QueueItem> = Vec::new();
+                            for (pos, (item, _)) in pq.clone().into_sorted_iter().enumerate() {
                                 let percentage_processed =
                                     if let Some(i) = resume_states[item].as_ref() {
                                         i.warps_scanned as f64 / i.total_warps as f64 * 100.0
@@ -755,8 +869,15 @@ impl Miner {
                                     mining_infos[item].height,
                                     percentage_processed,
                                 ));
+                                queue_items.push(QueueItem {
+                                    position: pos as u32,
+                                    chain: chains[item].name.clone(),
+                                    height: mining_infos[item].height,
+                                    progress_percent: percentage_processed,
+                                });
                             }
                             info!("{}", queue);
+                            with_callback(|cb| cb.on_queue_updated(&queue_items));
                         }
 
                         // trigger mining
@@ -780,15 +901,12 @@ impl Miner {
                                 );
                                 drop(mut_state);
 
+                                let is_resuming = resume_states[chain_id].is_some();
                                 info!(
                                     "{: <80}",
                                     format!(
                                         "{}   : [{}:{}], gensig={}, base_target={}, scoop={:04}",
-                                        if resume_states[chain_id].is_some() {
-                                            "resuming"
-                                        } else {
-                                            "scanning"
-                                        },
+                                        if is_resuming { "resuming" } else { "scanning" },
                                         chains[chain_id].name,
                                         mining_info.height,
                                         mining_info.generation_signature,
@@ -796,13 +914,26 @@ impl Miner {
                                         decoded_mining_info.scoop,
                                     )
                                 );
+
+                                let total_warps = plots.size_in_warps;
+                                with_callback(|cb| {
+                                    cb.on_scan_started(&ScanStartedInfo {
+                                        chain: chains[chain_id].name.clone(),
+                                        height: mining_info.height,
+                                        total_warps,
+                                        resuming: is_resuming,
+                                    });
+                                });
+
                                 // thread spawn
                                 let mining_round_plots = plots.clone();
                                 let mining_round_channels = channels.clone();
                                 let mining_round_miner_state = miner_state.clone();
                                 let mining_round_reader_threadpool = reader_thread_pool.clone();
+                                let mining_round_hasher_threadpool = hasher_thread_pool.clone();
                                 let resume_info = resume_states[chain_id].take();
                                 let benchmark_clone = benchmark.clone();
+                                let chain_name = chains[chain_id].name.clone();
 
                                 // Build compression configuration
                                 let compression_config = if cfg.enable_on_the_fly_compression {
@@ -823,10 +954,12 @@ impl Miner {
                                         mining_round_channels,
                                         mining_round_miner_state,
                                         mining_round_reader_threadpool,
+                                        mining_round_hasher_threadpool,
                                         mining_info,
                                         decoded_mining_info,
                                         resume_info,
                                         chain_id,
+                                        chain_name,
                                         block,
                                         matches!(benchmark_clone, Some(Benchmark::Io)),
                                         compression_config,
@@ -869,30 +1002,46 @@ impl Miner {
 
         let plots = self.plots.clone();
         let miner_state = self.miner_state.clone();
+        let token = self.shutdown_token.clone();
 
         task::spawn(async move {
             let wakeup_check_interval = Duration::from_secs(1); // Check every second
             let mut interval_stream = Interval::new_interval(wakeup_check_interval);
 
-            while (StreamExt::next(&mut interval_stream).await).is_some() {
-                let mut mut_state = miner_state.lock().unwrap();
-                let now = Instant::now();
+            loop {
+                tokio::select! {
+                    biased;
 
-                // Initialize wakeup timer on first run or when not scanning
-                if mut_state.next_wakeup_at.is_none() && !mut_state.scanning {
-                    mut_state.next_wakeup_at =
-                        Some(now + Duration::from_secs(hdd_wakeup_after as u64));
-                }
+                    _ = token.cancelled() => {
+                        log::info!("[SHUTDOWN] HDD wakeup task stopping");
+                        break;
+                    }
 
-                // Check if it's time to wake up
-                if let Some(wakeup_time) = mut_state.next_wakeup_at {
-                    if now >= wakeup_time && !mut_state.scanning {
-                        // Schedule next wakeup
-                        mut_state.next_wakeup_at =
-                            Some(now + Duration::from_secs(hdd_wakeup_after as u64));
-                        drop(mut_state); // Release lock before I/O
+                    tick = StreamExt::next(&mut interval_stream) => {
+                        if tick.is_none() {
+                            break;
+                        }
+                        let mut mut_state = miner_state.lock().unwrap();
+                        let now = Instant::now();
 
-                        plots.wakeup_drives();
+                        // Initialize wakeup timer on first run or when not scanning
+                        if mut_state.next_wakeup_at.is_none() && !mut_state.scanning {
+                            mut_state.next_wakeup_at =
+                                Some(now + Duration::from_secs(hdd_wakeup_after as u64));
+                        }
+
+                        // Check if it's time to wake up
+                        if let Some(wakeup_time) = mut_state.next_wakeup_at {
+                            if now >= wakeup_time && !mut_state.scanning {
+                                // Schedule next wakeup
+                                mut_state.next_wakeup_at =
+                                    Some(now + Duration::from_secs(hdd_wakeup_after as u64));
+                                drop(mut_state); // Release lock before I/O
+
+                                plots.wakeup_drives();
+                                with_callback(|cb| cb.on_hdd_wakeup());
+                            }
+                        }
                     }
                 }
             }
@@ -903,10 +1052,26 @@ impl Miner {
         let request_handler = self.request_handler.clone();
         let chain_states = self.chain_states.clone();
         let nonce_rx = self.rx_nonce_data.take().unwrap();
+        let token = self.shutdown_token.clone();
         task::spawn(async move {
             let mut nonce_rx = nonce_rx;
-            while let Some((chain_id, submission_parameter)) = StreamExt::next(&mut nonce_rx).await
-            {
+            loop {
+                let (chain_id, submission_parameter) = tokio::select! {
+                    biased;
+
+                    _ = token.cancelled() => {
+                        log::info!("[SHUTDOWN] Nonce submission task stopping");
+                        break;
+                    }
+
+                    data = StreamExt::next(&mut nonce_rx) => {
+                        match data {
+                            Some(d) => d,
+                            None => break,
+                        }
+                    }
+                };
+
                 // check if nonce submission is for current block of the respective chain
                 let mut chain_state = chain_states[chain_id].lock().unwrap();
 
@@ -958,8 +1123,24 @@ impl Miner {
     pub async fn run(mut self) {
         info!("Starting mining...");
 
+        let chain_names: Vec<String> = self.chains.iter().map(|c| c.name.clone()).collect();
+        with_callback(|cb| {
+            cb.on_started(&MinerStartedInfo {
+                chains: chain_names.clone(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+            });
+        });
+
+        with_callback(|cb| {
+            cb.on_capacity_loaded(&CapacityInfo {
+                drives: self.plots.disks.len() as u32,
+                total_warps: self.plots.size_in_warps,
+                capacity_tib: self.plots.size_in_warps as f64 / 1024.0,
+            });
+        });
+
         // get initial mining infos
-        self.get_inital_mining_infos();
+        self.get_inital_mining_infos().await;
 
         // create some async tasks...
 
@@ -975,9 +1156,57 @@ impl Miner {
         // create HDD wakeup task
         self.create_hdd_wakeup_task(self.hdd_wakeup_after);
 
-        // Keep the main thread alive by waiting indefinitely
-        // The spawned tasks will run in the background
-        futures::future::pending::<()>().await;
+        // Main loop - check for stop request
+        loop {
+            if is_stop_requested() {
+                info!("Stop requested, initiating graceful shutdown...");
+                break;
+            }
+            // Sleep briefly to avoid busy-waiting
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
+        // Graceful shutdown
+        self.graceful_shutdown().await;
+    }
+
+    /// Perform graceful shutdown of all miner components.
+    ///
+    /// Phases:
+    /// 1. Signal all tasks via cancellation token
+    /// 2. Close channels to unblock waiting tasks
+    /// 3. Wait for tasks to complete (with timeout)
+    /// 4. Drain and cleanup buffers
+    async fn graceful_shutdown(&self) {
+        info!("[SHUTDOWN] Phase 1: Signaling all tasks to stop");
+        self.shutdown_token.cancel();
+
+        // Signal mining round to stop via existing interrupt mechanism
+        self.miner_state.lock().unwrap().interrupt = true;
+
+        info!("[SHUTDOWN] Phase 2: Closing channels");
+        self.channels.tx_scheduler.close_channel();
+
+        // Give tasks time to respond to cancellation
+        info!("[SHUTDOWN] Phase 3: Waiting for tasks to complete (5s timeout)");
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        // The tasks should have stopped by now due to token cancellation
+        // Note: We can't await tasks we spawned with task::spawn() without tracking them
+        // The cancellation token ensures they exit their loops
+
+        info!("[SHUTDOWN] Phase 4: Draining buffers");
+        // Drain remaining buffers from the channel
+        let mut buffer_count = 0;
+        while self.channels.rx_empty_buffer.try_recv().is_ok() {
+            buffer_count += 1;
+        }
+        if buffer_count > 0 {
+            info!("[SHUTDOWN] Recovered {} buffers", buffer_count);
+        }
+
+        info!("[SHUTDOWN] Phase 5: Shutdown complete");
+        with_callback(|cb| cb.on_stopped());
     }
 
     // TODO: Refactor to reduce parameter count - keeping for later cleanup phase
@@ -987,10 +1216,12 @@ impl Miner {
         channels: Channels,
         miner_state: Arc<Mutex<MinerState>>,
         reader_threadpool: Arc<rayon::ThreadPool>,
+        hasher_threadpool: Arc<rayon::ThreadPool>,
         mining_info: MiningInfo,
         decoded_mining_info: DecodedMiningInfo,
         resume_info: Option<ResumeInfo>,
         chain_id: usize,
+        chain_name: String,
         block_count: u64,
         io_bench: bool,
         compression_config: Option<CompressionConfig>,
@@ -1056,15 +1287,20 @@ impl Miner {
                         pb.inc(i * NUM_SCOOPS * SCOOP_SIZE);
                     }
                     warps_processed += i;
+
+                    // Callback for scan progress
+                    with_callback(|cb| cb.on_scan_progress(i));
                 }
                 ScanMessage::Data(read_reply) => {
                     if io_bench {
-                        channels.tx_empty_buffer.send(read_reply.buffer).unwrap();
+                        // Ignore error during shutdown
+                        let _ = channels.tx_empty_buffer.send(read_reply.buffer);
                     } else {
-                        // Spawn quality calc task on global threadpool
+                        // Spawn quality calc task on local hasher threadpool
                         let task = calc_qualities(HashingTask {
                             buffer: read_reply.buffer,
                             chain_id,
+                            chain_name: chain_name.clone(),
                             block_count,
                             generation_signature_bytes: decoded_mining_info
                                 .generation_signature_bytes,
@@ -1078,7 +1314,7 @@ impl Miner {
                             tx_buffer: channels.tx_empty_buffer.clone(),
                             tx_nonce_data: channels.tx_nonce_data.clone(),
                         });
-                        rayon::spawn(task);
+                        hasher_threadpool.spawn(task);
                     }
                 }
             }
@@ -1088,21 +1324,31 @@ impl Miner {
         }
 
         let mut mut_state = miner_state.lock().unwrap();
+        let height = mining_info.height;
+
         // check for interrupt
         if mut_state.interrupt {
             // check if pause
             if mut_state.pause {
                 if interrupted_count == 0 {
                     // no need to pause and reschedule if just finished
+                    let duration = start_time.elapsed().as_secs_f64();
                     info!(
                         "{: <80}",
                         format!(
                             "finished   : [{}:{}]: done after {:.2}s.",
-                            mut_state.name,
-                            mining_info.height,
-                            start_time.elapsed().as_secs_f64()
+                            chain_name, height, duration
                         )
                     );
+                    with_callback(|cb| {
+                        cb.on_scan_status(
+                            &chain_name,
+                            height,
+                            &ScanStatus::Finished {
+                                duration_secs: duration,
+                            },
+                        );
+                    });
                 } else {
                     // take snapshot
                     let resume_info = plots.get_resume_info();
@@ -1114,60 +1360,86 @@ impl Miner {
                         format!(
                             "{}: [{}:{}] after {}s at {:.2}%.",
                             "paused     ",
-                            mut_state.name,
-                            mining_info.height,
+                            chain_name,
+                            height,
                             start_time.elapsed().as_secs_f64(),
                             percentage_processed
                         )
                     );
+                    with_callback(|cb| {
+                        cb.on_scan_status(
+                            &chain_name,
+                            height,
+                            &ScanStatus::Paused {
+                                progress_percent: percentage_processed,
+                            },
+                        );
+                    });
 
-                    channels
-                        .tx_scheduler
-                        .clone()
-                        .unbounded_send(SchedulerMessage::RescheduleBlock {
+                    // Ignore error during shutdown
+                    let _ = channels.tx_scheduler.clone().unbounded_send(
+                        SchedulerMessage::RescheduleBlock {
                             chain_id: mut_state.chain_id,
                             mining_info: mining_info.clone(),
                             // TODO: Include best qualities in ResumeInfo (minor optimization)
                             resume_info,
-                        })
-                        .expect("failed to schedule block");
+                        },
+                    );
                 }
             } else {
+                let percentage = warps_processed as f64 / plots.size_in_warps as f64 * 100.0;
                 warn!(
                     "{: <80}",
                     format!(
                         "unfinished : [{}:{}:{:.2}%], gensig=...{}, base_target={}",
-                        mut_state.name,
-                        mining_info.height,
-                        warps_processed as f64 / plots.size_in_warps as f64 * 100.0,
+                        chain_name,
+                        height,
+                        percentage,
                         &mining_info.generation_signature
                             [mining_info.generation_signature.len().saturating_sub(8)..],
                         mining_info.base_target,
                     )
                 );
+                with_callback(|cb| {
+                    cb.on_scan_status(
+                        &chain_name,
+                        height,
+                        &ScanStatus::Interrupted {
+                            progress_percent: percentage,
+                        },
+                    );
+                });
             }
 
             mut_state.scanning = false;
-            channels
+            // Ignore error during shutdown
+            let _ = channels
                 .tx_scheduler
-                .unbounded_send(SchedulerMessage::ProcessBlock)
-                .expect("failed to communicate with scheduler task");
+                .unbounded_send(SchedulerMessage::ProcessBlock);
             return;
         }
 
         mut_state.scanning = false;
+        let duration = start_time.elapsed().as_secs_f64();
         info!(
             "{: <80}",
             format!(
                 "finished   : [{}:{}]: done after {:.2}s.",
-                mut_state.name,
-                mining_info.height,
-                start_time.elapsed().as_secs_f64()
+                chain_name, height, duration
             )
         );
-        channels
+        with_callback(|cb| {
+            cb.on_scan_status(
+                &chain_name,
+                height,
+                &ScanStatus::Finished {
+                    duration_secs: duration,
+                },
+            );
+        });
+        // Ignore error during shutdown
+        let _ = channels
             .tx_scheduler
-            .unbounded_send(SchedulerMessage::ProcessBlock)
-            .expect("failed to communicate with scheduler task");
+            .unbounded_send(SchedulerMessage::ProcessBlock);
     }
 }

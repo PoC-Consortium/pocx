@@ -30,6 +30,7 @@ use pocx_plotfile::NUM_SCOOPS;
 pub struct HashingTask {
     pub buffer: PageAlignedByteBuffer,
     pub chain_id: usize,
+    pub chain_name: String,
     pub block_count: u64,
     pub generation_signature_bytes: [u8; 32],
     pub account_id: String,
@@ -55,11 +56,14 @@ pub fn calc_qualities(task: HashingTask) -> impl FnOnce() {
         let quality = result.0;
         let offset = result.1;
 
-        task.tx_nonce_data
+        // Try to send nonce data - channel may be closed during shutdown
+        if task
+            .tx_nonce_data
             .clone()
             .unbounded_send((
                 task.chain_id,
                 SubmissionParameters {
+                    chain: task.chain_name,
                     quality_raw: quality, // raw_quality (Shabal-256 hash result)
                     block_count: task.block_count,
                     nonce_submission: NonceSubmission {
@@ -74,9 +78,18 @@ pub fn calc_qualities(task: HashingTask) -> impl FnOnce() {
                     },
                 },
             ))
-            .expect("CPU worker failed to send nonce data");
+            .is_err()
+        {
+            // Channel disconnected - miner is shutting down, this is expected
+            log::debug!("Hasher: nonce channel closed (shutdown in progress)");
+        }
 
-        task.tx_buffer.clone().send(task.buffer).unwrap();
+        // Try to return buffer - channel may be closed during shutdown
+        if task.tx_buffer.clone().send(task.buffer).is_err() {
+            // Channel disconnected - miner is shutting down
+            // Buffer will be dropped, which is fine during shutdown
+            log::debug!("Hasher: buffer channel closed (shutdown in progress)");
+        }
     }
 }
 

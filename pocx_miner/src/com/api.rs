@@ -233,6 +233,7 @@ where
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubmissionParameters {
+    pub chain: String,
     pub block_count: u64,
     pub quality_raw: u64,
     pub nonce_submission: NonceSubmission,

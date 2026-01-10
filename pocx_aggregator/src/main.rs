@@ -55,10 +55,11 @@ async fn main() {
     };
 
     info!("Loaded configuration from {:?}", args.config);
-    info!("Listening on {}", config.listen_address);
+    info!("Listening on {}", config.server.listen_address);
     info!(
         "Upstream: {} ({})",
-        config.upstream.name, config.upstream.url
+        config.upstream.name,
+        config.upstream.endpoint()
     );
 
     // Create the aggregator server

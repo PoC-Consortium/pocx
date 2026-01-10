@@ -35,15 +35,18 @@ extern crate log;
 extern crate cfg_if;
 
 mod buffer;
+mod callback;
 mod com;
 mod compression;
 mod config;
+mod control;
 mod future;
 mod hasher;
 mod logger;
 mod miner;
 mod plots;
 mod request;
+mod shutdown;
 mod utils;
 
 use crate::config::load_cfg;

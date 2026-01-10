@@ -1,6 +1,6 @@
 [package]
 name = "pocx_miner"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 license = "MIT"
 authors = ["Proof of Capacity Consortium"]
 description = "High-performance PoCX cryptocurrency miner with SIMD optimizations"
@@ -15,6 +15,7 @@ cfg-if = { workspace = true }
 
 # Async runtime
 tokio = { workspace = true }
+tokio-util = { version = "0.7", features = ["rt"] }
 tokio-stream = "0.1"
 futures = { workspace = true }
 
@@ -34,6 +35,7 @@ reqwest = { workspace = true }
 clap = { workspace = true }
 log = "0.4"
 log4rs = { workspace = true }
+anyhow = "1"
 
 # Utilities
 url = { workspace = true }
@@ -51,9 +53,9 @@ rand = { workspace = true }
 bytesize = "2.0.1"
 
 # Internal dependencies
-pocx_hashlib = { path = "../pocx_hashlib" }
-pocx_plotfile = { path = "../pocx_plotfile" }
-pocx_protocol = { path = "../pocx_protocol" }
+pocx_hashlib = { version = "1.0.0-rc.5", path = "../pocx_hashlib" }
+pocx_plotfile = { version = "1.0.0-rc.5", path = "../pocx_plotfile" }
+pocx_protocol = { version = "1.0.0-rc.5", path = "../pocx_protocol" }
 
 [target.'cfg(windows)'.dependencies]
 winapi = { workspace = true }

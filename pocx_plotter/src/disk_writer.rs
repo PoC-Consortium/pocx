@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 use crate::buffer::PageAlignedByteBuffer;
+use crate::get_plotter_callback;
 use crate::plotter::{PlotterTask, WARP_SIZE};
 use crossbeam_channel::{Receiver, Sender};
 use pocx_plotfile::PoCXPlotFile;
@@ -98,6 +99,11 @@ pub fn create_writer_thread(
 
                     if task.line_progress {
                         println!("#WRITE_DELTA:{}", warps_to_write);
+                    }
+
+                    // Notify callback of writing progress
+                    if let Some(cb) = get_plotter_callback() {
+                        cb.on_writing_progress(warps_to_write);
                     }
 
                     if let Err(e) = tx_empty_buffers.send(buffer) {

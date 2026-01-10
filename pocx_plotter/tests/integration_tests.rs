@@ -168,24 +168,28 @@ fn test_path_handling() {
         pocx_address::encode_address(&payload, pocx_address::NetworkId::Base58(0x55)).unwrap();
 
     // Test that relative paths don't get blocked by traversal checks
+    // The CLI will fail for other reasons (path doesn't exist, etc.) but
+    // should NOT fail due to path traversal security restrictions
     let binary = get_plotter_binary();
     let output = Command::new(&binary)
         .args(&[
             "--id",
             &test_id,
             "--path",
-            "../test_plots", // This should not be blocked
-            "--bench",
+            "../nonexistent_test_path", // Relative path - should not be blocked for traversal
         ])
         .output()
         .expect("Failed to execute with relative path");
 
     // The key test: it should NOT fail due to "traversal" restrictions
+    // (it will fail for other reasons like path not existing, which is fine)
     let stderr = String::from_utf8(output.stderr).unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let combined = format!("{}{}", stdout, stderr);
     assert!(
-        !stderr.contains("traversal") && !stderr.contains("Directory traversal not allowed"),
+        !combined.contains("traversal") && !combined.contains("Directory traversal not allowed"),
         "Should not block paths due to traversal restrictions: {}",
-        stderr
+        combined
     );
 }
 

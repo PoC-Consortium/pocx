@@ -123,11 +123,11 @@ mod tests {
 
         let mut buf = vec![0; 32 * plotter::NONCE_SIZE as usize];
 
-        // create context for first gpu - skip test if no OpenCL platforms available
-        let context = match std::panic::catch_unwind(|| gpu_init(&["0:0:0".to_owned()], false, 0)) {
+        // create context for first gpu - skip test if no OpenCL available
+        let context = match gpu_init(&["0:0:0".to_owned()], false, 0) {
             Ok(ctx) => ctx,
-            Err(_) => {
-                println!("Skipping GPU test: gpu_init panicked (no OpenCL runtime)");
+            Err(e) => {
+                println!("Skipping GPU test: {}", e);
                 return;
             }
         };

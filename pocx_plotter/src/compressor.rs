@@ -27,6 +27,7 @@ use crate::error::lock_mutex;
 
 use crate::buffer::PageAlignedByteBuffer;
 use crate::disk_writer::WriterTask;
+use crate::is_stop_requested;
 use crate::plotter::{PlotterTask, DOUBLE_HASH_SIZE};
 
 #[cfg(not(test))]
@@ -138,7 +139,7 @@ pub fn create_chunk_compressor_thread(
             compressor_progress[read_buffer.path_pointer] += read_buffer.warps_to_compress;
 
             // thread end
-            if total_warps == compressor_progress.iter().sum::<u64>() {
+            if is_stop_requested() || total_warps == compressor_progress.iter().sum::<u64>() {
                 // shutdown signals for all writers
                 for writer in tx_full_write_buffers {
                     if writer.send(WriterTask::EndTask).is_err() {

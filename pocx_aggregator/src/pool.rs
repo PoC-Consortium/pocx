@@ -61,20 +61,47 @@ struct CachedMiningInfo {
 
 impl PoolManager {
     /// Create a new pool manager
-    pub fn new(upstream: UpstreamConfig, cache_ttl_secs: u64, timeout_secs: u64) -> Result<Self> {
+    pub fn new(upstream: &UpstreamConfig, cache_ttl_secs: u64, timeout_secs: u64) -> Result<Self> {
         let timeout = Duration::from_secs(timeout_secs);
 
-        // Create client for upstream
-        let mut client = JsonRpcClient::new(&upstream.url)
-            .map_err(|e| {
-                Error::Pool(format!(
-                    "Failed to create client for {}: {}",
-                    upstream.name, e
-                ))
-            })?
-            .with_timeout(timeout);
+        // Create client for upstream based on transport type
+        let mut client = if upstream.is_ipc() {
+            let ipc_path = upstream
+                .ipc_path
+                .as_ref()
+                .ok_or_else(|| Error::Config("IPC transport requires ipc_path".to_string()))?;
+            info!(
+                "Connecting to upstream '{}' via IPC: {}",
+                upstream.name, ipc_path
+            );
+            JsonRpcClient::new_ipc(ipc_path)
+                .map_err(|e| {
+                    Error::Pool(format!(
+                        "Failed to create IPC client for {}: {}",
+                        upstream.name, e
+                    ))
+                })?
+                .with_timeout(timeout)
+        } else {
+            let url = upstream.build_url().ok_or_else(|| {
+                Error::Config("HTTP/HTTPS transport requires valid URL".to_string())
+            })?;
+            info!(
+                "Connecting to upstream '{}' via HTTP: {}",
+                upstream.name, url
+            );
+            JsonRpcClient::new(&url)
+                .map_err(|e| {
+                    Error::Pool(format!(
+                        "Failed to create HTTP client for {}: {}",
+                        upstream.name, e
+                    ))
+                })?
+                .with_timeout(timeout)
+        };
 
-        if let Some(ref token) = upstream.auth_token {
+        // Get auth token if configured (supports None, UserPass, Cookie)
+        if let Some(token) = upstream.get_auth_token_or_exit() {
             client = client.with_auth_token(token);
         }
 
@@ -91,7 +118,7 @@ impl PoolManager {
         };
 
         Ok(Self {
-            upstream_name: upstream.name,
+            upstream_name: upstream.name.clone(),
             client,
             current_mining_info: Arc::new(RwLock::new(None)),
             cache_ttl: Duration::from_secs(cache_ttl_secs),

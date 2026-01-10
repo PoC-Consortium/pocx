@@ -425,57 +425,61 @@ mod tests {
     #[test]
     fn test_config_with_env_vars() {
         // Set environment variables for testing
-        env::set_var("POCX_NETWORK_NAME", "TestNetwork");
-        env::set_var("POCX_NETWORK_ID", "100");
-        env::set_var("POCX_HOST", "0.0.0.0");
-        env::set_var("POCX_PORT", "8888");
-        env::set_var("POCX_DATABASE_URL", "test.db");
+        // Use unique prefixes to avoid race conditions with parallel tests
+        env::set_var("POCX_TEST_VALID_NETWORK_NAME", "TestNetwork");
+        env::set_var("POCX_TEST_VALID_NETWORK_ID", "100");
+        env::set_var("POCX_TEST_VALID_HOST", "0.0.0.0");
+        env::set_var("POCX_TEST_VALID_PORT", "8888");
+        env::set_var("POCX_TEST_VALID_DATABASE_URL", "test.db");
 
         // This would normally load from env vars when config files don't exist
         // We can't easily test the full load() method without mocking the filesystem
         // So we'll test the parsing logic separately
 
-        let network_name = env::var("POCX_NETWORK_NAME").unwrap();
+        let network_name = env::var("POCX_TEST_VALID_NETWORK_NAME").unwrap();
         assert_eq!(network_name, "TestNetwork");
 
-        let network_id_str = env::var("POCX_NETWORK_ID").unwrap();
+        let network_id_str = env::var("POCX_TEST_VALID_NETWORK_ID").unwrap();
         let network_id: u8 = network_id_str.parse().unwrap();
         assert_eq!(network_id, 100);
 
-        let host = env::var("POCX_HOST").unwrap();
+        let host = env::var("POCX_TEST_VALID_HOST").unwrap();
         assert_eq!(host, "0.0.0.0");
 
-        let port_str = env::var("POCX_PORT").unwrap();
+        let port_str = env::var("POCX_TEST_VALID_PORT").unwrap();
         let port: u16 = port_str.parse().unwrap();
         assert_eq!(port, 8888);
 
-        let db_url = env::var("POCX_DATABASE_URL").unwrap();
+        let db_url = env::var("POCX_TEST_VALID_DATABASE_URL").unwrap();
         assert_eq!(db_url, "test.db");
 
         // Clean up environment variables
-        env::remove_var("POCX_NETWORK_NAME");
-        env::remove_var("POCX_NETWORK_ID");
-        env::remove_var("POCX_HOST");
-        env::remove_var("POCX_PORT");
-        env::remove_var("POCX_DATABASE_URL");
+        env::remove_var("POCX_TEST_VALID_NETWORK_NAME");
+        env::remove_var("POCX_TEST_VALID_NETWORK_ID");
+        env::remove_var("POCX_TEST_VALID_HOST");
+        env::remove_var("POCX_TEST_VALID_PORT");
+        env::remove_var("POCX_TEST_VALID_DATABASE_URL");
     }
 
     #[test]
     fn test_invalid_env_var_parsing() {
         // Test that invalid environment variables don't break the parsing
-        env::set_var("POCX_NETWORK_ID", "invalid_number");
-        env::set_var("POCX_PORT", "not_a_port");
+        // Use unique env var names to avoid race conditions with parallel tests
+        env::set_var("POCX_TEST_INVALID_NETWORK_ID", "invalid_number");
+        env::set_var("POCX_TEST_INVALID_PORT", "not_a_port");
 
         // These should fail to parse but not panic
-        let network_id_result = env::var("POCX_NETWORK_ID").unwrap().parse::<u8>();
+        let network_id_result = env::var("POCX_TEST_INVALID_NETWORK_ID")
+            .unwrap()
+            .parse::<u8>();
         assert!(network_id_result.is_err());
 
-        let port_result = env::var("POCX_PORT").unwrap().parse::<u16>();
+        let port_result = env::var("POCX_TEST_INVALID_PORT").unwrap().parse::<u16>();
         assert!(port_result.is_err());
 
         // Clean up
-        env::remove_var("POCX_NETWORK_ID");
-        env::remove_var("POCX_PORT");
+        env::remove_var("POCX_TEST_INVALID_NETWORK_ID");
+        env::remove_var("POCX_TEST_INVALID_PORT");
     }
 
     #[test]

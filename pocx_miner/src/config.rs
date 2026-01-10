@@ -18,7 +18,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use crate::miner::Chain;
+// CfgBuilder is a library export used by external crates (e.g., Tauri backend)
+#![allow(dead_code)]
+
+pub use crate::miner::Chain;
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -187,6 +190,160 @@ pub fn validate_cfg(mut cfg: Cfg) -> Cfg {
         }
     });
     cfg
+}
+
+// ============================================================================
+// CfgBuilder for Programmatic Configuration
+// ============================================================================
+
+/// Builder for creating miner configuration programmatically
+///
+/// This is used by GUI applications (like Phoenix wallet) to configure
+/// the miner without needing a YAML config file.
+#[derive(Debug, Clone)]
+pub struct CfgBuilder {
+    chains: Vec<Chain>,
+    plot_dirs: Vec<PathBuf>,
+    hdd_use_direct_io: bool,
+    hdd_wakeup_after: i64,
+    hdd_read_cache_in_warps: u64,
+    cpu_threads: usize,
+    cpu_thread_pinning: bool,
+    get_mining_info_interval: u64,
+    timeout: u64,
+    enable_on_the_fly_compression: bool,
+    line_progress: bool,
+}
+
+impl Default for CfgBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CfgBuilder {
+    /// Create a new builder with default values
+    pub fn new() -> Self {
+        Self {
+            chains: Vec::new(),
+            plot_dirs: Vec::new(),
+            hdd_use_direct_io: default_hdd_use_direct_io(),
+            hdd_wakeup_after: default_hdd_wakeup_after(),
+            hdd_read_cache_in_warps: default_hdd_read_cache_in_warps(),
+            cpu_threads: 0, // 0 = auto-detect
+            cpu_thread_pinning: default_cpu_thread_pinning(),
+            get_mining_info_interval: default_get_mining_info_interval(),
+            timeout: default_timeout(),
+            enable_on_the_fly_compression: default_enable_on_the_fly_compression(),
+            line_progress: true, // GUI mode uses line progress
+        }
+    }
+
+    /// Add a chain configuration
+    pub fn add_chain(mut self, chain: Chain) -> Self {
+        self.chains.push(chain);
+        self
+    }
+
+    /// Add multiple chains
+    pub fn chains(mut self, chains: Vec<Chain>) -> Self {
+        self.chains = chains;
+        self
+    }
+
+    /// Add a plot directory
+    pub fn add_plot_dir<P: Into<PathBuf>>(mut self, path: P) -> Self {
+        self.plot_dirs.push(path.into());
+        self
+    }
+
+    /// Add multiple plot directories
+    pub fn plot_dirs(mut self, dirs: Vec<PathBuf>) -> Self {
+        self.plot_dirs = dirs;
+        self
+    }
+
+    /// Set number of CPU threads (0 = auto-detect)
+    pub fn cpu_threads(mut self, threads: usize) -> Self {
+        self.cpu_threads = threads;
+        self
+    }
+
+    /// Enable/disable direct I/O for HDDs
+    pub fn direct_io(mut self, enabled: bool) -> Self {
+        self.hdd_use_direct_io = enabled;
+        self
+    }
+
+    /// Set HDD wakeup interval in seconds (0 = disabled)
+    pub fn hdd_wakeup_after(mut self, seconds: i64) -> Self {
+        self.hdd_wakeup_after = seconds;
+        self
+    }
+
+    /// Set read cache size in warps (must be power of 2)
+    pub fn read_cache_warps(mut self, warps: u64) -> Self {
+        self.hdd_read_cache_in_warps = warps;
+        self
+    }
+
+    /// Enable/disable CPU thread pinning
+    pub fn thread_pinning(mut self, enabled: bool) -> Self {
+        self.cpu_thread_pinning = enabled;
+        self
+    }
+
+    /// Set mining info poll interval in milliseconds
+    pub fn mining_info_interval(mut self, ms: u64) -> Self {
+        self.get_mining_info_interval = ms;
+        self
+    }
+
+    /// Set request timeout in milliseconds
+    pub fn timeout(mut self, ms: u64) -> Self {
+        self.timeout = ms;
+        self
+    }
+
+    /// Enable/disable on-the-fly compression
+    pub fn on_the_fly_compression(mut self, enabled: bool) -> Self {
+        self.enable_on_the_fly_compression = enabled;
+        self
+    }
+
+    /// Enable/disable line progress protocol (for GUI)
+    pub fn line_progress(mut self, enabled: bool) -> Self {
+        self.line_progress = enabled;
+        self
+    }
+
+    /// Build the configuration
+    ///
+    /// Note: This does NOT validate plot directories. Call `validate_cfg()`
+    /// on the result if you want to filter out non-existent directories.
+    pub fn build(self) -> Cfg {
+        Cfg {
+            chains: self.chains,
+            get_mining_info_interval: self.get_mining_info_interval,
+            timeout: self.timeout,
+            plot_dirs: self.plot_dirs,
+            hdd_use_direct_io: self.hdd_use_direct_io,
+            hdd_wakeup_after: self.hdd_wakeup_after,
+            hdd_read_cache_in_warps: self.hdd_read_cache_in_warps,
+            cpu_threads: self.cpu_threads,
+            cpu_thread_pinning: self.cpu_thread_pinning,
+            show_progress: false, // GUI mode doesn't use progress bar
+            line_progress: self.line_progress,
+            benchmark: None,
+            console_log_level: default_console_log_level(),
+            logfile_log_level: default_logfile_log_level(),
+            logfile_max_count: default_logfile_max_count(),
+            logfile_max_size: default_logfile_max_size(),
+            console_log_pattern: default_console_log_pattern(),
+            logfile_log_pattern: default_logfile_log_pattern(),
+            enable_on_the_fly_compression: self.enable_on_the_fly_compression,
+        }
+    }
 }
 
 #[cfg(test)]
