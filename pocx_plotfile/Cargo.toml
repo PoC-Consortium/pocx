@@ -6,6 +6,9 @@ authors = [
     "Proof of Capacity Consortium",
 ]
 description = "A high-performance, safe, and cross-platform library for reading and writing PoC cryptocurrency plot files"
+homepage = "https://bitcoin-pocx.org/"
+repository = "https://github.com/PoC-Consortium/pocx"
+documentation = "https://github.com/PoC-Consortium/pocx/wiki"
 keywords = ["poc", "cryptocurrency", "mining", "plotfile", "shabal256"]
 categories = ["cryptography", "filesystem", "parsing"]
 readme = "README.md"
@@ -34,7 +37,7 @@ quickcheck_macros = { workspace = true }
 arbitrary = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
-winapi = { workspace = true }
+winapi = { version = "0.3", features = ["std", "fileapi", "securitybaseapi", "errhandlingapi", "handleapi", "processthreadsapi", "winbase"] }
 
 [target.'cfg(not(windows))'.dependencies]
 fs2 = "0.4"

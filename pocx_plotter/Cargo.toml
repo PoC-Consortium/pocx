@@ -9,7 +9,9 @@ description = """
 Universal Proof-of-Capacity plotting tool for any PoC cryptocurrency.
 CPU and GPU acceleration with OpenCL, SIMD optimizations, and memory-mapped I/O.
 """
-documentation = "https://docs.rs/pocx_plotter"
+homepage = "https://bitcoin-pocx.org/"
+repository = "https://github.com/PoC-Consortium/pocx"
+documentation = "https://github.com/PoC-Consortium/pocx/wiki"
 keywords = ["poc", "proof-of-capacity", "plotter", "rust", "cryptocurrency"]
 categories = ["cryptography", "algorithms", "command-line-utilities"]
 readme = "README.md"

@@ -62,7 +62,7 @@ num-traits = "0.2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 log4rs = { version = "1.4", features = ["rolling_file_appender", "compound_policy", "size_trigger", "fixed_window_roller"] }
 url = { version = "2.5", features = ["serde"] }
-winapi = { version = "0.3", features = ["std", "fileapi", "securitybaseapi", "errhandlingapi", "handleapi"] }
+winapi = { version = "0.3", features = ["std", "fileapi", "securitybaseapi", "errhandlingapi", "handleapi", "processthreadsapi", "winbase"] }
 
 # JSON-RPC protocol dependencies
 async-trait = "0.1"

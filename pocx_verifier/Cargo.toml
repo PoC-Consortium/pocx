@@ -6,6 +6,9 @@ authors = [
     "Proof of Capacity Consortium",
 ]
 description = "Plot file verification tool for validating PoC cryptocurrency plot files"
+homepage = "https://bitcoin-pocx.org/"
+repository = "https://github.com/PoC-Consortium/pocx"
+documentation = "https://github.com/PoC-Consortium/pocx/wiki"
 keywords = ["poc", "cryptocurrency", "mining", "verification", "plotfile"]
 categories = ["command-line-utilities", "cryptography"]
 readme = "README.md"

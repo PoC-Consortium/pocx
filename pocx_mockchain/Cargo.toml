@@ -4,6 +4,9 @@ version = "1.0.0-rc.5"
 license = "MIT"
 authors = ["Proof of Capacity Consortium"]
 description = "Mock blockchain simulator for testing PoCX miners and Proof-of-Capacity applications"
+homepage = "https://bitcoin-pocx.org/"
+repository = "https://github.com/PoC-Consortium/pocx"
+documentation = "https://github.com/PoC-Consortium/pocx/wiki"
 edition = "2021"
 rust-version = "1.91.0"
 
