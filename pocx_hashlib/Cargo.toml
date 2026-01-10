@@ -9,6 +9,9 @@ description = """
 Universal cryptographic library for Proof-of-Capacity consensus mechanism.
 Includes SIMD-optimized Shabal256 hashing and nonce generation with support for SSE2, AVX, AVX2, and AVX512.
 """
+homepage = "https://bitcoin-pocx.org/"
+repository = "https://github.com/PoC-Consortium/pocx"
+documentation = "https://github.com/PoC-Consortium/pocx/wiki"
 categories = ["cryptography", "algorithms", "no-std"]
 keywords = ["poc", "proof-of-capacity", "shabal256", "simd", "cryptocurrency"]
 readme = "README.md"

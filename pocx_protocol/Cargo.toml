@@ -6,6 +6,9 @@ authors = [
     "Proof of Capacity Consortium",
 ]
 description = "JSON-RPC protocol implementation for PoCX mining"
+homepage = "https://bitcoin-pocx.org/"
+repository = "https://github.com/PoC-Consortium/pocx"
+documentation = "https://github.com/PoC-Consortium/pocx/wiki"
 keywords = ["poc", "cryptocurrency", "mining", "jsonrpc", "protocol"]
 categories = ["cryptography", "network-programming", "web-programming"]
 readme = "README.md"

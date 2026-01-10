@@ -6,6 +6,9 @@ description = "Address encoding/decoding library for PoCX with Base58Check and B
 edition = "2021"
 rust-version = "1.91.0"
 license = "MIT"
+homepage = "https://bitcoin-pocx.org/"
+repository = "https://github.com/PoC-Consortium/pocx"
+documentation = "https://github.com/PoC-Consortium/pocx/wiki"
 keywords = ["cryptocurrency", "address", "base58", "bech32", "poc"]
 categories = ["cryptography"]
 
