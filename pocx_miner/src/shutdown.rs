@@ -35,11 +35,13 @@ use tokio_util::sync::CancellationToken;
 /// cancellation signaling. Child tokens can be created for sub-components
 /// that need independent cancellation control.
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct ShutdownCoordinator {
     /// Main cancellation token - when cancelled, all tasks should stop
     token: CancellationToken,
 }
 
+#[allow(dead_code)]
 impl ShutdownCoordinator {
     /// Create a new shutdown coordinator.
     pub fn new() -> Self {
@@ -81,6 +83,7 @@ impl Default for ShutdownCoordinator {
 ///
 /// Uses `JoinSet` for async tasks (allows awaiting all completions) and
 /// stores `JoinHandle`s for OS threads.
+#[allow(dead_code)]
 pub struct TaskRegistry {
     /// Async tasks spawned via tokio
     async_tasks: Mutex<JoinSet<()>>,
@@ -88,6 +91,7 @@ pub struct TaskRegistry {
     thread_handles: Mutex<Vec<JoinHandle<()>>>,
 }
 
+#[allow(dead_code)]
 impl TaskRegistry {
     /// Create a new task registry.
     pub fn new() -> Self {
@@ -262,8 +266,7 @@ mod tests {
         coordinator.initiate_shutdown();
 
         // Wait with timeout
-        let _ =
-            tokio::time::timeout(Duration::from_secs(1), registry.wait_async_tasks()).await;
+        let _ = tokio::time::timeout(Duration::from_secs(1), registry.wait_async_tasks()).await;
 
         assert!(was_cancelled.load(Ordering::SeqCst));
     }

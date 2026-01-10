@@ -620,7 +620,8 @@ mod tests {
 
             if let Ok(parsed_url) = url {
                 let token = CancellationToken::new();
-                let handler = RequestHandler::new(parsed_url, 5000, None, SubmissionMode::Pool, token);
+                let handler =
+                    RequestHandler::new(parsed_url, 5000, None, SubmissionMode::Pool, token);
                 let _ = &handler.client;
             }
         }
@@ -633,7 +634,8 @@ mod tests {
 
         for &timeout in &timeout_values {
             let token = CancellationToken::new();
-            let handler = RequestHandler::new(url.clone(), timeout, None, SubmissionMode::Pool, token);
+            let handler =
+                RequestHandler::new(url.clone(), timeout, None, SubmissionMode::Pool, token);
 
             // Verify handler creation with different timeout values
             let _ = &handler.client;

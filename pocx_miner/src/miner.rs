@@ -221,8 +221,8 @@ pub struct Miner {
     cfg: Cfg,                            // Store config for target quality access
     rx_nonce_data: Option<UnboundedReceiver<(usize, SubmissionParameters)>>,
     benchmark: Option<Benchmark>,
-    hdd_wakeup_after: i64,      // HDD wakeup interval in seconds
-    max_compression_steps: u32, // Maximum compression steps based on buffer size
+    hdd_wakeup_after: i64,             // HDD wakeup interval in seconds
+    max_compression_steps: u32,        // Maximum compression steps based on buffer size
     shutdown_token: CancellationToken, // For graceful shutdown
 }
 
@@ -1381,15 +1381,14 @@ impl Miner {
                     });
 
                     // Ignore error during shutdown
-                    let _ = channels
-                        .tx_scheduler
-                        .clone()
-                        .unbounded_send(SchedulerMessage::RescheduleBlock {
+                    let _ = channels.tx_scheduler.clone().unbounded_send(
+                        SchedulerMessage::RescheduleBlock {
                             chain_id: mut_state.chain_id,
                             mining_info: mining_info.clone(),
                             // TODO: Include best qualities in ResumeInfo (minor optimization)
                             resume_info,
-                        });
+                        },
+                    );
                 }
             } else {
                 let percentage = warps_processed as f64 / plots.size_in_warps as f64 * 100.0;
