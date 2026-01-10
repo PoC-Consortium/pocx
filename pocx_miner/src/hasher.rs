@@ -56,29 +56,35 @@ pub fn calc_qualities(task: HashingTask) -> impl FnOnce() {
         let quality = result.0;
         let offset = result.1;
 
-        task.tx_nonce_data
-            .clone()
-            .unbounded_send((
-                task.chain_id,
-                SubmissionParameters {
-                    chain: task.chain_name,
-                    quality_raw: quality, // raw_quality (Shabal-256 hash result)
-                    block_count: task.block_count,
-                    nonce_submission: NonceSubmission {
-                        account_id: task.account_id,
-                        seed: task.seed,
-                        nonce: task.start_warp * NUM_SCOOPS + offset,
-                        block_height: task.block_height,
-                        generation_signature: hex::encode(task.generation_signature_bytes),
-                        quality: quality / task.base_target, /* raw_quality -> quality_adjusted
-                                                              * (dimensionless quality score) */
-                        compression: task.compression_level,
-                    },
+        // Try to send nonce data - channel may be closed during shutdown
+        if let Err(_) = task.tx_nonce_data.clone().unbounded_send((
+            task.chain_id,
+            SubmissionParameters {
+                chain: task.chain_name,
+                quality_raw: quality, // raw_quality (Shabal-256 hash result)
+                block_count: task.block_count,
+                nonce_submission: NonceSubmission {
+                    account_id: task.account_id,
+                    seed: task.seed,
+                    nonce: task.start_warp * NUM_SCOOPS + offset,
+                    block_height: task.block_height,
+                    generation_signature: hex::encode(task.generation_signature_bytes),
+                    quality: quality / task.base_target, /* raw_quality -> quality_adjusted
+                                                          * (dimensionless quality score) */
+                    compression: task.compression_level,
                 },
-            ))
-            .expect("CPU worker failed to send nonce data");
+            },
+        )) {
+            // Channel disconnected - miner is shutting down, this is expected
+            log::debug!("Hasher: nonce channel closed (shutdown in progress)");
+        }
 
-        task.tx_buffer.clone().send(task.buffer).unwrap();
+        // Try to return buffer - channel may be closed during shutdown
+        if let Err(_) = task.tx_buffer.clone().send(task.buffer) {
+            // Channel disconnected - miner is shutting down
+            // Buffer will be dropped, which is fine during shutdown
+            log::debug!("Hasher: buffer channel closed (shutdown in progress)");
+        }
     }
 }
 

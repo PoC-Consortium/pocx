@@ -70,6 +70,7 @@ pub mod logger;
 pub mod miner;
 mod plots;
 mod request;
+pub mod shutdown;
 mod utils;
 
 // Re-export main types for library usage
@@ -85,3 +86,6 @@ pub use callback::{
 
 // Re-export control system
 pub use control::{clear_stop_request, is_stop_requested, request_stop};
+
+// Re-export shutdown system
+pub use shutdown::{ShutdownCoordinator, TaskRegistry};

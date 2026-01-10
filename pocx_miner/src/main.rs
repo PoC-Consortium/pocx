@@ -46,6 +46,7 @@ mod logger;
 mod miner;
 mod plots;
 mod request;
+mod shutdown;
 mod utils;
 
 use crate::config::load_cfg;

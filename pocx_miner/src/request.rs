@@ -27,6 +27,7 @@ use futures::channel::mpsc;
 use futures::StreamExt;
 use std::collections::HashMap;
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 use url::Url;
 
 #[derive(Clone)]
@@ -46,6 +47,7 @@ impl RequestHandler {
         timeout: u64,
         auth_token: Option<String>,
         submission_mode: SubmissionMode,
+        token: CancellationToken,
     ) -> RequestHandler {
         let client = ProtocolClient::new(url, timeout, auth_token)
             .expect("Failed to create protocol client");
@@ -57,13 +59,14 @@ impl RequestHandler {
         // Route based on submission mode
         if submission_mode == SubmissionMode::Wallet {
             // Wallet mode: single global queue (PrioRetry keeps best quality globally)
-            RequestHandler::start_wallet_handler(client.clone(), rx_submit_nonce_data);
+            RequestHandler::start_wallet_handler(client.clone(), rx_submit_nonce_data, token);
         } else {
             // Pool mode: per-account queues
             RequestHandler::start_demultiplexer(
                 client.clone(),
                 rx_submit_nonce_data,
                 account_senders.clone(),
+                token,
             );
         }
 
@@ -81,40 +84,58 @@ impl RequestHandler {
         account_senders: std::sync::Arc<
             std::sync::Mutex<HashMap<String, mpsc::UnboundedSender<SubmissionParameters>>>,
         >,
+        token: CancellationToken,
     ) {
         tokio::task::spawn(async move {
-            while let Some(submission) = rx.next().await {
-                let account_id = submission.nonce_submission.account_id.clone();
+            loop {
+                tokio::select! {
+                    biased;
 
-                // Get or create sender for this account
-                let tx = {
-                    let mut senders = account_senders.lock().unwrap();
-                    if let Some(tx) = senders.get(&account_id) {
-                        tx.clone()
-                    } else {
-                        // Create new channel and handler for this account
-                        let (tx, rx_account) = mpsc::unbounded();
-                        senders.insert(account_id.clone(), tx.clone());
-
-                        // Spawn handler for this account
-                        RequestHandler::handle_account_submissions(
-                            client.clone(),
-                            rx_account,
-                            account_id.clone(),
-                            tx.clone(), // Requeue sender for retries
-                        );
-
-                        tx
+                    _ = token.cancelled() => {
+                        log::info!("[SHUTDOWN] Demultiplexer task stopping");
+                        break;
                     }
-                };
 
-                // Route submission to account-specific handler
-                if let Err(e) = tx.unbounded_send(submission) {
-                    log::error!(
-                        "Failed to route submission for account {}: {}",
-                        account_id,
-                        e
-                    );
+                    submission = rx.next() => {
+                        match submission {
+                            Some(submission) => {
+                                let account_id = submission.nonce_submission.account_id.clone();
+
+                                // Get or create sender for this account
+                                let tx = {
+                                    let mut senders = account_senders.lock().unwrap();
+                                    if let Some(tx) = senders.get(&account_id) {
+                                        tx.clone()
+                                    } else {
+                                        // Create new channel and handler for this account
+                                        let (tx, rx_account) = mpsc::unbounded();
+                                        senders.insert(account_id.clone(), tx.clone());
+
+                                        // Spawn handler for this account
+                                        RequestHandler::handle_account_submissions(
+                                            client.clone(),
+                                            rx_account,
+                                            account_id.clone(),
+                                            tx.clone(), // Requeue sender for retries
+                                            token.clone(),
+                                        );
+
+                                        tx
+                                    }
+                                };
+
+                                // Route submission to account-specific handler
+                                if let Err(e) = tx.unbounded_send(submission) {
+                                    log::error!(
+                                        "Failed to route submission for account {}: {}",
+                                        account_id,
+                                        e
+                                    );
+                                }
+                            }
+                            None => break, // Channel closed
+                        }
+                    }
                 }
             }
         });
@@ -126,105 +147,122 @@ impl RequestHandler {
         rx: mpsc::UnboundedReceiver<SubmissionParameters>,
         account_id: String,
         requeue_tx: mpsc::UnboundedSender<SubmissionParameters>,
+        token: CancellationToken,
     ) {
         let stream = PrioRetry::new(rx, Duration::from_secs(3));
 
         tokio::task::spawn(async move {
             let mut stream = Box::pin(stream);
-            while let Some(submission_params) = stream.next().await {
-                match client
-                    .submit_nonce(&submission_params.nonce_submission)
-                    .await
-                {
-                    Ok(res) => {
-                        if submission_params.nonce_submission.quality != res.quality_adjusted {
-                            log_quality_mismatch(
-                                &submission_params.nonce_submission,
-                                res.quality_adjusted,
-                            );
-                        } else {
-                            log_submission_accepted(
-                                &submission_params.nonce_submission,
-                                res.poc_time,
-                            );
-                            // Callback for deadline accepted
-                            let accepted = AcceptedDeadline {
-                                chain: submission_params.chain.clone(),
-                                account: submission_params.nonce_submission.account_id.clone(),
-                                height: submission_params.nonce_submission.block_height,
-                                nonce: submission_params.nonce_submission.nonce,
-                                quality_raw: submission_params.quality_raw,
-                                compression: submission_params.nonce_submission.compression,
-                                poc_time: res.poc_time,
-                            };
-                            with_callback(|cb| cb.on_deadline_accepted(&accepted));
-                        }
+            loop {
+                tokio::select! {
+                    biased;
+
+                    _ = token.cancelled() => {
+                        log::info!("[SHUTDOWN] Account handler for {} stopping", account_id);
+                        break;
                     }
-                    Err(FetchError::Pool(e)) => {
-                        // If pool sends empty message or "limit exceeded", they are
-                        // experiencing too much load - retry later
-                        if e.message.is_empty() || e.message == "limit exceeded" {
-                            log_server_busy(&submission_params.nonce_submission);
-                            // Callback for retry
-                            let accepted = AcceptedDeadline {
-                                chain: submission_params.chain.clone(),
-                                account: submission_params.nonce_submission.account_id.clone(),
-                                height: submission_params.nonce_submission.block_height,
-                                nonce: submission_params.nonce_submission.nonce,
-                                quality_raw: submission_params.quality_raw,
-                                compression: submission_params.nonce_submission.compression,
-                                poc_time: u64::MAX,
-                            };
-                            with_callback(|cb| cb.on_deadline_retry(&accepted, "server busy"));
-                            // Requeue for retry with exponential backoff via PrioRetry
-                            if let Err(send_err) = requeue_tx.unbounded_send(submission_params) {
-                                log::error!(
-                                    "Failed to requeue submission for account {}: {}",
-                                    account_id,
-                                    send_err
-                                );
+
+                    submission_params = stream.next() => {
+                        match submission_params {
+                            Some(submission_params) => {
+                                match client
+                                    .submit_nonce(&submission_params.nonce_submission)
+                                    .await
+                                {
+                                    Ok(res) => {
+                                        if submission_params.nonce_submission.quality != res.quality_adjusted {
+                                            log_quality_mismatch(
+                                                &submission_params.nonce_submission,
+                                                res.quality_adjusted,
+                                            );
+                                        } else {
+                                            log_submission_accepted(
+                                                &submission_params.nonce_submission,
+                                                res.poc_time,
+                                            );
+                                            // Callback for deadline accepted
+                                            let accepted = AcceptedDeadline {
+                                                chain: submission_params.chain.clone(),
+                                                account: submission_params.nonce_submission.account_id.clone(),
+                                                height: submission_params.nonce_submission.block_height,
+                                                nonce: submission_params.nonce_submission.nonce,
+                                                quality_raw: submission_params.quality_raw,
+                                                compression: submission_params.nonce_submission.compression,
+                                                poc_time: res.poc_time,
+                                            };
+                                            with_callback(|cb| cb.on_deadline_accepted(&accepted));
+                                        }
+                                    }
+                                    Err(FetchError::Pool(e)) => {
+                                        // If pool sends empty message or "limit exceeded", they are
+                                        // experiencing too much load - retry later
+                                        if e.message.is_empty() || e.message == "limit exceeded" {
+                                            log_server_busy(&submission_params.nonce_submission);
+                                            // Callback for retry
+                                            let accepted = AcceptedDeadline {
+                                                chain: submission_params.chain.clone(),
+                                                account: submission_params.nonce_submission.account_id.clone(),
+                                                height: submission_params.nonce_submission.block_height,
+                                                nonce: submission_params.nonce_submission.nonce,
+                                                quality_raw: submission_params.quality_raw,
+                                                compression: submission_params.nonce_submission.compression,
+                                                poc_time: u64::MAX,
+                                            };
+                                            with_callback(|cb| cb.on_deadline_retry(&accepted, "server busy"));
+                                            // Requeue for retry with exponential backoff via PrioRetry
+                                            if let Err(send_err) = requeue_tx.unbounded_send(submission_params) {
+                                                log::error!(
+                                                    "Failed to requeue submission for account {}: {}",
+                                                    account_id,
+                                                    send_err
+                                                );
+                                            }
+                                        } else {
+                                            log_submission_not_accepted(
+                                                &submission_params.nonce_submission,
+                                                e.code,
+                                                &e.message,
+                                            );
+                                            // Callback for rejection
+                                            let accepted = AcceptedDeadline {
+                                                chain: submission_params.chain.clone(),
+                                                account: submission_params.nonce_submission.account_id.clone(),
+                                                height: submission_params.nonce_submission.block_height,
+                                                nonce: submission_params.nonce_submission.nonce,
+                                                quality_raw: submission_params.quality_raw,
+                                                compression: submission_params.nonce_submission.compression,
+                                                poc_time: u64::MAX,
+                                            };
+                                            with_callback(|cb| {
+                                                cb.on_deadline_rejected(&accepted, e.code, &e.message)
+                                            });
+                                        }
+                                    }
+                                    Err(FetchError::Http(x)) => {
+                                        log_submission_failed(&submission_params.nonce_submission, &x.to_string());
+                                        // Callback for retry
+                                        let accepted = AcceptedDeadline {
+                                            chain: submission_params.chain.clone(),
+                                            account: submission_params.nonce_submission.account_id.clone(),
+                                            height: submission_params.nonce_submission.block_height,
+                                            nonce: submission_params.nonce_submission.nonce,
+                                            quality_raw: submission_params.quality_raw,
+                                            compression: submission_params.nonce_submission.compression,
+                                            poc_time: u64::MAX,
+                                        };
+                                        with_callback(|cb| cb.on_deadline_retry(&accepted, &x.to_string()));
+                                        // Requeue for retry with exponential backoff via PrioRetry
+                                        if let Err(send_err) = requeue_tx.unbounded_send(submission_params) {
+                                            log::error!(
+                                                "Failed to requeue submission for account {}: {}",
+                                                account_id,
+                                                send_err
+                                            );
+                                        }
+                                    }
+                                }
                             }
-                        } else {
-                            log_submission_not_accepted(
-                                &submission_params.nonce_submission,
-                                e.code,
-                                &e.message,
-                            );
-                            // Callback for rejection
-                            let accepted = AcceptedDeadline {
-                                chain: submission_params.chain.clone(),
-                                account: submission_params.nonce_submission.account_id.clone(),
-                                height: submission_params.nonce_submission.block_height,
-                                nonce: submission_params.nonce_submission.nonce,
-                                quality_raw: submission_params.quality_raw,
-                                compression: submission_params.nonce_submission.compression,
-                                poc_time: u64::MAX,
-                            };
-                            with_callback(|cb| {
-                                cb.on_deadline_rejected(&accepted, e.code, &e.message)
-                            });
-                        }
-                    }
-                    Err(FetchError::Http(x)) => {
-                        log_submission_failed(&submission_params.nonce_submission, &x.to_string());
-                        // Callback for retry
-                        let accepted = AcceptedDeadline {
-                            chain: submission_params.chain.clone(),
-                            account: submission_params.nonce_submission.account_id.clone(),
-                            height: submission_params.nonce_submission.block_height,
-                            nonce: submission_params.nonce_submission.nonce,
-                            quality_raw: submission_params.quality_raw,
-                            compression: submission_params.nonce_submission.compression,
-                            poc_time: u64::MAX,
-                        };
-                        with_callback(|cb| cb.on_deadline_retry(&accepted, &x.to_string()));
-                        // Requeue for retry with exponential backoff via PrioRetry
-                        if let Err(send_err) = requeue_tx.unbounded_send(submission_params) {
-                            log::error!(
-                                "Failed to requeue submission for account {}: {}",
-                                account_id,
-                                send_err
-                            );
+                            None => break, // Channel closed
                         }
                     }
                 }
@@ -236,92 +274,109 @@ impl RequestHandler {
     fn start_wallet_handler(
         client: ProtocolClient,
         rx: mpsc::UnboundedReceiver<SubmissionParameters>,
+        token: CancellationToken,
     ) {
         let stream = PrioRetry::new(rx, Duration::from_secs(3));
 
         tokio::task::spawn(async move {
             let mut stream = Box::pin(stream);
-            while let Some(submission_params) = stream.next().await {
-                match client
-                    .submit_nonce(&submission_params.nonce_submission)
-                    .await
-                {
-                    Ok(res) => {
-                        if submission_params.nonce_submission.quality != res.quality_adjusted {
-                            log_quality_mismatch(
-                                &submission_params.nonce_submission,
-                                res.quality_adjusted,
-                            );
-                        } else {
-                            log_submission_accepted(
-                                &submission_params.nonce_submission,
-                                res.poc_time,
-                            );
-                            // Callback for deadline accepted
-                            let accepted = AcceptedDeadline {
-                                chain: submission_params.chain.clone(),
-                                account: submission_params.nonce_submission.account_id.clone(),
-                                height: submission_params.nonce_submission.block_height,
-                                nonce: submission_params.nonce_submission.nonce,
-                                quality_raw: submission_params.quality_raw,
-                                compression: submission_params.nonce_submission.compression,
-                                poc_time: res.poc_time,
-                            };
-                            with_callback(|cb| cb.on_deadline_accepted(&accepted));
-                        }
+            loop {
+                tokio::select! {
+                    biased;
+
+                    _ = token.cancelled() => {
+                        log::info!("[SHUTDOWN] Wallet handler task stopping");
+                        break;
                     }
-                    Err(FetchError::Pool(e)) => {
-                        if e.message.is_empty() || e.message == "limit exceeded" {
-                            log_server_busy(&submission_params.nonce_submission);
-                            // Callback for retry (even though we don't requeue in wallet mode)
-                            let accepted = AcceptedDeadline {
-                                chain: submission_params.chain.clone(),
-                                account: submission_params.nonce_submission.account_id.clone(),
-                                height: submission_params.nonce_submission.block_height,
-                                nonce: submission_params.nonce_submission.nonce,
-                                quality_raw: submission_params.quality_raw,
-                                compression: submission_params.nonce_submission.compression,
-                                poc_time: u64::MAX,
-                            };
-                            with_callback(|cb| cb.on_deadline_retry(&accepted, "server busy"));
-                            // In wallet mode, we don't requeue - PrioRetry keeps best quality
-                            // and newer better items replace this one naturally
-                        } else {
-                            log_submission_not_accepted(
-                                &submission_params.nonce_submission,
-                                e.code,
-                                &e.message,
-                            );
-                            // Callback for rejection
-                            let accepted = AcceptedDeadline {
-                                chain: submission_params.chain.clone(),
-                                account: submission_params.nonce_submission.account_id.clone(),
-                                height: submission_params.nonce_submission.block_height,
-                                nonce: submission_params.nonce_submission.nonce,
-                                quality_raw: submission_params.quality_raw,
-                                compression: submission_params.nonce_submission.compression,
-                                poc_time: u64::MAX,
-                            };
-                            with_callback(|cb| {
-                                cb.on_deadline_rejected(&accepted, e.code, &e.message)
-                            });
+
+                    submission_params = stream.next() => {
+                        match submission_params {
+                            Some(submission_params) => {
+                                match client
+                                    .submit_nonce(&submission_params.nonce_submission)
+                                    .await
+                                {
+                                    Ok(res) => {
+                                        if submission_params.nonce_submission.quality != res.quality_adjusted {
+                                            log_quality_mismatch(
+                                                &submission_params.nonce_submission,
+                                                res.quality_adjusted,
+                                            );
+                                        } else {
+                                            log_submission_accepted(
+                                                &submission_params.nonce_submission,
+                                                res.poc_time,
+                                            );
+                                            // Callback for deadline accepted
+                                            let accepted = AcceptedDeadline {
+                                                chain: submission_params.chain.clone(),
+                                                account: submission_params.nonce_submission.account_id.clone(),
+                                                height: submission_params.nonce_submission.block_height,
+                                                nonce: submission_params.nonce_submission.nonce,
+                                                quality_raw: submission_params.quality_raw,
+                                                compression: submission_params.nonce_submission.compression,
+                                                poc_time: res.poc_time,
+                                            };
+                                            with_callback(|cb| cb.on_deadline_accepted(&accepted));
+                                        }
+                                    }
+                                    Err(FetchError::Pool(e)) => {
+                                        if e.message.is_empty() || e.message == "limit exceeded" {
+                                            log_server_busy(&submission_params.nonce_submission);
+                                            // Callback for retry (even though we don't requeue in wallet mode)
+                                            let accepted = AcceptedDeadline {
+                                                chain: submission_params.chain.clone(),
+                                                account: submission_params.nonce_submission.account_id.clone(),
+                                                height: submission_params.nonce_submission.block_height,
+                                                nonce: submission_params.nonce_submission.nonce,
+                                                quality_raw: submission_params.quality_raw,
+                                                compression: submission_params.nonce_submission.compression,
+                                                poc_time: u64::MAX,
+                                            };
+                                            with_callback(|cb| cb.on_deadline_retry(&accepted, "server busy"));
+                                            // In wallet mode, we don't requeue - PrioRetry keeps best quality
+                                            // and newer better items replace this one naturally
+                                        } else {
+                                            log_submission_not_accepted(
+                                                &submission_params.nonce_submission,
+                                                e.code,
+                                                &e.message,
+                                            );
+                                            // Callback for rejection
+                                            let accepted = AcceptedDeadline {
+                                                chain: submission_params.chain.clone(),
+                                                account: submission_params.nonce_submission.account_id.clone(),
+                                                height: submission_params.nonce_submission.block_height,
+                                                nonce: submission_params.nonce_submission.nonce,
+                                                quality_raw: submission_params.quality_raw,
+                                                compression: submission_params.nonce_submission.compression,
+                                                poc_time: u64::MAX,
+                                            };
+                                            with_callback(|cb| {
+                                                cb.on_deadline_rejected(&accepted, e.code, &e.message)
+                                            });
+                                        }
+                                    }
+                                    Err(FetchError::Http(x)) => {
+                                        log_submission_failed(&submission_params.nonce_submission, &x.to_string());
+                                        // Callback for retry
+                                        let accepted = AcceptedDeadline {
+                                            chain: submission_params.chain.clone(),
+                                            account: submission_params.nonce_submission.account_id.clone(),
+                                            height: submission_params.nonce_submission.block_height,
+                                            nonce: submission_params.nonce_submission.nonce,
+                                            quality_raw: submission_params.quality_raw,
+                                            compression: submission_params.nonce_submission.compression,
+                                            poc_time: u64::MAX,
+                                        };
+                                        with_callback(|cb| cb.on_deadline_retry(&accepted, &x.to_string()));
+                                        // In wallet mode, we don't requeue - if mining continues,
+                                        // a better quality will naturally replace this one
+                                    }
+                                }
+                            }
+                            None => break, // Channel closed
                         }
-                    }
-                    Err(FetchError::Http(x)) => {
-                        log_submission_failed(&submission_params.nonce_submission, &x.to_string());
-                        // Callback for retry
-                        let accepted = AcceptedDeadline {
-                            chain: submission_params.chain.clone(),
-                            account: submission_params.nonce_submission.account_id.clone(),
-                            height: submission_params.nonce_submission.block_height,
-                            nonce: submission_params.nonce_submission.nonce,
-                            quality_raw: submission_params.quality_raw,
-                            compression: submission_params.nonce_submission.compression,
-                            poc_time: u64::MAX,
-                        };
-                        with_callback(|cb| cb.on_deadline_retry(&accepted, &x.to_string()));
-                        // In wallet mode, we don't requeue - if mining continues,
-                        // a better quality will naturally replace this one
                     }
                 }
             }
@@ -390,8 +445,9 @@ mod tests {
     async fn test_request_handler_creation() {
         let url = Url::parse("http://localhost:8080").unwrap();
         let timeout = 5000;
+        let token = CancellationToken::new();
 
-        let handler = RequestHandler::new(url, timeout, None, SubmissionMode::Pool);
+        let handler = RequestHandler::new(url, timeout, None, SubmissionMode::Pool, token);
 
         // Verify handler was created (struct exists)
         let _ = &handler.client;
@@ -403,8 +459,9 @@ mod tests {
         let url = Url::parse("http://localhost:8080").unwrap();
         let timeout = 5000;
         let auth_token = Some("user:password".to_string());
+        let token = CancellationToken::new();
 
-        let handler = RequestHandler::new(url, timeout, auth_token, SubmissionMode::Pool);
+        let handler = RequestHandler::new(url, timeout, auth_token, SubmissionMode::Pool, token);
 
         // Verify handler was created with auth
         let _ = &handler.client;
@@ -415,8 +472,9 @@ mod tests {
     async fn test_request_handler_wallet_mode() {
         let url = Url::parse("http://localhost:8080").unwrap();
         let timeout = 5000;
+        let token = CancellationToken::new();
 
-        let handler = RequestHandler::new(url, timeout, None, SubmissionMode::Wallet);
+        let handler = RequestHandler::new(url, timeout, None, SubmissionMode::Wallet, token);
 
         // Verify handler was created in wallet mode
         let _ = &handler.client;
@@ -425,11 +483,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_nonce_submission_parameters() {
+        let token = CancellationToken::new();
         let handler = RequestHandler::new(
             Url::parse("http://localhost:8080").unwrap(),
             5000,
             None,
             SubmissionMode::Pool,
+            token,
         );
 
         // Create test submission parameters
@@ -559,7 +619,8 @@ mod tests {
             assert!(url.is_ok(), "Should parse valid URL: {}", url_str);
 
             if let Ok(parsed_url) = url {
-                let handler = RequestHandler::new(parsed_url, 5000, None, SubmissionMode::Pool);
+                let token = CancellationToken::new();
+                let handler = RequestHandler::new(parsed_url, 5000, None, SubmissionMode::Pool, token);
                 let _ = &handler.client;
             }
         }
@@ -571,7 +632,8 @@ mod tests {
         let timeout_values = [1000, 5000, 10000, 30000, 60000];
 
         for &timeout in &timeout_values {
-            let handler = RequestHandler::new(url.clone(), timeout, None, SubmissionMode::Pool);
+            let token = CancellationToken::new();
+            let handler = RequestHandler::new(url.clone(), timeout, None, SubmissionMode::Pool, token);
 
             // Verify handler creation with different timeout values
             let _ = &handler.client;

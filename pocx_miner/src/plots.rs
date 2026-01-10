@@ -319,7 +319,15 @@ impl PoCXDisk {
 
                 while plot.read_progress < plot.meta.number_of_warps {
                     // Get buffer and fill it completely first
-                    let mut buffer = channels.rx_empty_buffer.recv().unwrap();
+                    // Channel may be closed during shutdown - handle gracefully
+                    let mut buffer = match channels.rx_empty_buffer.recv() {
+                        Ok(buf) => buf,
+                        Err(_) => {
+                            // Channel closed - miner is shutting down
+                            log::debug!("Reader: buffer channel closed (shutdown in progress)");
+                            return;
+                        }
+                    };
                     let bs = buffer.get_buffer_mut();
                     let buffer_start_offset = plot.read_progress;
                     let mut total_warps_in_buffer = 0;
@@ -339,15 +347,14 @@ impl PoCXDisk {
                                 }
                                 total_warps_in_buffer += warps_red;
 
-                                tx_readstate
-                                    .send(ScanMessage::WarpsProcessed(warps_red))
-                                    .unwrap();
+                                // Ignore send error during shutdown
+                                let _ = tx_readstate.send(ScanMessage::WarpsProcessed(warps_red));
 
                                 // Check interrupt
                                 let state = state.lock().unwrap();
                                 if state.interrupt {
-                                    tx_readstate.send(ScanMessage::ScanInterrupted).unwrap();
-                                    channels.tx_empty_buffer.send(buffer).unwrap();
+                                    let _ = tx_readstate.send(ScanMessage::ScanInterrupted);
+                                    let _ = channels.tx_empty_buffer.send(buffer);
                                     return;
                                 }
                             }
@@ -365,7 +372,7 @@ impl PoCXDisk {
 
                     if total_warps_in_buffer == 0 {
                         // No data was read, return buffer and exit
-                        channels.tx_empty_buffer.send(buffer).unwrap();
+                        let _ = channels.tx_empty_buffer.send(buffer);
                         break;
                     }
 
@@ -413,25 +420,24 @@ impl PoCXDisk {
                             _ => buffer_start_offset,
                         };
 
-                        // Send buffer to hasher
-                        tx_readstate
-                            .send(ScanMessage::Data(ReadReply {
-                                buffer,
-                                warp_offset: compressed_warp_offset, // Adjusted for compression
-                                number_of_warps: final_warps,        // Reduced after compression
-                                account_id: hex::encode(plot.meta.base58_decoded),
-                                seed: plot.meta.seed.clone(),
-                                compression_level: final_compression, // Updated compression level
-                            }))
-                            .unwrap();
+                        // Send buffer to hasher - ignore error during shutdown
+                        let _ = tx_readstate.send(ScanMessage::Data(ReadReply {
+                            buffer,
+                            warp_offset: compressed_warp_offset, // Adjusted for compression
+                            number_of_warps: final_warps,        // Reduced after compression
+                            account_id: hex::encode(plot.meta.base58_decoded),
+                            seed: plot.meta.seed.clone(),
+                            compression_level: final_compression, // Updated compression level
+                        }));
                     } else {
-                        // Return empty buffer to pool
-                        channels.tx_empty_buffer.send(buffer).unwrap();
+                        // Return empty buffer to pool - ignore error during shutdown
+                        let _ = channels.tx_empty_buffer.send(buffer);
                     }
                 }
             }
 
-            tx_readstate.send(ScanMessage::ScanFinished).unwrap();
+            // Ignore error during shutdown
+            let _ = tx_readstate.send(ScanMessage::ScanFinished);
         }
     }
 
