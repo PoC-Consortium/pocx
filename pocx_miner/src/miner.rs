@@ -20,8 +20,8 @@
 
 use crate::buffer::PageAlignedByteBuffer;
 use crate::callback::{
-    with_callback, BlockInfo as CallbackBlockInfo, CapacityInfo, MinerStartedInfo,
-    QueueItem, ScanStartedInfo, ScanStatus,
+    with_callback, BlockInfo as CallbackBlockInfo, CapacityInfo, MinerStartedInfo, QueueItem,
+    ScanStartedInfo, ScanStatus,
 };
 use crate::com::api::{MiningInfo, SubmissionParameters};
 use crate::config::{Benchmark, Cfg};
@@ -136,12 +136,12 @@ impl Chain {
     pub fn get_auth_token(&self) -> Option<String> {
         match &self.rpc_auth {
             RpcAuth::None => None,
-            RpcAuth::UserPass { username, password } => {
-                Some(format!("{}:{}", username, password))
-            }
+            RpcAuth::UserPass { username, password } => Some(format!("{}:{}", username, password)),
             RpcAuth::Cookie { cookie_path } => {
                 if let Some(path) = cookie_path {
-                    std::fs::read_to_string(path).ok().map(|s| s.trim().to_string())
+                    std::fs::read_to_string(path)
+                        .ok()
+                        .map(|s| s.trim().to_string())
                 } else {
                     None
                 }
@@ -167,13 +167,19 @@ impl Chain {
                             Some(content.trim().to_string())
                         }
                         Err(e) => {
-                            error!("[{}] Auth: cookie FAILED - cannot read '{}': {}", self.name, path, e);
+                            error!(
+                                "[{}] Auth: cookie FAILED - cannot read '{}': {}",
+                                self.name, path, e
+                            );
                             error!("Miner cannot start without valid authentication. Exiting.");
                             std::process::exit(1);
                         }
                     }
                 } else {
-                    error!("[{}] Auth: cookie type requires cookie_path to be specified", self.name);
+                    error!(
+                        "[{}] Auth: cookie type requires cookie_path to be specified",
+                        self.name
+                    );
                     error!("Miner cannot start without valid authentication. Exiting.");
                     std::process::exit(1);
                 }
@@ -208,7 +214,7 @@ pub struct Miner {
     plots: Arc<PoCXArray>,
     request_handler: Vec<RequestHandler>,
     reader_thread_pool: Arc<rayon::ThreadPool>,
-    hasher_thread_pool: Arc<rayon::ThreadPool>,  // For CPU-intensive hashing work
+    hasher_thread_pool: Arc<rayon::ThreadPool>, // For CPU-intensive hashing work
     rx_scheduler: Option<UnboundedReceiver<SchedulerMessage>>,
     known_account_payloads: Vec<String>, // Hex payloads from plot files
     cfg: Cfg,                            // Store config for target quality access
@@ -425,12 +431,7 @@ impl Miner {
         info!("Chain Configuration:");
         for (i, chain) in cfg.chains.iter().enumerate() {
             let base_url = chain.build_url().expect("error parsing server url");
-            info!(
-                "Priority {} : ({}) {}",
-                i + 1,
-                chain.name,
-                base_url
-            );
+            info!("Priority {} : ({}) {}", i + 1, chain.name, base_url);
 
             // Validate and get auth token - exit if cookie auth fails
             let auth_token = chain.get_auth_token_or_exit();
@@ -554,11 +555,7 @@ impl Miner {
                         }
                         Err(e) => {
                             state.outage = true;
-                            log::error!(
-                                "[{}] Failed to get mining info: {:?}",
-                                chain_name,
-                                e
-                            );
+                            log::error!("[{}] Failed to get mining info: {:?}", chain_name, e);
                         }
                     }
                 } // MutexGuard dropped here
@@ -712,10 +709,16 @@ impl Miner {
                             mining_infos[chain_id].base_target,
                             chains[chain_id].block_time_seconds,
                         );
-                        let compression_range = if mining_infos[chain_id].minimum_compression_level == mining_infos[chain_id].target_compression_level {
+                        let compression_range = if mining_infos[chain_id].minimum_compression_level
+                            == mining_infos[chain_id].target_compression_level
+                        {
                             format!("POCX{}", mining_infos[chain_id].minimum_compression_level)
                         } else {
-                            format!("POCX{}-POCX{}", mining_infos[chain_id].minimum_compression_level, mining_infos[chain_id].target_compression_level)
+                            format!(
+                                "POCX{}-POCX{}",
+                                mining_infos[chain_id].minimum_compression_level,
+                                mining_infos[chain_id].target_compression_level
+                            )
                         };
 
                         info!(
@@ -733,8 +736,10 @@ impl Miner {
 
                         let scoop = pocx_hashlib::calculate_scoop(
                             mining_infos[chain_id].height,
-                            &pocx_hashlib::decode_generation_signature(&mining_infos[chain_id].generation_signature)
-                                .unwrap_or([0u8; 32]),
+                            &pocx_hashlib::decode_generation_signature(
+                                &mining_infos[chain_id].generation_signature,
+                            )
+                            .unwrap_or([0u8; 32]),
                         );
                         with_callback(|cb| {
                             cb.on_new_block(&CallbackBlockInfo {
@@ -818,8 +823,7 @@ impl Miner {
                         } else {
                             let mut queue: String = "queue      : ".to_owned();
                             let mut queue_items: Vec<QueueItem> = Vec::new();
-                            let mut pos = 0u32;
-                            for (item, _) in pq.clone().into_sorted_iter() {
+                            for (pos, (item, _)) in pq.clone().into_sorted_iter().enumerate() {
                                 let percentage_processed =
                                     if let Some(i) = resume_states[item].as_ref() {
                                         i.warps_scanned as f64 / i.total_warps as f64 * 100.0
@@ -833,12 +837,11 @@ impl Miner {
                                     percentage_processed,
                                 ));
                                 queue_items.push(QueueItem {
-                                    position: pos,
+                                    position: pos as u32,
                                     chain: chains[item].name.clone(),
                                     height: mining_infos[item].height,
                                     progress_percent: percentage_processed,
                                 });
-                                pos += 1;
                             }
                             info!("{}", queue);
                             with_callback(|cb| cb.on_queue_updated(&queue_items));
@@ -1231,7 +1234,13 @@ impl Miner {
                         )
                     );
                     with_callback(|cb| {
-                        cb.on_scan_status(&chain_name, height, &ScanStatus::Finished { duration_secs: duration });
+                        cb.on_scan_status(
+                            &chain_name,
+                            height,
+                            &ScanStatus::Finished {
+                                duration_secs: duration,
+                            },
+                        );
                     });
                 } else {
                     // take snapshot
@@ -1251,7 +1260,13 @@ impl Miner {
                         )
                     );
                     with_callback(|cb| {
-                        cb.on_scan_status(&chain_name, height, &ScanStatus::Paused { progress_percent: percentage_processed });
+                        cb.on_scan_status(
+                            &chain_name,
+                            height,
+                            &ScanStatus::Paused {
+                                progress_percent: percentage_processed,
+                            },
+                        );
                     });
 
                     channels
@@ -1280,7 +1295,13 @@ impl Miner {
                     )
                 );
                 with_callback(|cb| {
-                    cb.on_scan_status(&chain_name, height, &ScanStatus::Interrupted { progress_percent: percentage });
+                    cb.on_scan_status(
+                        &chain_name,
+                        height,
+                        &ScanStatus::Interrupted {
+                            progress_percent: percentage,
+                        },
+                    );
                 });
             }
 
@@ -1302,7 +1323,13 @@ impl Miner {
             )
         );
         with_callback(|cb| {
-            cb.on_scan_status(&chain_name, height, &ScanStatus::Finished { duration_secs: duration });
+            cb.on_scan_status(
+                &chain_name,
+                height,
+                &ScanStatus::Finished {
+                    duration_secs: duration,
+                },
+            );
         });
         channels
             .tx_scheduler

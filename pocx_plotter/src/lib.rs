@@ -66,9 +66,9 @@ pub mod xpu_scheduler;
 // Re-export main types for convenience
 pub use buffer::PageAlignedByteBuffer;
 pub use error::{PoCXPlotterError, Result};
-pub use plotter::{Plotter, PlotterTask};
 #[cfg(feature = "opencl")]
 pub use ocl::{get_gpu_device_info, GpuDeviceInfo};
+pub use plotter::{Plotter, PlotterTask};
 
 use std::sync::Arc;
 
@@ -298,14 +298,19 @@ impl PlotterTaskBuilder {
 
     pub fn build(self) -> Result<PlotterTask> {
         if self.address.is_empty() {
-            return Err(PoCXPlotterError::InvalidInput("Address is required".to_string()));
+            return Err(PoCXPlotterError::InvalidInput(
+                "Address is required".to_string(),
+            ));
         }
 
         if self.output_paths.is_empty() {
-            return Err(PoCXPlotterError::InvalidInput("At least one output path is required".to_string()));
+            return Err(PoCXPlotterError::InvalidInput(
+                "At least one output path is required".to_string(),
+            ));
         }
 
-        let network_id = self.network_id
+        let network_id = self
+            .network_id
             .ok_or_else(|| PoCXPlotterError::InvalidInput("Network ID not set".to_string()))?;
 
         Ok(PlotterTask {

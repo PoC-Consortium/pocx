@@ -132,7 +132,10 @@ impl RequestHandler {
         tokio::task::spawn(async move {
             let mut stream = Box::pin(stream);
             while let Some(submission_params) = stream.next().await {
-                match client.submit_nonce(&submission_params.nonce_submission).await {
+                match client
+                    .submit_nonce(&submission_params.nonce_submission)
+                    .await
+                {
                     Ok(res) => {
                         if submission_params.nonce_submission.quality != res.quality_adjusted {
                             log_quality_mismatch(
@@ -197,7 +200,9 @@ impl RequestHandler {
                                 compression: submission_params.nonce_submission.compression,
                                 poc_time: u64::MAX,
                             };
-                            with_callback(|cb| cb.on_deadline_rejected(&accepted, e.code, &e.message));
+                            with_callback(|cb| {
+                                cb.on_deadline_rejected(&accepted, e.code, &e.message)
+                            });
                         }
                     }
                     Err(FetchError::Http(x)) => {
@@ -237,7 +242,10 @@ impl RequestHandler {
         tokio::task::spawn(async move {
             let mut stream = Box::pin(stream);
             while let Some(submission_params) = stream.next().await {
-                match client.submit_nonce(&submission_params.nonce_submission).await {
+                match client
+                    .submit_nonce(&submission_params.nonce_submission)
+                    .await
+                {
                     Ok(res) => {
                         if submission_params.nonce_submission.quality != res.quality_adjusted {
                             log_quality_mismatch(
@@ -294,7 +302,9 @@ impl RequestHandler {
                                 compression: submission_params.nonce_submission.compression,
                                 poc_time: u64::MAX,
                             };
-                            with_callback(|cb| cb.on_deadline_rejected(&accepted, e.code, &e.message));
+                            with_callback(|cb| {
+                                cb.on_deadline_rejected(&accepted, e.code, &e.message)
+                            });
                         }
                     }
                     Err(FetchError::Http(x)) => {

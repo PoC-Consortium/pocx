@@ -92,8 +92,8 @@ pub fn create_chunk_compressor_thread(
             let mut mutex_read_buffer =
                 lock_mutex(mutex_read_buffer).expect("Read buffer mutex poisoned");
 
-             // get write buffer           
-             let write_buffer = rx_empty_write_buffers
+            // get write buffer
+            let write_buffer = rx_empty_write_buffers
                 .recv()
                 .expect("Can't receive empty write buffer - channel closed");
 

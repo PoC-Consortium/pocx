@@ -119,7 +119,10 @@ impl JsonRpcClient {
             let url = response.url().clone();
 
             if status == reqwest::StatusCode::UNAUTHORIZED {
-                error!("AUTH ERROR: 401 Unauthorized - Invalid or missing credentials for {}", url);
+                error!(
+                    "AUTH ERROR: 401 Unauthorized - Invalid or missing credentials for {}",
+                    url
+                );
                 return Err(ProtocolError::AuthInvalid);
             } else if status == reqwest::StatusCode::FORBIDDEN {
                 error!("AUTH ERROR: 403 Forbidden - Access denied to {}", url);
@@ -128,8 +131,7 @@ impl JsonRpcClient {
                 error!("HTTP error: {} {}", status, url);
                 return Err(ProtocolError::Other(format!(
                     "HTTP error: {} {}",
-                    status,
-                    url
+                    status, url
                 )));
             }
         }

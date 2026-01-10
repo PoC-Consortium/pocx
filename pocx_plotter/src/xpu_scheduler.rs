@@ -20,11 +20,11 @@
 
 use crate::buffer::PageAlignedByteBuffer;
 use crate::compressor::CompressorTask;
-use crate::get_plotter_callback;
-use crate::is_stop_requested;
 use crate::cpu_hasher::{hash_cpu, CpuTask, SafePointer};
+use crate::get_plotter_callback;
 #[cfg(feature = "opencl")]
 use crate::gpu_hasher::{create_gpu_hasher_thread, GpuTask};
+use crate::is_stop_requested;
 #[cfg(feature = "opencl")]
 use crate::ocl::gpu_init;
 use crate::plotter::{PlotterTask, DIM, NONCE_SIZE, WARP_SIZE};
@@ -297,7 +297,10 @@ pub fn create_scheduler_thread(
             pointer %= task.output_paths.len();
 
             // thread end
-            if is_stop_requested() || (task.number_of_plots.iter().sum::<u64>() == plotfile_progress.iter().sum::<u64>()) {
+            if is_stop_requested()
+                || (task.number_of_plots.iter().sum::<u64>()
+                    == plotfile_progress.iter().sum::<u64>())
+            {
                 if let Some(pb) = &pb {
                     pb.finish_with_message("Hasher done.");
                 }

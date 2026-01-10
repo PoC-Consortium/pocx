@@ -78,9 +78,9 @@ pub use miner::{genesis_base_target, Chain, Miner, RpcAuth, RpcTransport, Submis
 
 // Re-export callback system
 pub use callback::{
-    get_miner_callback, set_miner_callback, with_callback,
-    AcceptedDeadline, BlockInfo, CapacityInfo, MinerCallback, MinerStartedInfo,
-    NoOpCallback, QueueItem, ScanStartedInfo, ScanStatus,
+    get_miner_callback, set_miner_callback, with_callback, AcceptedDeadline, BlockInfo,
+    CapacityInfo, MinerCallback, MinerStartedInfo, NoOpCallback, QueueItem, ScanStartedInfo,
+    ScanStatus,
 };
 
 // Re-export control system

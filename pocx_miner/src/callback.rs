@@ -63,12 +63,12 @@ pub struct QueueItem {
 #[serde(rename_all = "camelCase")]
 pub struct AcceptedDeadline {
     pub chain: String,
-    pub account: String,        // Hex payload
+    pub account: String, // Hex payload
     pub height: u64,
     pub nonce: u64,
-    pub quality_raw: u64,       // For effective capacity calculation
+    pub quality_raw: u64, // For effective capacity calculation
     pub compression: u8,
-    pub poc_time: u64,          // Deadline in seconds (from server response)
+    pub poc_time: u64, // Deadline in seconds (from server response)
 }
 
 /// Scan status
