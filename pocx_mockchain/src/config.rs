@@ -474,9 +474,7 @@ mod tests {
             .parse::<u8>();
         assert!(network_id_result.is_err());
 
-        let port_result = env::var("POCX_TEST_INVALID_PORT")
-            .unwrap()
-            .parse::<u16>();
+        let port_result = env::var("POCX_TEST_INVALID_PORT").unwrap().parse::<u16>();
         assert!(port_result.is_err());
 
         // Clean up
