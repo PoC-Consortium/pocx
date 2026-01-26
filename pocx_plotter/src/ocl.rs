@@ -28,7 +28,7 @@
 
 use crate::gpu_hasher::GpuTask;
 use crate::plotter::{DIM, DOUBLE_HASH_SIZE, NONCE_SIZE};
-use opencl3::command_queue::{CommandQueue, CL_QUEUE_PROFILING_ENABLE};
+use opencl3::command_queue::CommandQueue;
 use opencl3::context::Context;
 use opencl3::device::{Device, CL_DEVICE_TYPE_GPU};
 use opencl3::kernel::{ExecuteKernel, Kernel};
@@ -101,12 +101,10 @@ impl GpuContext {
         let program = Program::create_and_build_from_source(&context, SRC, "")
             .map_err(|e| format!("Failed to build OpenCL program: {:?}", e))?;
 
-        let queue_a =
-            CommandQueue::create_default_with_properties(&context, CL_QUEUE_PROFILING_ENABLE, 0)
-                .map_err(|e| format!("Failed to create command queue A: {:?}", e))?;
-        let queue_b =
-            CommandQueue::create_default_with_properties(&context, CL_QUEUE_PROFILING_ENABLE, 0)
-                .map_err(|e| format!("Failed to create command queue B: {:?}", e))?;
+        let queue_a = CommandQueue::create_default(&context, 0)
+            .map_err(|e| format!("Failed to create command queue A: {:?}", e))?;
+        let queue_b = CommandQueue::create_default(&context, 0)
+            .map_err(|e| format!("Failed to create command queue B: {:?}", e))?;
 
         let kernel = Kernel::create(&program, "calculate_nonces")
             .map_err(|e| format!("Failed to create kernel: {:?}", e))?;
