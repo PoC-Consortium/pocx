@@ -34,7 +34,7 @@ use std::sync::{Arc, OnceLock};
 // Data Structures for Callbacks
 // ============================================================================
 
-/// Block info (from "new block : [chain:height], ...")
+/// Block info (from "new block : \[chain:height\], ...")
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BlockInfo {
@@ -47,7 +47,7 @@ pub struct BlockInfo {
     pub scoop: u64,
 }
 
-/// Queue item (from "queue : [chain:height]:XX%>")
+/// Queue item (from "queue : \[chain:height\]:XX%>")
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueueItem {

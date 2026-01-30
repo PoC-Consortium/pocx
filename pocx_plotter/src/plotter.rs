@@ -156,10 +156,11 @@ impl Plotter {
 
             let is_power_of_2 = (sector_size & (sector_size - 1)) == 0;
             if task.direct_io && (!is_power_of_2 || sector_size > (1 << 18)) {
-                return Err(PoCXPlotterError::Config(format!(
-                    "Direct I/O: sector_size is not a power of 2 or bigger than 256KiB, sector_size={}, disk={}",
-                    sector_size, path
-                )));
+                eprintln!(
+                    "Warning: Direct I/O not supported for {} (sector_size={}), falling back to buffered I/O",
+                    path, sector_size
+                );
+                task.direct_io = false;
             }
         }
 

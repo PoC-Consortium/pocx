@@ -41,8 +41,7 @@ fn calculate_network_capacity_bytes(base_target: u64, block_time: u64) -> u64 {
 #[derive(Debug, Clone)]
 pub(crate) struct BestSubmission {
     quality: u64,
-    #[allow(dead_code)]
-    base_target: u64, // Stored but not currently used in capacity calc
+    base_target: u64, // Used in estimate_capacity_tib() to calculate deadline
     timestamp: DateTime<Utc>,
 }
 
@@ -147,6 +146,7 @@ impl MinerInfo {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CurrentBlockBest {
     pub height: u64,
     pub best_poc_time: Option<u64>, // in seconds
@@ -156,6 +156,7 @@ pub struct CurrentBlockBest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AccountSummary {
     pub account_id: String,
     pub machine_count: usize,
@@ -168,6 +169,7 @@ pub struct AccountSummary {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MachineInAccount {
     pub machine_id: String,
     pub capacity_tib: f64,
@@ -178,6 +180,7 @@ pub struct MachineInAccount {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MachineSummary {
     pub machine_id: String,
     pub account_count: usize,
@@ -190,6 +193,7 @@ pub struct MachineSummary {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AccountInMachine {
     pub account_id: String,
     pub capacity_tib: f64,
@@ -200,6 +204,7 @@ pub struct AccountInMachine {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StatsSnapshot {
     pub unique_miners: usize,   // Unique account IDs
     pub unique_machines: usize, // Unique machine IDs (IPs)
@@ -214,6 +219,7 @@ pub struct StatsSnapshot {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MinerSnapshot {
     pub account_id: String,
     pub machine_id: Option<String>,

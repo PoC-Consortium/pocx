@@ -8,7 +8,6 @@
 # Transport Types (upstream):
 #   - http:  HTTP transport (default)
 #   - https: HTTPS transport (for remote pools)
-#   - ipc:   IPC transport (Unix socket / Windows named pipe)
 #
 # Authentication Types (upstream):
 #   - none:      No authentication
@@ -49,22 +48,6 @@ upstream:
   rpc_auth:
     type: none
   submission_mode: pool
-
-  # IPC upstream (local wallet) - Unix
-  # rpc_transport: ipc
-  # ipc_path: "/home/user/.bitcoin-pocx/testnet/bitcoind.sock"
-  # rpc_auth:
-  #   type: cookie
-  #   cookie_path: "/home/user/.bitcoin-pocx/testnet/.cookie"
-  # submission_mode: wallet
-
-  # IPC upstream (local wallet) - Windows
-  # rpc_transport: ipc
-  # ipc_path: '\\.\pipe\bitcoin-pocx-testnet'
-  # rpc_auth:
-  #   type: cookie
-  #   cookie_path: 'C:\Users\YourName\AppData\Local\Bitcoin-PoCX\testnet\.cookie'
-  # submission_mode: wallet
 
   # HTTPS upstream with Basic auth
   # rpc_transport: https

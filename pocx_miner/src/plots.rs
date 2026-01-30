@@ -126,30 +126,47 @@ impl PoCXArray {
             for file in read_dir(plot_dir).unwrap() {
                 let file = &file.unwrap().path();
 
-                if let Ok(plotfile) = PoCXPlotFile::open(
-                    file,
-                    if dummy {
-                        AccessType::Dummy
-                    } else {
-                        AccessType::Read
-                    },
-                    use_direct_io,
-                ) {
-                    let disk_id = if dummy {
-                        dummy_disk_id.clone()
-                    } else {
-                        get_device_id(file.to_str().unwrap())
-                    };
+                let access = if dummy {
+                    AccessType::Dummy
+                } else {
+                    AccessType::Read
+                };
+                let plotfile = match PoCXPlotFile::open(file, access, use_direct_io) {
+                    Ok(pf) => pf,
+                    Err(e) if use_direct_io => {
+                        log::warn!(
+                            "direct I/O failed for {}: {}, retrying without direct I/O",
+                            file.display(),
+                            e
+                        );
+                        match PoCXPlotFile::open(file, access, false) {
+                            Ok(pf) => pf,
+                            Err(e2) => {
+                                log::error!("failed to open {}: {}", file.display(), e2);
+                                continue;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("failed to open {}: {}", file.display(), e);
+                        continue;
+                    }
+                };
 
-                    let disk = disks
-                        .entry(disk_id)
-                        .or_insert_with(|| Arc::new(Mutex::new(PoCXDisk::new())));
+                let disk_id = if dummy {
+                    dummy_disk_id.clone()
+                } else {
+                    get_device_id(file.to_str().unwrap())
+                };
 
-                    local_capacity += plotfile.meta.number_of_warps;
-                    let mut disk = disk.lock().unwrap();
-                    disk.add(plotfile);
-                    num_plots += 1;
-                }
+                let disk = disks
+                    .entry(disk_id)
+                    .or_insert_with(|| Arc::new(Mutex::new(PoCXDisk::new())));
+
+                local_capacity += plotfile.meta.number_of_warps;
+                let mut disk = disk.lock().unwrap();
+                disk.add(plotfile);
+                num_plots += 1;
             }
 
             info!(
