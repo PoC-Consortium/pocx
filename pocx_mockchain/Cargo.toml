@@ -1,6 +1,6 @@
 [package]
 name = "pocx_mockchain"
-version = "1.0.0-rc.7"
+version = "1.0.0-rc.8"
 license = "MIT"
 authors = ["Proof of Capacity Consortium"]
 description = "Mock blockchain simulator for testing PoCX miners and Proof-of-Capacity applications"
@@ -30,9 +30,9 @@ libc = { workspace = true }
 rand = { workspace = true }
 hex = { workspace = true }
 chrono = { workspace = true }
-pocx_hashlib = { version = "1.0.0-rc.7", path = "../pocx_hashlib" }
-pocx_address = { version = "1.0.0-rc.7", path = "../pocx_address" }
-pocx_protocol = { version = "1.0.0-rc.7", path = "../pocx_protocol" }
+pocx_hashlib = { version = "1.0.0-rc.8", path = "../pocx_hashlib" }
+pocx_address = { version = "1.0.0-rc.8", path = "../pocx_address" }
+pocx_protocol = { version = "1.0.0-rc.8", path = "../pocx_protocol" }
 async-trait = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }

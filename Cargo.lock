@@ -1749,7 +1749,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_address"
-version = "1.0.0-rc.7"
+version = "1.0.0-rc.8"
 dependencies = [
  "bech32",
  "bs58",
@@ -1763,7 +1763,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_aggregator"
-version = "1.0.0-rc.7"
+version = "1.0.0-rc.8"
 dependencies = [
  "async-trait",
  "axum",
@@ -1799,7 +1799,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_hashlib"
-version = "1.0.0-rc.7"
+version = "1.0.0-rc.8"
 dependencies = [
  "arbitrary",
  "criterion",
@@ -1814,7 +1814,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_miner"
-version = "1.0.0-rc.7"
+version = "1.0.0-rc.8"
 dependencies = [
  "anyhow",
  "bytesize",
@@ -1853,7 +1853,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_mockchain"
-version = "1.0.0-rc.7"
+version = "1.0.0-rc.8"
 dependencies = [
  "async-trait",
  "axum",
@@ -1882,7 +1882,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_plotfile"
-version = "1.0.0-rc.7"
+version = "1.0.0-rc.8"
 dependencies = [
  "arbitrary",
  "cfg-if",
@@ -1902,7 +1902,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_plotter"
-version = "1.0.0-rc.7"
+version = "1.0.0-rc.8"
 dependencies = [
  "bytesize",
  "cfg-if",
@@ -1931,7 +1931,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_protocol"
-version = "1.0.0-rc.7"
+version = "1.0.0-rc.8"
 dependencies = [
  "async-trait",
  "base64",
@@ -1951,7 +1951,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_verifier"
-version = "1.0.0-rc.7"
+version = "1.0.0-rc.8"
 dependencies = [
  "clap",
  "hex",

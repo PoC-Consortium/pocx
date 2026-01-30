@@ -1,6 +1,6 @@
 [package]
 name = "pocx_verifier"
-version = "1.0.0-rc.7"
+version = "1.0.0-rc.8"
 license = "MIT"
 authors = [
     "Proof of Capacity Consortium",
@@ -24,8 +24,8 @@ clap = { workspace = true, features = ["derive", "cargo"] }
 rand = { workspace = true }
 indicatif = { workspace = true }
 hex = { workspace = true }
-pocx_hashlib = { version = "1.0.0-rc.7", path = "../pocx_hashlib" }
-pocx_plotfile = { version = "1.0.0-rc.7", path = "../pocx_plotfile" }
+pocx_hashlib = { version = "1.0.0-rc.8", path = "../pocx_hashlib" }
+pocx_plotfile = { version = "1.0.0-rc.8", path = "../pocx_plotfile" }
 
 [dev-dependencies]
 proptest = { workspace = true }
