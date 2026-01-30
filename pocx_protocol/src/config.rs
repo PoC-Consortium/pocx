@@ -25,7 +25,6 @@
 
 use log::{error, info};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 
 /// Transport protocol for RPC connections.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -36,8 +35,6 @@ pub enum RpcTransport {
     Http,
     /// HTTPS transport
     Https,
-    /// IPC transport (Unix socket / Windows named pipe)
-    Ipc,
 }
 
 /// Authentication mechanism for RPC connections.
@@ -144,21 +141,17 @@ fn default_timeout_ms() -> u64 {
 /// RPC client configuration for connecting to upstream servers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcClientConfig {
-    /// Transport protocol (http, https, ipc)
+    /// Transport protocol (http, https)
     #[serde(default)]
     pub rpc_transport: RpcTransport,
 
-    /// Host address (ignored for IPC transport)
+    /// Host address
     #[serde(default = "default_rpc_host")]
     pub rpc_host: String,
 
-    /// Port number (ignored for IPC transport)
+    /// Port number
     #[serde(default = "default_rpc_port")]
     pub rpc_port: u16,
-
-    /// IPC socket path (required for IPC transport)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ipc_path: Option<String>,
 
     /// Authentication configuration
     #[serde(default)]
@@ -175,7 +168,6 @@ impl Default for RpcClientConfig {
             rpc_transport: RpcTransport::default(),
             rpc_host: default_rpc_host(),
             rpc_port: default_rpc_port(),
-            ipc_path: None,
             rpc_auth: RpcAuth::default(),
             timeout_ms: default_timeout_ms(),
         }
@@ -184,63 +176,20 @@ impl Default for RpcClientConfig {
 
 impl RpcClientConfig {
     /// Build URL string from configuration.
-    /// Returns None for IPC transport.
     pub fn build_url(&self) -> Option<String> {
         match self.rpc_transport {
             RpcTransport::Http => Some(format!("http://{}:{}", self.rpc_host, self.rpc_port)),
             RpcTransport::Https => Some(format!("https://{}:{}", self.rpc_host, self.rpc_port)),
-            RpcTransport::Ipc => None,
-        }
-    }
-
-    /// Get IPC path for IPC transport.
-    pub fn get_ipc_path(&self) -> Option<&str> {
-        if self.rpc_transport == RpcTransport::Ipc {
-            self.ipc_path.as_deref()
-        } else {
-            None
         }
     }
 
     /// Validate the configuration.
     pub fn validate(&self, context: &str) -> Result<(), String> {
-        match self.rpc_transport {
-            RpcTransport::Ipc => {
-                if self.ipc_path.is_none() {
-                    return Err(format!(
-                        "[{}] IPC transport requires ipc_path to be specified",
-                        context
-                    ));
-                }
-                let path = self.ipc_path.as_ref().unwrap();
-                // On Unix, check if socket path looks valid
-                // On Windows, check for named pipe format
-                #[cfg(unix)]
-                if !Path::new(path).is_absolute() && !path.starts_with("./") {
-                    return Err(format!(
-                        "[{}] IPC path should be absolute or relative: {}",
-                        context, path
-                    ));
-                }
-                #[cfg(windows)]
-                if !path.starts_with(r"\\.\pipe\") && !path.starts_with(r"\\.\") {
-                    // Allow both named pipes and regular paths on Windows
-                    if !Path::new(path).is_absolute() {
-                        return Err(format!(
-                            "[{}] IPC path should be absolute or a named pipe: {}",
-                            context, path
-                        ));
-                    }
-                }
-            }
-            RpcTransport::Http | RpcTransport::Https => {
-                if self.rpc_host.is_empty() {
-                    return Err(format!("[{}] rpc_host cannot be empty", context));
-                }
-                if self.rpc_port == 0 {
-                    return Err(format!("[{}] rpc_port cannot be 0", context));
-                }
-            }
+        if self.rpc_host.is_empty() {
+            return Err(format!("[{}] rpc_host cannot be empty", context));
+        }
+        if self.rpc_port == 0 {
+            return Err(format!("[{}] rpc_port cannot be 0", context));
         }
         Ok(())
     }
@@ -332,13 +281,6 @@ mod tests {
             config_https.build_url(),
             Some("https://example.com:443".to_string())
         );
-
-        let config_ipc = RpcClientConfig {
-            rpc_transport: RpcTransport::Ipc,
-            ipc_path: Some("/tmp/socket".to_string()),
-            ..Default::default()
-        };
-        assert_eq!(config_ipc.build_url(), None);
     }
 
     #[test]
@@ -347,28 +289,19 @@ mod tests {
         let config = RpcClientConfig::default();
         assert!(config.validate("test").is_ok());
 
-        // Invalid IPC config (missing path)
-        let config_ipc = RpcClientConfig {
-            rpc_transport: RpcTransport::Ipc,
-            ipc_path: None,
+        // Invalid config (empty host)
+        let config_empty_host = RpcClientConfig {
+            rpc_host: "".to_string(),
             ..Default::default()
         };
-        assert!(config_ipc.validate("test").is_err());
+        assert!(config_empty_host.validate("test").is_err());
 
-        // Valid IPC config (platform-specific path)
-        #[cfg(unix)]
-        let ipc_path = "/tmp/socket".to_string();
-        #[cfg(windows)]
-        let ipc_path = r"\\.\pipe\test-socket".to_string();
-        #[cfg(not(any(unix, windows)))]
-        let ipc_path = "/tmp/socket".to_string();
-
-        let config_ipc_valid = RpcClientConfig {
-            rpc_transport: RpcTransport::Ipc,
-            ipc_path: Some(ipc_path),
+        // Invalid config (zero port)
+        let config_zero_port = RpcClientConfig {
+            rpc_port: 0,
             ..Default::default()
         };
-        assert!(config_ipc_valid.validate("test").is_ok());
+        assert!(config_zero_port.validate("test").is_err());
     }
 
     #[test]
@@ -404,7 +337,6 @@ mod tests {
             rpc_transport: RpcTransport::Https,
             rpc_host: "pool.example.com".to_string(),
             rpc_port: 443,
-            ipc_path: None,
             rpc_auth: RpcAuth::UserPass {
                 username: "miner".to_string(),
                 password: "secret".to_string(),

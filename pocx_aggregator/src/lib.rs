@@ -24,7 +24,9 @@
 //! providing load balancing, failover, and efficient caching of mining
 //! information.
 
+pub mod callback;
 pub mod config;
+pub mod control;
 pub mod dashboard;
 pub mod db;
 pub mod error;
@@ -36,4 +38,48 @@ pub mod server;
 pub mod stats;
 pub mod time_bending;
 
+// Re-export core types
+pub use config::Config;
 pub use error::{Error, Result};
+pub use server::AggregatorServer;
+pub use stats::{Stats, StatsSnapshot};
+
+// Re-export callback system
+pub use callback::{
+    get_aggregator_callback, set_aggregator_callback, with_callback, AcceptedInfo,
+    AggregatorCallback, AggregatorStartedInfo, BlockUpdate, ForwardedInfo, NoOpCallback,
+    RejectedInfo, SubmissionInfo,
+};
+
+// Re-export control system
+pub use control::{clear_stop_request, is_stop_requested, request_stop};
+
+/// Run the aggregator with panic safety and callback error reporting.
+///
+/// Clears any previous stop request, runs the server, and fires
+/// `on_stopped()` / `on_error()` callbacks on completion.
+pub async fn run_aggregator_safe(config: Config) -> Result<()> {
+    clear_stop_request();
+
+    let result = std::panic::AssertUnwindSafe(async {
+        let server = AggregatorServer::new(config).await?;
+        server.run().await
+    });
+
+    match futures::FutureExt::catch_unwind(result).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => {
+            callback::with_callback(|cb| cb.on_error(&e.to_string()));
+            Err(e)
+        }
+        Err(panic) => {
+            let msg = panic
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| panic.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "unknown panic".to_string());
+            callback::with_callback(|cb| cb.on_error(&format!("Aggregator panicked: {}", msg)));
+            Err(Error::Server(format!("Aggregator panicked: {}", msg)))
+        }
+    }
+}

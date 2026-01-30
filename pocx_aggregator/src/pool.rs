@@ -64,41 +64,22 @@ impl PoolManager {
     pub fn new(upstream: &UpstreamConfig, cache_ttl_secs: u64, timeout_secs: u64) -> Result<Self> {
         let timeout = Duration::from_secs(timeout_secs);
 
-        // Create client for upstream based on transport type
-        let mut client = if upstream.is_ipc() {
-            let ipc_path = upstream
-                .ipc_path
-                .as_ref()
-                .ok_or_else(|| Error::Config("IPC transport requires ipc_path".to_string()))?;
-            info!(
-                "Connecting to upstream '{}' via IPC: {}",
-                upstream.name, ipc_path
-            );
-            JsonRpcClient::new_ipc(ipc_path)
-                .map_err(|e| {
-                    Error::Pool(format!(
-                        "Failed to create IPC client for {}: {}",
-                        upstream.name, e
-                    ))
-                })?
-                .with_timeout(timeout)
-        } else {
-            let url = upstream.build_url().ok_or_else(|| {
-                Error::Config("HTTP/HTTPS transport requires valid URL".to_string())
-            })?;
-            info!(
-                "Connecting to upstream '{}' via HTTP: {}",
-                upstream.name, url
-            );
-            JsonRpcClient::new(&url)
-                .map_err(|e| {
-                    Error::Pool(format!(
-                        "Failed to create HTTP client for {}: {}",
-                        upstream.name, e
-                    ))
-                })?
-                .with_timeout(timeout)
-        };
+        // Create HTTP/HTTPS client for upstream
+        let url = upstream
+            .build_url()
+            .ok_or_else(|| Error::Config("HTTP/HTTPS transport requires valid URL".to_string()))?;
+        info!(
+            "Connecting to upstream '{}' via HTTP: {}",
+            upstream.name, url
+        );
+        let mut client = JsonRpcClient::new(&url)
+            .map_err(|e| {
+                Error::Pool(format!(
+                    "Failed to create HTTP client for {}: {}",
+                    upstream.name, e
+                ))
+            })?
+            .with_timeout(timeout);
 
         // Get auth token if configured (supports None, UserPass, Cookie)
         if let Some(token) = upstream.get_auth_token_or_exit() {

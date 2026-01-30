@@ -20,7 +20,7 @@
 
 use crate::callback::{with_callback, AcceptedDeadline};
 use crate::com::api::{FetchError, MiningInfo, NonceSubmission, SubmissionParameters};
-use crate::com::protocol_client::{ProtocolClient, RpcEndpoint};
+use crate::com::protocol_client::ProtocolClient;
 use crate::future::prio_retry::PrioRetry;
 use crate::miner::SubmissionMode;
 use futures::channel::mpsc;
@@ -50,41 +50,7 @@ impl RequestHandler {
         submission_mode: SubmissionMode,
         token: CancellationToken,
     ) -> RequestHandler {
-        Self::from_endpoint(
-            RpcEndpoint::Url(url),
-            timeout,
-            auth_token,
-            submission_mode,
-            token,
-        )
-    }
-
-    /// Create a new RequestHandler with IPC endpoint.
-    pub fn new_ipc(
-        path: String,
-        timeout: u64,
-        auth_token: Option<String>,
-        submission_mode: SubmissionMode,
-        token: CancellationToken,
-    ) -> RequestHandler {
-        Self::from_endpoint(
-            RpcEndpoint::Ipc(path),
-            timeout,
-            auth_token,
-            submission_mode,
-            token,
-        )
-    }
-
-    /// Create a new RequestHandler from endpoint.
-    pub fn from_endpoint(
-        endpoint: RpcEndpoint,
-        timeout: u64,
-        auth_token: Option<String>,
-        submission_mode: SubmissionMode,
-        token: CancellationToken,
-    ) -> RequestHandler {
-        let client = ProtocolClient::from_endpoint(endpoint, timeout, auth_token)
+        let client = ProtocolClient::new(url, timeout, auth_token)
             .expect("Failed to create protocol client");
 
         let (tx_submit_data, rx_submit_nonce_data) = mpsc::unbounded();

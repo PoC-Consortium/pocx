@@ -119,6 +119,12 @@ impl AggregatorServer {
         let retention_blocks = self.config.retention_blocks();
         let listen_address = self.config.server.listen_address.clone();
         let server_auth = self.config.server.auth.clone();
+        let dashboard_enabled = self
+            .config
+            .dashboard
+            .as_ref()
+            .map(|d| d.enabled)
+            .unwrap_or(false);
 
         if server_auth.is_required() {
             info!("Server authentication: ENABLED (BasicAuth)");
@@ -139,17 +145,29 @@ impl AggregatorServer {
         };
 
         // Build the main JSON-RPC router
-        let app = Router::new()
+        let mut app = Router::new()
             .route("/", post(handle_jsonrpc))
-            .route("/health", get(health_check))
-            .route("/stats", get(get_stats))
-            .with_state(state);
+            .route("/health", get(health_check));
+
+        // Only expose /stats endpoint when dashboard is enabled
+        if dashboard_enabled {
+            app = app.route("/stats", get(get_stats));
+        }
+
+        let app = app.with_state(state);
 
         let listener = tokio::net::TcpListener::bind(&listen_address)
             .await
             .map_err(|e| Error::Server(format!("Failed to bind to {}: {}", listen_address, e)))?;
 
         info!("Aggregator listening on {}", listen_address);
+
+        crate::callback::with_callback(|cb| {
+            cb.on_started(&crate::callback::AggregatorStartedInfo {
+                listen_address: listen_address.clone(),
+                upstream_name: self.config.upstream.name.clone(),
+            });
+        });
 
         // Set up graceful shutdown
         let server = axum::serve(
@@ -163,6 +181,7 @@ impl AggregatorServer {
             .map_err(|e| Error::Server(format!("Server error: {}", e)))?;
 
         info!("Server shutdown complete");
+        crate::callback::with_callback(|cb| cb.on_stopped());
         Ok(())
     }
 }
@@ -251,6 +270,19 @@ async fn handle_get_mining_info(
             let old_height = *state.current_height.read().await;
             *state.current_height.write().await = info.height;
 
+            // Notify callback on new block
+            if info.height != old_height {
+                crate::callback::with_callback(|cb| {
+                    cb.on_new_block(&crate::callback::BlockUpdate {
+                        height: info.height,
+                        base_target: info.base_target,
+                    });
+                });
+
+                let snapshot = state.stats.snapshot().await;
+                crate::callback::with_callback(|cb| cb.on_stats_updated(&snapshot));
+            }
+
             // Cleanup old database entries when height changes
             if info.height != old_height && state.retention_blocks > 0 {
                 if let Err(e) = state
@@ -266,6 +298,9 @@ async fn handle_get_mining_info(
         }
         Err(e) => {
             error!("Failed to get mining info: {}", e);
+            crate::callback::with_callback(|cb| {
+                cb.on_error(&format!("Mining info fetch failed: {}", e))
+            });
             json_rpc_error(
                 JsonRpcError {
                     code: -32000,
@@ -299,6 +334,22 @@ async fn handle_submit_nonce(
             );
         }
     };
+
+    // Get current height for the submission info
+    let current_height = *state.current_height.read().await;
+
+    crate::callback::with_callback(|cb| {
+        cb.on_submission_received(&crate::callback::SubmissionInfo {
+            height: current_height,
+            account_id: req.params.account_id.clone(),
+            machine_id: Some(client_ip.clone()),
+            generation_signature: req.params.generation_signature.clone(),
+            seed: req.params.seed.clone(),
+            nonce: req.params.nonce,
+            compression: req.params.compression,
+            quality: req.params.quality.unwrap_or(0),
+        });
+    });
 
     // Get current block_hash for submission filtering
     let block_hash = state.current_block_hash.read().await.clone();
@@ -339,7 +390,7 @@ async fn handle_submit_nonce(
             // Save to database (queued in dedicated writer task)
             if let Err(e) = state.database.save_submission(
                 &req.params.account_id,
-                machine_id,
+                machine_id.clone(),
                 result.quality,
                 base_target,
                 height,
@@ -347,11 +398,36 @@ async fn handle_submit_nonce(
                 error!("Failed to queue submission save: {}", e);
             }
 
+            crate::callback::with_callback(|cb| {
+                cb.on_submission_accepted(&crate::callback::AcceptedInfo {
+                    height,
+                    account_id: req.params.account_id.clone(),
+                    machine_id,
+                    generation_signature: req.params.generation_signature.clone(),
+                    seed: req.params.seed.clone(),
+                    nonce: req.params.nonce,
+                    compression: req.params.compression,
+                    quality: result.quality,
+                    poc_time,
+                });
+            });
+
+            let snapshot = state.stats.snapshot().await;
+            crate::callback::with_callback(|cb| cb.on_stats_updated(&snapshot));
+
             let response: JsonRpcResponse<SubmitNonceResult> = JsonRpcResponse::success(result, id);
             Json(response).into_response()
         }
         Err(e) => {
             error!("Failed to submit nonce: {}", e);
+            crate::callback::with_callback(|cb| {
+                cb.on_submission_rejected(&crate::callback::RejectedInfo {
+                    height: current_height,
+                    account_id: req.params.account_id.clone(),
+                    machine_id: Some(client_ip.clone()),
+                    reason: e.to_string(),
+                });
+            });
             json_rpc_error(
                 JsonRpcError {
                     code: -32000,
@@ -490,12 +566,24 @@ async fn shutdown_signal() {
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();
 
+    let stop_poll = async {
+        loop {
+            if crate::control::is_stop_requested() {
+                break;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        }
+    };
+
     tokio::select! {
         _ = ctrl_c => {
             info!("Received Ctrl+C, shutting down gracefully...");
         },
         _ = terminate => {
             info!("Received SIGTERM, shutting down gracefully...");
+        },
+        _ = stop_poll => {
+            info!("Stop requested via API, shutting down gracefully...");
         },
     }
 }

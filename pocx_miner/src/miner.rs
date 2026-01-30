@@ -85,21 +85,17 @@ pub struct Chain {
     /// Display name for this chain
     pub name: String,
 
-    /// Transport protocol (http, https, ipc)
+    /// Transport protocol (http, https)
     #[serde(default)]
     pub rpc_transport: RpcTransport,
 
-    /// RPC host address (ignored for IPC transport)
+    /// RPC host address
     #[serde(default = "default_rpc_host")]
     pub rpc_host: String,
 
-    /// RPC port (ignored for IPC transport)
+    /// RPC port
     #[serde(default = "default_rpc_port")]
     pub rpc_port: u16,
-
-    /// IPC socket path (required for IPC transport)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ipc_path: Option<String>,
 
     /// Authentication configuration
     #[serde(default)]
@@ -123,7 +119,7 @@ pub struct Chain {
 }
 
 impl Chain {
-    /// Build URL for HTTP/HTTPS transport. Returns None for IPC transport.
+    /// Build URL for HTTP/HTTPS transport.
     pub fn build_url(&self) -> Option<Url> {
         match self.rpc_transport {
             RpcTransport::Http => {
@@ -132,13 +128,7 @@ impl Chain {
             RpcTransport::Https => {
                 Url::parse(&format!("https://{}:{}", self.rpc_host, self.rpc_port)).ok()
             }
-            RpcTransport::Ipc => None,
         }
-    }
-
-    /// Check if this chain uses IPC transport.
-    pub fn is_ipc(&self) -> bool {
-        self.rpc_transport == RpcTransport::Ipc
     }
 
     /// Get endpoint description for logging.
@@ -146,27 +136,18 @@ impl Chain {
         match self.rpc_transport {
             RpcTransport::Http => format!("http://{}:{}", self.rpc_host, self.rpc_port),
             RpcTransport::Https => format!("https://{}:{}", self.rpc_host, self.rpc_port),
-            RpcTransport::Ipc => self
-                .ipc_path
-                .clone()
-                .unwrap_or_else(|| "<no path>".to_string()),
         }
     }
 
     /// Validate chain configuration.
     pub fn validate(&self) -> Result<(), String> {
-        if self.rpc_transport == RpcTransport::Ipc && self.ipc_path.is_none() {
-            return Err(format!(
-                "[{}] IPC transport requires ipc_path to be specified",
-                self.name
-            ));
+        if self.rpc_host.is_empty() {
+            return Err(format!("[{}] rpc_host cannot be empty", self.name));
+        }
+        if self.rpc_port == 0 {
+            return Err(format!("[{}] rpc_port cannot be 0", self.name));
         }
         Ok(())
-    }
-
-    #[allow(dead_code)]
-    pub fn get_auth_token(&self) -> Option<String> {
-        self.rpc_auth.get_token()
     }
 
     pub fn get_auth_token_or_exit(&self) -> Option<String> {
@@ -442,31 +423,17 @@ impl Miner {
 
             chain_states.push(Arc::new(Mutex::new(ChainState::default())));
 
-            // Create request handler based on transport type
-            let handler = if chain.is_ipc() {
-                let ipc_path = chain
-                    .ipc_path
-                    .clone()
-                    .expect("IPC path required for IPC transport");
-                RequestHandler::new_ipc(
-                    ipc_path,
-                    cfg.timeout,
-                    auth_token,
-                    cfg.chains[i].submission_mode.clone(),
-                    shutdown_token.clone(),
-                )
-            } else {
-                let base_url = chain
-                    .build_url()
-                    .expect("Failed to build URL for HTTP/HTTPS transport");
-                RequestHandler::new(
-                    base_url,
-                    cfg.timeout,
-                    auth_token,
-                    cfg.chains[i].submission_mode.clone(),
-                    shutdown_token.clone(),
-                )
-            };
+            // Create request handler
+            let base_url = chain
+                .build_url()
+                .expect("Failed to build URL for HTTP/HTTPS transport");
+            let handler = RequestHandler::new(
+                base_url,
+                cfg.timeout,
+                auth_token,
+                cfg.chains[i].submission_mode.clone(),
+                shutdown_token.clone(),
+            );
             request_handler.push(handler);
         }
 

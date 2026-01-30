@@ -83,21 +83,17 @@ pub struct UpstreamConfig {
     /// Pool/wallet name
     pub name: String,
 
-    /// Transport protocol (http, https, ipc)
+    /// Transport protocol (http, https)
     #[serde(default)]
     pub rpc_transport: RpcTransport,
 
-    /// RPC host address (ignored for IPC transport)
+    /// RPC host address
     #[serde(default = "default_rpc_host")]
     pub rpc_host: String,
 
-    /// RPC port (ignored for IPC transport)
+    /// RPC port
     #[serde(default = "default_rpc_port")]
     pub rpc_port: u16,
-
-    /// IPC socket path (required for IPC transport)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ipc_path: Option<String>,
 
     /// Authentication configuration
     #[serde(default)]
@@ -109,18 +105,12 @@ pub struct UpstreamConfig {
 }
 
 impl UpstreamConfig {
-    /// Build URL for HTTP/HTTPS transport. Returns None for IPC transport.
+    /// Build URL for HTTP/HTTPS transport.
     pub fn build_url(&self) -> Option<String> {
         match self.rpc_transport {
             RpcTransport::Http => Some(format!("http://{}:{}", self.rpc_host, self.rpc_port)),
             RpcTransport::Https => Some(format!("https://{}:{}", self.rpc_host, self.rpc_port)),
-            RpcTransport::Ipc => None,
         }
-    }
-
-    /// Check if this upstream uses IPC transport.
-    pub fn is_ipc(&self) -> bool {
-        self.rpc_transport == RpcTransport::Ipc
     }
 
     /// Get endpoint description for logging.
@@ -128,10 +118,6 @@ impl UpstreamConfig {
         match self.rpc_transport {
             RpcTransport::Http => format!("http://{}:{}", self.rpc_host, self.rpc_port),
             RpcTransport::Https => format!("https://{}:{}", self.rpc_host, self.rpc_port),
-            RpcTransport::Ipc => self
-                .ipc_path
-                .clone()
-                .unwrap_or_else(|| "<no path>".to_string()),
         }
     }
 
@@ -141,30 +127,19 @@ impl UpstreamConfig {
             return Err(Error::Config("Upstream name cannot be empty".to_string()));
         }
 
-        match self.rpc_transport {
-            RpcTransport::Ipc => {
-                if self.ipc_path.is_none() {
-                    return Err(Error::Config(
-                        "IPC transport requires ipc_path to be specified".to_string(),
-                    ));
-                }
-            }
-            RpcTransport::Http | RpcTransport::Https => {
-                if self.rpc_host.is_empty() {
-                    return Err(Error::Config("rpc_host cannot be empty".to_string()));
-                }
-                if self.rpc_port == 0 {
-                    return Err(Error::Config("rpc_port cannot be 0".to_string()));
-                }
-                // Validate URL format
-                let url_str = self.build_url().unwrap();
-                if let Err(e) = url::Url::parse(&url_str) {
-                    return Err(Error::Config(format!(
-                        "Upstream has invalid URL '{}': {}",
-                        url_str, e
-                    )));
-                }
-            }
+        if self.rpc_host.is_empty() {
+            return Err(Error::Config("rpc_host cannot be empty".to_string()));
+        }
+        if self.rpc_port == 0 {
+            return Err(Error::Config("rpc_port cannot be 0".to_string()));
+        }
+        // Validate URL format
+        let url_str = self.build_url().unwrap();
+        if let Err(e) = url::Url::parse(&url_str) {
+            return Err(Error::Config(format!(
+                "Upstream has invalid URL '{}': {}",
+                url_str, e
+            )));
         }
 
         Ok(())
@@ -363,7 +338,6 @@ mod tests {
             rpc_transport: RpcTransport::Http,
             rpc_host: "localhost".to_string(),
             rpc_port: 8080,
-            ipc_path: None,
             rpc_auth: RpcAuth::None,
             submission_mode: SubmissionMode::Pool,
         };
@@ -378,41 +352,21 @@ mod tests {
             rpc_transport: RpcTransport::Http,
             rpc_host: "localhost".to_string(),
             rpc_port: 8080,
-            ipc_path: None,
             rpc_auth: RpcAuth::None,
             submission_mode: SubmissionMode::Pool,
         };
 
         assert!(upstream.validate().is_ok());
         assert_eq!(upstream.endpoint(), "http://localhost:8080");
-        assert!(!upstream.is_ipc());
     }
 
     #[test]
-    fn test_valid_ipc_upstream() {
+    fn test_invalid_upstream_empty_host() {
         let upstream = UpstreamConfig {
             name: "test".to_string(),
-            rpc_transport: RpcTransport::Ipc,
-            rpc_host: "localhost".to_string(),
+            rpc_transport: RpcTransport::Http,
+            rpc_host: "".to_string(),
             rpc_port: 8080,
-            ipc_path: Some("/tmp/socket.sock".to_string()),
-            rpc_auth: RpcAuth::Cookie { cookie_path: None },
-            submission_mode: SubmissionMode::Wallet,
-        };
-
-        assert!(upstream.validate().is_ok());
-        assert_eq!(upstream.endpoint(), "/tmp/socket.sock");
-        assert!(upstream.is_ipc());
-    }
-
-    #[test]
-    fn test_invalid_ipc_upstream_no_path() {
-        let upstream = UpstreamConfig {
-            name: "test".to_string(),
-            rpc_transport: RpcTransport::Ipc,
-            rpc_host: "localhost".to_string(),
-            rpc_port: 8080,
-            ipc_path: None,
             rpc_auth: RpcAuth::None,
             submission_mode: SubmissionMode::Pool,
         };
@@ -454,7 +408,6 @@ mod tests {
                 rpc_transport: RpcTransport::Http,
                 rpc_host: "localhost".to_string(),
                 rpc_port: 8080,
-                ipc_path: None,
                 rpc_auth: RpcAuth::None,
                 submission_mode: SubmissionMode::Pool,
             },
@@ -483,7 +436,6 @@ mod tests {
                 rpc_transport: RpcTransport::Http,
                 rpc_host: "localhost".to_string(),
                 rpc_port: 8080,
-                ipc_path: None,
                 rpc_auth: RpcAuth::None,
                 submission_mode: SubmissionMode::Pool,
             },

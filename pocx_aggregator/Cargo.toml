@@ -1,9 +1,12 @@
 [package]
 name = "pocx_aggregator"
-version = "1.0.0-rc.6"
+version = "1.0.0-rc.7"
 license = "MIT"
 authors = ["Proof of Capacity Consortium"]
 description = "High-performance mining aggregator for PoCX protocol"
+homepage = "https://bitcoin-pocx.org/"
+repository = "https://github.com/PoC-Consortium/pocx"
+documentation = "https://github.com/PoC-Consortium/pocx/wiki"
 keywords = ["poc", "cryptocurrency", "mining", "aggregator"]
 categories = ["cryptography", "network-programming"]
 readme = "README.md"
@@ -14,13 +17,17 @@ rust-version = "1.91.0"
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
+[lib]
+name = "pocx_aggregator"
+path = "src/lib.rs"
+
 [[bin]]
 name = "pocx_aggregator"
 path = "src/main.rs"
 
 [dependencies]
 # Protocol - workspace crate
-pocx_protocol = { version = "1.0.0-rc.6", path = "../pocx_protocol" }
+pocx_protocol = { version = "1.0.0-rc.7", path = "../pocx_protocol" }
 
 # Async runtime
 tokio = { workspace = true }
@@ -51,6 +58,7 @@ clap = { workspace = true }
 # Database
 diesel = { workspace = true }
 diesel_migrations = { workspace = true }
+libsqlite3-sys = { workspace = true }
 r2d2 = { workspace = true }
 
 # Utilities
