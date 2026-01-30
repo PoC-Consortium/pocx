@@ -126,6 +126,16 @@ impl PoCXArray {
             for file in read_dir(plot_dir).unwrap() {
                 let file = &file.unwrap().path();
 
+                // Skip files that don't have .pocx extension (case-insensitive)
+                let is_pocx = file
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(|ext| ext.eq_ignore_ascii_case("pocx"))
+                    .unwrap_or(false);
+                if !is_pocx {
+                    continue;
+                }
+
                 let access = if dummy {
                     AccessType::Dummy
                 } else {
