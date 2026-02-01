@@ -417,8 +417,18 @@ impl Stats {
                     submissions_24h,
                     submission_percentage,
                     is_active,
-                    info.best_quality,
-                    info.best_base_target,
+                    // Only include best_quality/best_base_target if miner's height matches current
+                    // This prevents stale values from miners who stopped mining at previous heights
+                    if info.current_height == current_height {
+                        info.best_quality
+                    } else {
+                        None
+                    },
+                    if info.current_height == current_height {
+                        info.best_base_target
+                    } else {
+                        None
+                    },
                 )
             })
             .collect();
