@@ -94,9 +94,11 @@ use crate::noncegen_common::*;
 use crate::quality_32::find_best_quality_32;
 use crate::shabal256::shabal256;
 
+pub mod batch_validation;
 mod buffer;
 pub mod error;
 pub mod noncegen_32;
+pub mod noncegen_batch_32;
 pub mod noncegen_common;
 pub mod quality_32;
 mod shabal256;
@@ -108,6 +110,12 @@ pub mod noncegen_128;
 pub mod noncegen_256;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub mod noncegen_512;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub mod noncegen_batch_128;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub mod noncegen_batch_256;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub mod noncegen_batch_512;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub mod quality_128;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -133,6 +141,8 @@ mod shabal256_sse2;
 
 // ARM NEON SIMD modules
 #[cfg(target_arch = "aarch64")]
+pub mod noncegen_batch_neon;
+#[cfg(target_arch = "aarch64")]
 pub mod noncegen_neon;
 #[cfg(target_arch = "aarch64")]
 pub mod quality_neon;
@@ -141,6 +151,10 @@ mod shabal256_lite_neon;
 #[cfg(target_arch = "aarch64")]
 mod shabal256_neon;
 
+// Re-export batch validation types
+pub use batch_validation::{
+    validate_proof, validate_proofs, BatchValidationResult, ProofInput, ValidationResult,
+};
 // Re-export main error types for convenience
 pub use error::{PoCXHashError, Result};
 

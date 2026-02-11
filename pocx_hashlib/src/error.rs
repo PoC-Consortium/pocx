@@ -34,6 +34,12 @@ pub enum PoCXHashError {
     HexDecodeError(String),
     /// Layout creation error for page alignment
     LayoutError(String),
+    /// Computed quality does not match claimed quality
+    QualityMismatch {
+        expected: u64,
+        actual: u64,
+        proof_index: usize,
+    },
 }
 
 impl fmt::Display for PoCXHashError {
@@ -44,6 +50,15 @@ impl fmt::Display for PoCXHashError {
             PoCXHashError::InvalidInput(msg) => write!(f, "Invalid input: {}", msg),
             PoCXHashError::HexDecodeError(msg) => write!(f, "Hex decode error: {}", msg),
             PoCXHashError::LayoutError(msg) => write!(f, "Layout error: {}", msg),
+            PoCXHashError::QualityMismatch {
+                expected,
+                actual,
+                proof_index,
+            } => write!(
+                f,
+                "Quality mismatch at proof {}: expected {}, got {}",
+                proof_index, expected, actual
+            ),
         }
     }
 }
