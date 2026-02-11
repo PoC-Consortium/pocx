@@ -1,6 +1,6 @@
 [package]
 name = "pocx_address"
-version = "1.0.0-rc.8"
+version = "1.0.0-rc.9"
 authors = ["Proof of Capacity Consortium"]
 description = "Address encoding/decoding library for PoCX with Base58Check and Bech32 support"
 edition = "2021"
