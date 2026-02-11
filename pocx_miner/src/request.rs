@@ -19,7 +19,7 @@
 // SOFTWARE.
 
 use crate::callback::{with_callback, AcceptedDeadline};
-use crate::com::api::{FetchError, MiningInfo, NonceSubmission, SubmissionParameters};
+use crate::com::api::{FetchError, MiningInfo, NonceSubmission, PoolError, SubmissionParameters};
 use crate::com::protocol_client::ProtocolClient;
 use crate::future::prio_retry::PrioRetry;
 use crate::miner::SubmissionMode;
@@ -216,6 +216,20 @@ impl RequestHandler {
                                                     send_err
                                                 );
                                             }
+                                        } else if is_not_assigned(&e) {
+                                            log_not_assigned(&submission_params.nonce_submission, &e.message);
+                                            let accepted = AcceptedDeadline {
+                                                chain: submission_params.chain.clone(),
+                                                account: submission_params.nonce_submission.account_id.clone(),
+                                                height: submission_params.nonce_submission.block_height,
+                                                nonce: submission_params.nonce_submission.nonce,
+                                                quality_raw: submission_params.nonce_submission.raw_quality,
+                                                compression: submission_params.nonce_submission.compression,
+                                                poc_time: u64::MAX,
+                                            };
+                                            with_callback(|cb| {
+                                                cb.on_deadline_rejected(&accepted, e.code, &e.message)
+                                            });
                                         } else {
                                             log_submission_not_accepted(
                                                 &submission_params.nonce_submission,
@@ -331,6 +345,20 @@ impl RequestHandler {
                                             with_callback(|cb| cb.on_deadline_retry(&accepted, "server busy"));
                                             // In wallet mode, we don't requeue - PrioRetry keeps best quality
                                             // and newer better items replace this one naturally
+                                        } else if is_not_assigned(&e) {
+                                            log_not_assigned(&submission_params.nonce_submission, &e.message);
+                                            let accepted = AcceptedDeadline {
+                                                chain: submission_params.chain.clone(),
+                                                account: submission_params.nonce_submission.account_id.clone(),
+                                                height: submission_params.nonce_submission.block_height,
+                                                nonce: submission_params.nonce_submission.nonce,
+                                                quality_raw: submission_params.nonce_submission.raw_quality,
+                                                compression: submission_params.nonce_submission.compression,
+                                                poc_time: u64::MAX,
+                                            };
+                                            with_callback(|cb| {
+                                                cb.on_deadline_rejected(&accepted, e.code, &e.message)
+                                            });
                                         } else {
                                             log_submission_not_accepted(
                                                 &submission_params.nonce_submission,
@@ -418,4 +446,18 @@ fn log_submission_accepted(nonce_submission: &NonceSubmission, poc_time: u64) {
 
 fn log_server_busy(nonce_submission: &NonceSubmission) {
     info!("server busy, retrying: {}", nonce_submission,);
+}
+
+/// NOT_ASSIGNED error code from pocx_protocol (-32007)
+const NOT_ASSIGNED_CODE: i32 = -32007;
+
+fn is_not_assigned(e: &PoolError) -> bool {
+    e.code == NOT_ASSIGNED_CODE
+}
+
+fn log_not_assigned(nonce_submission: &NonceSubmission, pool_message: &str) {
+    warn!(
+        "pool assignment issue for account {}: {}",
+        nonce_submission.account_id, pool_message,
+    );
 }
