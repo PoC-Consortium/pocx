@@ -98,6 +98,7 @@ pub struct ScanStartedInfo {
     pub chain: String,
     pub height: u64,
     pub total_warps: u64,
+    pub warps_scanned: u64,
     pub resuming: bool,
 }
 
