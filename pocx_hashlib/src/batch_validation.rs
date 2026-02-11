@@ -144,8 +144,7 @@ pub fn validate_proofs(inputs: &[ProofInput]) -> Result<BatchValidationResult> {
         .unwrap_or(1);
     let max_threads = hw_threads.saturating_sub(1).max(1);
     let min_work_per_thread = simd_width;
-    let num_threads =
-        max_threads.min(total_work.div_ceil(min_work_per_thread));
+    let num_threads = max_threads.min(total_work.div_ceil(min_work_per_thread));
 
     if num_threads <= 1 {
         // Single-threaded fast path
@@ -692,7 +691,12 @@ mod tests {
 
         for compression in 0..=4u8 {
             let expected = crate::calculate_quality_from_height(
-                &payload, &seed, 1337, compression, 0, &gensig,
+                &payload,
+                &seed,
+                1337,
+                compression,
+                0,
+                &gensig,
             )
             .unwrap();
 

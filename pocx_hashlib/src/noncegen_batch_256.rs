@@ -188,12 +188,12 @@ mod tests {
         }
 
         let seeds: [[u8; 32]; V] = [
-            [0xAA; 32], [0xBB; 32], [0xCC; 32], [0xDD; 32],
-            [0xEE; 32], [0xFF; 32], [0x11; 32], [0x22; 32],
+            [0xAA; 32], [0xBB; 32], [0xCC; 32], [0xDD; 32], [0xEE; 32], [0xFF; 32], [0x11; 32],
+            [0x22; 32],
         ];
         let payloads: [[u8; 20]; V] = [
-            [0x01; 20], [0x02; 20], [0x03; 20], [0x04; 20],
-            [0x05; 20], [0x06; 20], [0x07; 20], [0x08; 20],
+            [0x01; 20], [0x02; 20], [0x03; 20], [0x04; 20], [0x05; 20], [0x06; 20], [0x07; 20],
+            [0x08; 20],
         ];
         let nonces: [u64; V] = [100, 200, 300, 400, 500, 600, 700, 800];
         let scoops: [u64; V] = [0, 42, 667, 2048, 4095, 1, 100, 3000];
@@ -233,8 +233,7 @@ mod tests {
         let simd_results = generate_and_extract_scoops_256(&payloads, &seeds, &nonces, &scoops);
 
         for lane in 0..V {
-            let scalar_result =
-                generate_and_extract_scoop_32(&payload, &seed, nonces[lane], scoop);
+            let scalar_result = generate_and_extract_scoop_32(&payload, &seed, nonces[lane], scoop);
             assert_eq!(
                 simd_results[lane], scalar_result,
                 "Lane {} mismatch for nonce {}",

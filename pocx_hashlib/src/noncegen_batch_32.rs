@@ -136,8 +136,7 @@ mod tests {
 
         // Extract each scoop via batch and compare
         for scoop in [0, 1, 42, 667, 2048, 4095] {
-            let batch_scoop =
-                generate_and_extract_scoop_32(&address_payload, &seed, 1337, scoop);
+            let batch_scoop = generate_and_extract_scoop_32(&address_payload, &seed, 1337, scoop);
             let start = scoop as usize * SCOOP_SIZE;
             let expected = &cache[start..start + SCOOP_SIZE];
             assert_eq!(
@@ -159,8 +158,7 @@ mod tests {
             generate_nonces_32(&mut cache, 0, &address_payload, &seed, nonce, 1);
 
             let scoop = 667u64;
-            let batch_scoop =
-                generate_and_extract_scoop_32(&address_payload, &seed, nonce, scoop);
+            let batch_scoop = generate_and_extract_scoop_32(&address_payload, &seed, nonce, scoop);
             let start = scoop as usize * SCOOP_SIZE;
             assert_eq!(
                 &batch_scoop[..],

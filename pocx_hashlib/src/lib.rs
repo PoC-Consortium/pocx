@@ -94,8 +94,8 @@ use crate::noncegen_common::*;
 use crate::quality_32::find_best_quality_32;
 use crate::shabal256::shabal256;
 
-mod buffer;
 pub mod batch_validation;
+mod buffer;
 pub mod error;
 pub mod noncegen_32;
 pub mod noncegen_batch_32;
