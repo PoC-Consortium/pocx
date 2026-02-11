@@ -6,8 +6,7 @@ diesel::table! {
         account_id -> Text,
         machine_id -> Text,
         height -> BigInt,
-        quality -> BigInt,
-        base_target -> BigInt,
+        raw_quality -> BigInt,
         timestamp -> Timestamp,
     }
 }

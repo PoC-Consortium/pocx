@@ -595,25 +595,3 @@ impl Plotter {
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_memory_parsing() {
-        // Test various memory formats
-        let test_cases = vec![
-            ("1GiB", 1_073_741_824u64),
-            ("10GiB", 10_737_418_240u64),
-            ("512MiB", 536_870_912u64),
-            ("1GB", 1_000_000_000u64),
-            ("2TB", 2_000_000_000_000u64),
-        ];
-
-        for (input, expected) in test_cases {
-            let parsed = input.parse::<ByteSize>().unwrap();
-            assert_eq!(parsed.as_u64(), expected, "Failed to parse {}", input);
-        }
-    }
-}

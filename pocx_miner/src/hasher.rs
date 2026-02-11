@@ -35,6 +35,7 @@ pub struct HashingTask {
     pub generation_signature_bytes: [u8; 32],
     pub account_id: String,
     pub seed: String,
+    pub block_hash: String,
     pub block_height: u64,
     pub base_target: u64,
     pub start_warp: u64,
@@ -53,7 +54,7 @@ pub fn calc_qualities(task: HashingTask) -> impl FnOnce() {
             task.number_of_warps * NUM_SCOOPS,
             &task.generation_signature_bytes,
         );
-        let quality = result.0;
+        let raw_quality = result.0;
         let offset = result.1;
 
         // Try to send nonce data - channel may be closed during shutdown
@@ -64,16 +65,16 @@ pub fn calc_qualities(task: HashingTask) -> impl FnOnce() {
                 task.chain_id,
                 SubmissionParameters {
                     chain: task.chain_name,
-                    quality_raw: quality, // raw_quality (Shabal-256 hash result)
                     block_count: task.block_count,
                     nonce_submission: NonceSubmission {
+                        block_hash: task.block_hash,
                         account_id: task.account_id,
                         seed: task.seed,
                         nonce: task.start_warp * NUM_SCOOPS + offset,
                         block_height: task.block_height,
                         generation_signature: hex::encode(task.generation_signature_bytes),
-                        quality: quality / task.base_target, /* raw_quality -> quality_adjusted
-                                                              * (dimensionless quality score) */
+                        base_target: task.base_target,
+                        raw_quality,
                         compression: task.compression_level,
                     },
                 },

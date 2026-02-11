@@ -79,19 +79,21 @@ fn convert_jsonrpc_to_mining_info(jsonrpc: JsonRpcMiningInfo) -> MiningInfo {
 
 fn convert_to_jsonrpc_submit_params(submission: &NonceSubmission) -> JsonRpcSubmitParams {
     JsonRpcSubmitParams::new(
+        submission.block_hash.clone(),
         submission.block_height,
         submission.generation_signature.clone(),
+        submission.base_target,
         submission.account_id.clone(),
         submission.seed.clone(),
         submission.nonce,
         submission.compression,
+        submission.raw_quality,
     )
-    .with_quality(submission.quality)
 }
 
 fn convert_jsonrpc_to_submit_response(jsonrpc: SubmitNonceResult) -> SubmitNonceResponse {
     SubmitNonceResponse {
-        quality_adjusted: jsonrpc.quality,
+        raw_quality: jsonrpc.raw_quality,
         poc_time: jsonrpc.poc_time,
     }
 }
@@ -124,19 +126,23 @@ mod tests {
 
         // Test nonce submission conversion
         let nonce_submission = NonceSubmission {
+            block_hash: "blockhash456".to_string(),
             block_height: 100,
             generation_signature: "test_sig".to_string(),
+            base_target: 12345,
             account_id: "1234567890abcdef1234567890abcdef12345678".to_string(),
             seed: "test_seed".to_string(),
             nonce: 123456,
-            quality: 789,
+            raw_quality: 789,
             compression: 4,
         };
 
         let jsonrpc_params = convert_to_jsonrpc_submit_params(&nonce_submission);
 
+        assert_eq!(jsonrpc_params.block_hash, "blockhash456");
         assert_eq!(jsonrpc_params.height, 100);
         assert_eq!(jsonrpc_params.generation_signature, "test_sig");
+        assert_eq!(jsonrpc_params.base_target, 12345);
         assert_eq!(
             jsonrpc_params.account_id,
             "1234567890abcdef1234567890abcdef12345678"
@@ -144,6 +150,6 @@ mod tests {
         assert_eq!(jsonrpc_params.seed, "test_seed");
         assert_eq!(jsonrpc_params.nonce, 123456);
         assert_eq!(jsonrpc_params.compression, 4);
-        assert_eq!(jsonrpc_params.quality, Some(789));
+        assert_eq!(jsonrpc_params.raw_quality, 789);
     }
 }

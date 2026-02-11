@@ -40,8 +40,7 @@ fn calculate_network_capacity_bytes(base_target: u64, block_time: u64) -> u64 {
 /// Best submission for a specific block
 #[derive(Debug, Clone)]
 pub(crate) struct BestSubmission {
-    quality: u64,
-    base_target: u64, // Used in estimate_capacity_tib() to calculate deadline
+    raw_quality: u64,
     timestamp: DateTime<Utc>,
 }
 
@@ -66,8 +65,7 @@ pub struct MinerInfo {
     pub account_id: String,
     pub machine_id: Option<String>,
     pub last_seen: DateTime<Utc>,
-    pub best_quality: Option<u64>,
-    pub best_base_target: Option<u64>,
+    pub best_raw_quality: Option<u64>,
     pub current_height: u64,
     best_per_block: HashMap<u64, BestSubmission>,
 }
@@ -104,13 +102,12 @@ impl MinerInfo {
 
         const POC_CONSTANT: f64 = 4_398_046_511_104.0; // 2^42
 
-        let mut deadline_sum = 0.0;
+        let mut raw_quality_sum = 0.0;
         let mut count = 0;
 
         for (h, best) in self.best_per_block.iter() {
             if *h >= window_start && *h <= window_end {
-                let deadline = best.quality as f64 * best.base_target as f64;
-                deadline_sum += deadline;
+                raw_quality_sum += best.raw_quality as f64;
                 count += 1;
             }
         }
@@ -119,8 +116,7 @@ impl MinerInfo {
             return 0.0;
         }
 
-        let avg_deadline = deadline_sum / count as f64;
-        POC_CONSTANT / avg_deadline
+        POC_CONSTANT / (raw_quality_sum / count as f64)
     }
 
     /// Count blocks with submissions in the last 24 hours
@@ -149,8 +145,8 @@ impl MinerInfo {
 #[serde(rename_all = "camelCase")]
 pub struct CurrentBlockBest {
     pub height: u64,
-    pub best_poc_time: Option<u64>, // in seconds
-    pub best_quality: Option<u64>,  // raw quality value
+    pub best_poc_time: Option<u64>,    // in seconds
+    pub best_raw_quality: Option<u64>, // raw quality value
     pub best_account_id: Option<String>,
     pub best_machine_id: Option<String>,
 }
@@ -226,7 +222,7 @@ pub struct MinerSnapshot {
     pub last_seen_secs_ago: i64,
     pub submissions_24h: usize,
     pub submission_percentage: f64,
-    pub best_quality: Option<u64>,
+    pub best_raw_quality: Option<u64>,
     pub best_poc_time: Option<u64>,
     pub estimated_capacity_tib: f64,
 }
@@ -242,10 +238,10 @@ impl Stats {
         }
     }
 
-    /// Calculate poc_time from quality using time-bending formula
-    pub fn calculate_poc_time(&self, quality: u64, base_target: u64) -> u64 {
+    /// Calculate poc_time from raw quality using time-bending formula
+    pub fn calculate_poc_time(&self, raw_quality: u64, base_target: u64) -> u64 {
         crate::time_bending::calculate_time_bended_deadline(
-            quality,
+            raw_quality,
             base_target,
             self.block_time_secs,
         )
@@ -257,8 +253,7 @@ impl Stats {
         &self,
         account_id: &str,
         machine_id: Option<String>,
-        quality: u64,
-        base_target: u64,
+        raw_quality: u64,
         height: u64,
     ) {
         let machine_id = machine_id.unwrap_or_else(|| "unknown".to_string());
@@ -278,13 +273,11 @@ impl Stats {
                 // Reset per-round stats if new block
                 if height != info.current_height {
                     info.current_height = height;
-                    info.best_quality = Some(quality);
-                    info.best_base_target = Some(base_target);
+                    info.best_raw_quality = Some(raw_quality);
                 } else {
                     // Update best for current round
-                    if quality < info.best_quality.unwrap_or(u64::MAX) {
-                        info.best_quality = Some(quality);
-                        info.best_base_target = Some(base_target);
+                    if raw_quality < info.best_raw_quality.unwrap_or(u64::MAX) {
+                        info.best_raw_quality = Some(raw_quality);
                     }
                 }
 
@@ -292,15 +285,13 @@ impl Stats {
                 info.best_per_block
                     .entry(height)
                     .and_modify(|best| {
-                        // Update if this is better (lower quality/deadline)
-                        if quality < best.quality {
-                            best.quality = quality;
+                        if raw_quality < best.raw_quality {
+                            best.raw_quality = raw_quality;
                             best.timestamp = now;
                         }
                     })
                     .or_insert(BestSubmission {
-                        quality,
-                        base_target,
+                        raw_quality,
                         timestamp: now,
                     });
 
@@ -312,16 +303,14 @@ impl Stats {
                 account_id: account_id.to_string(),
                 machine_id: Some(machine_id),
                 last_seen: now,
-                best_quality: Some(quality),
-                best_base_target: Some(base_target),
+                best_raw_quality: Some(raw_quality),
                 current_height: height,
                 best_per_block: {
                     let mut map = HashMap::new();
                     map.insert(
                         height,
                         BestSubmission {
-                            quality,
-                            base_target,
+                            raw_quality,
                             timestamp: now,
                         },
                     );
@@ -362,8 +351,7 @@ impl Stats {
                 account_id: account_id.to_string(),
                 machine_id: Some(machine_id),
                 last_seen: now,
-                best_quality: None,
-                best_base_target: None,
+                best_raw_quality: None,
                 current_height,
                 best_per_block: HashMap::new(),
             });
@@ -417,15 +405,10 @@ impl Stats {
                     submissions_24h,
                     submission_percentage,
                     is_active,
-                    // Only include best_quality/best_base_target if miner's height matches current
+                    // Only include best_raw_quality if miner's height matches current
                     // This prevents stale values from miners who stopped mining at previous heights
                     if info.current_height == current_height {
-                        info.best_quality
-                    } else {
-                        None
-                    },
-                    if info.current_height == current_height {
-                        info.best_base_target
+                        info.best_raw_quality
                     } else {
                         None
                     },
@@ -437,22 +420,23 @@ impl Stats {
         let mut current_block_best = CurrentBlockBest {
             height: current_height,
             best_poc_time: None,
-            best_quality: None,
+            best_raw_quality: None,
             best_account_id: None,
             best_machine_id: None,
         };
 
-        for (account_id, machine_id, _, _, _, _, _, best_quality, best_base_target) in &pair_data {
-            if let (Some(quality), Some(bt)) = (best_quality, best_base_target) {
-                let raw_quality = quality * bt;
-                let current_best_raw = current_block_best
-                    .best_quality
-                    .and_then(|q| current_block_best.best_poc_time.map(|_| q));
+        for (account_id, machine_id, _, _, _, _, _, best_raw_quality) in &pair_data {
+            if let Some(quality) = best_raw_quality {
+                let is_better = current_block_best
+                    .best_raw_quality
+                    .is_none_or(|current| *quality < current);
 
-                if current_best_raw.is_none() || raw_quality < current_best_raw.unwrap() {
-                    current_block_best.best_quality = Some(raw_quality);
-                    current_block_best.best_poc_time =
-                        Some(self.calculate_poc_time(raw_quality, *bt));
+                if is_better {
+                    current_block_best.best_raw_quality = Some(*quality);
+                    if let Some(bt) = inner.current_base_target {
+                        current_block_best.best_poc_time =
+                            Some(self.calculate_poc_time(*quality, bt));
+                    }
                     current_block_best.best_account_id = Some(account_id.clone());
                     current_block_best.best_machine_id = Some(machine_id.clone());
                 }
@@ -461,7 +445,7 @@ impl Stats {
 
         // Aggregate by machine: group by machine_id
         let mut machine_map: HashMap<String, Vec<usize>> = HashMap::new();
-        for (idx, (_, machine_id, _, _, _, _, _, _, _)) in pair_data.iter().enumerate() {
+        for (idx, (_, machine_id, _, _, _, _, _, _)) in pair_data.iter().enumerate() {
             machine_map.entry(machine_id.clone()).or_default().push(idx);
         }
 
@@ -475,7 +459,7 @@ impl Stats {
                 let mut is_active = false;
 
                 for &idx in &indices {
-                    let (account_id, _, last_seen, capacity_tib, subs_24h, sub_pct, active, _, _) =
+                    let (account_id, _, last_seen, capacity_tib, subs_24h, sub_pct, active, _) =
                         &pair_data[idx];
                     total_capacity_tib += capacity_tib;
                     total_submissions_24h += subs_24h;
@@ -521,7 +505,7 @@ impl Stats {
 
         // Aggregate by account: group by account_id
         let mut account_map: HashMap<String, Vec<usize>> = HashMap::new();
-        for (idx, (account_id, _, _, _, _, _, _, _, _)) in pair_data.iter().enumerate() {
+        for (idx, (account_id, _, _, _, _, _, _, _)) in pair_data.iter().enumerate() {
             account_map.entry(account_id.clone()).or_default().push(idx);
         }
 
@@ -535,7 +519,7 @@ impl Stats {
                 let mut is_active = false;
 
                 for &idx in &indices {
-                    let (_, machine_id, last_seen, capacity_tib, subs_24h, sub_pct, active, _, _) =
+                    let (_, machine_id, last_seen, capacity_tib, subs_24h, sub_pct, active, _) =
                         &pair_data[idx];
                     total_capacity_tib += capacity_tib;
                     total_submissions_24h += subs_24h;
@@ -590,10 +574,7 @@ impl Stats {
             .count();
 
         // Calculate total capacity
-        let total_capacity_tib: f64 = pair_data
-            .iter()
-            .map(|(_, _, _, cap, _, _, _, _, _)| cap)
-            .sum();
+        let total_capacity_tib: f64 = pair_data.iter().map(|(_, _, _, cap, _, _, _, _)| cap).sum();
         let total_capacity_bytes = (total_capacity_tib * 1_099_511_627_776.0) as u64;
         let total_capacity = ByteSize::b(total_capacity_bytes).to_string();
 

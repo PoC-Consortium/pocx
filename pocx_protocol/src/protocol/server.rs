@@ -208,6 +208,18 @@ where
     }
 
     fn validate_submit_nonce_params(&self, params: &SubmitNonceParams) -> Result<()> {
+        if params.block_hash.is_empty() {
+            return Err(ProtocolError::InvalidParams(
+                "block_hash cannot be empty".to_string(),
+            ));
+        }
+
+        if !params.block_hash.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(ProtocolError::InvalidParams(
+                "block_hash must contain only hex characters".to_string(),
+            ));
+        }
+
         if params.account_id.len() != 40 {
             return Err(ProtocolError::InvalidParams(
                 "account_id must be exactly 40 hex characters".to_string(),
@@ -241,8 +253,6 @@ where
                 "seed cannot be empty".to_string(),
             ));
         }
-
-        // Compression validation removed - handled by validator automatically
 
         Ok(())
     }
@@ -321,12 +331,15 @@ mod tests {
             "jsonrpc": "2.0",
             "method": "submit_nonce",
             "params": {
+                "block_hash": "abc123",
                 "height": 98765,
                 "generation_signature": "abc123",
+                "base_target": 12345,
                 "account_id": "1234567890abcdef1234567890abcdef12345678",
                 "seed": "seed123",
                 "nonce": 123456789,
-                "compression": 4
+                "compression": 4,
+                "raw_quality": 987654321
             },
             "id": "test-id"
         }
@@ -337,7 +350,7 @@ mod tests {
 
         assert_eq!(response_value["jsonrpc"], "2.0");
         assert_eq!(response_value["id"], "test-id");
-        assert_eq!(response_value["result"]["quality"], 987654321);
+        assert_eq!(response_value["result"]["raw_quality"], 987654321);
         assert_eq!(response_value["result"]["poc_time"], 240);
     }
 
@@ -351,12 +364,15 @@ mod tests {
             "jsonrpc": "2.0",
             "method": "submit_nonce",
             "params": {
+                "block_hash": "abc123",
                 "height": 99999,
                 "generation_signature": "abc123",
+                "base_target": 12345,
                 "account_id": "1234567890abcdef1234567890abcdef12345678",
                 "seed": "seed123",
                 "nonce": 123456789,
-                "compression": 4
+                "compression": 4,
+                "raw_quality": 100
             },
             "id": "test-id"
         }
@@ -422,12 +438,15 @@ mod tests {
             "jsonrpc": "2.0",
             "method": "submit_nonce",
             "params": {
+                "block_hash": "abc123",
                 "height": 98765,
                 "generation_signature": "abc123",
+                "base_target": 12345,
                 "account_id": "invalid",
                 "seed": "seed123",
                 "nonce": 123456789,
-                "compression": 4
+                "compression": 4,
+                "raw_quality": 100
             },
             "id": "test-id"
         }

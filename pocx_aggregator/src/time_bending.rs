@@ -73,11 +73,11 @@ fn calculate_qscale_uint(block_time: u64) -> BigUint {
 
 /// Calculate time-bended deadline using exact integer math
 /// Port of C++ CalculateTimeBendedDeadline with identical arithmetic
-pub fn calculate_time_bended_deadline(quality: u64, base_target: u64, block_time: u64) -> u64 {
+pub fn calculate_time_bended_deadline(raw_quality: u64, base_target: u64, block_time: u64) -> u64 {
     const P: u32 = 21;
     const Q: u32 = 42;
 
-    if quality == 0 {
+    if raw_quality == 0 {
         return 0;
     }
 
@@ -85,7 +85,7 @@ pub fn calculate_time_bended_deadline(quality: u64, base_target: u64, block_time
     let scale_q = calculate_qscale_uint(block_time);
 
     let shift_3p = BigUint::one() << (3 * P);
-    let v = (BigUint::from(quality) * &shift_3p) / BigUint::from(base_target);
+    let v = (BigUint::from(raw_quality) * &shift_3p) / BigUint::from(base_target);
 
     let r = int_cuberoot_u256(&v);
 

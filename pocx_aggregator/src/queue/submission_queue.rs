@@ -31,8 +31,6 @@ use tokio::time::Instant;
 #[derive(Debug, Clone)]
 pub struct QueuedSubmission {
     pub params: SubmitNonceParams,
-    pub block_hash: String,
-    pub quality: u64,
 }
 
 /// Timestamped submission for queue tracking
@@ -78,15 +76,12 @@ impl SubmissionQueue {
 
     /// Submit a nonce to the queue (non-blocking)
     /// Returns true if submission was queued, false if filtered out
-    pub async fn submit(
-        &self,
-        params: SubmitNonceParams,
-        block_hash: String,
-        quality: u64,
-    ) -> bool {
+    pub async fn submit(&self, params: SubmitNonceParams) -> bool {
         const MAX_BLOCKS: usize = 3;
 
-        let account_id = &params.account_id;
+        let account_id = params.account_id.clone();
+        let block_hash = params.block_hash.clone();
+        let raw_quality = params.raw_quality;
         let mut filters = self.account_filters.write().await;
 
         // Get or create filter for this account
@@ -100,27 +95,27 @@ impl SubmissionQueue {
         // Check if this is a known block hash
         if let Some(&best_quality) = account_filter.best_qualities.get(&block_hash) {
             // Known block: check if this submission is better
-            if quality >= best_quality {
+            if raw_quality >= best_quality {
                 log::debug!(
-                    "Filtered submission: account={}, quality {} not better than best {} for block {}",
+                    "Filtered submission: account={}, raw_quality {} not better than best {} for block {}",
                     &account_id[..8.min(account_id.len())],
-                    quality,
+                    raw_quality,
                     best_quality,
                     &block_hash[..8]
                 );
                 return false;
             }
 
-            // Better quality for known block - update and forward
+            // Better raw_quality for known block - update and forward
             account_filter
                 .best_qualities
-                .insert(block_hash.clone(), quality);
+                .insert(block_hash.clone(), raw_quality);
             log::info!(
-                "Updated best quality for account={}, block {}: {} -> {}",
+                "Updated best raw_quality for account={}, block {}: {} -> {}",
                 &account_id[..8.min(account_id.len())],
                 &block_hash[..8],
                 best_quality,
-                quality
+                raw_quality
             );
         } else {
             // New block hash
@@ -140,21 +135,17 @@ impl SubmissionQueue {
             account_filter.block_hashes.push_back(block_hash.clone());
             account_filter
                 .best_qualities
-                .insert(block_hash.clone(), quality);
+                .insert(block_hash.clone(), raw_quality);
             log::info!(
-                "New block hash detected for account={}: {} with quality {}",
+                "New block hash detected for account={}: {} with raw_quality {}",
                 &account_id[..8.min(account_id.len())],
                 &block_hash[..8],
-                quality
+                raw_quality
             );
         }
 
         // Queue submission
-        let submission = QueuedSubmission {
-            params,
-            block_hash,
-            quality,
-        };
+        let submission = QueuedSubmission { params };
 
         self.tx_submit.unbounded_send(submission).is_ok()
     }
@@ -180,23 +171,23 @@ impl SubmissionQueue {
                         Ok(Some(new_submission)) => {
                             let key = (
                                 new_submission.params.account_id.clone(),
-                                new_submission.block_hash.clone(),
+                                new_submission.params.block_hash.clone(),
                             );
 
                             let should_add = if let Some(&best_in_queue) = in_queue_best.get(&key) {
-                                if new_submission.quality < best_in_queue {
-                                    in_queue_best.insert(key, new_submission.quality);
+                                if new_submission.params.raw_quality < best_in_queue {
+                                    in_queue_best.insert(key, new_submission.params.raw_quality);
                                     true
                                 } else {
                                     log::debug!(
                                         "Dropping new submission: worse than queued ({}  >= {})",
-                                        new_submission.quality,
+                                        new_submission.params.raw_quality,
                                         best_in_queue
                                     );
                                     false
                                 }
                             } else {
-                                in_queue_best.insert(key, new_submission.quality);
+                                in_queue_best.insert(key, new_submission.params.raw_quality);
                                 true
                             };
 
@@ -217,7 +208,7 @@ impl SubmissionQueue {
                 if let Some(mut item) = pending_queue.pop_front() {
                     let key = (
                         item.submission.params.account_id.clone(),
-                        item.submission.block_hash.clone(),
+                        item.submission.params.block_hash.clone(),
                     );
 
                     // Check if item is stale (older than 4 minutes)
@@ -227,7 +218,7 @@ impl SubmissionQueue {
                             "Dropping stale submission: account={}, block={}, age={}s",
                             &item.submission.params.account_id
                                 [..8.min(item.submission.params.account_id.len())],
-                            &item.submission.block_hash[..8],
+                            &item.submission.params.block_hash[..8],
                             age.as_secs()
                         );
                         in_queue_best.remove(&key);
@@ -236,10 +227,10 @@ impl SubmissionQueue {
 
                     // Check if better submission came in while this was queued
                     if let Some(&best_in_queue) = in_queue_best.get(&key) {
-                        if item.submission.quality > best_in_queue {
+                        if item.submission.params.raw_quality > best_in_queue {
                             log::debug!(
                                 "Dropping queued item: better submission in queue ({} > {})",
-                                item.submission.quality,
+                                item.submission.params.raw_quality,
                                 best_in_queue
                             );
                             continue;
@@ -248,11 +239,11 @@ impl SubmissionQueue {
 
                     // Try to submit
                     log::debug!(
-                        "Processing submission: account={}, block={}, quality={}, retry={}/{}",
+                        "Processing submission: account={}, block={}, raw_quality={}, retry={}/{}",
                         &item.submission.params.account_id
                             [..8.min(item.submission.params.account_id.len())],
-                        &item.submission.block_hash[..8],
-                        item.submission.quality,
+                        &item.submission.params.block_hash[..8],
+                        item.submission.params.raw_quality,
                         item.retry_count,
                         MAX_RETRIES
                     );
@@ -273,7 +264,7 @@ impl SubmissionQueue {
                                     "Max retries exceeded: account={}, block={}",
                                     &item.submission.params.account_id
                                         [..8.min(item.submission.params.account_id.len())],
-                                    &item.submission.block_hash[..8]
+                                    &item.submission.params.block_hash[..8]
                                 );
                                 in_queue_best.remove(&key);
                             } else {
@@ -315,7 +306,7 @@ impl SubmissionQueue {
                                 log::warn!(
                                     "Max retries exceeded after network errors: account={}, block={}",
                                     &item.submission.params.account_id[..8.min(item.submission.params.account_id.len())],
-                                    &item.submission.block_hash[..8]
+                                    &item.submission.params.block_hash[..8]
                                 );
                                 in_queue_best.remove(&key);
                             } else {
@@ -337,9 +328,9 @@ impl SubmissionQueue {
                     if let Some(new_submission) = rx.next().await {
                         let key = (
                             new_submission.params.account_id.clone(),
-                            new_submission.block_hash.clone(),
+                            new_submission.params.block_hash.clone(),
                         );
-                        in_queue_best.insert(key, new_submission.quality);
+                        in_queue_best.insert(key, new_submission.params.raw_quality);
                         pending_queue.push_back(TimestampedSubmission {
                             submission: new_submission,
                             queued_at: Instant::now(),
@@ -358,11 +349,11 @@ impl SubmissionQueue {
 
 fn log_submission_accepted(params: &SubmitNonceParams, result: &SubmitNonceResult) {
     log::info!(
-        "Submitted to upstream: height={}, account={}, nonce={}, quality={}, poc_time={}",
+        "Submitted to upstream: height={}, account={}, nonce={}, raw_quality={}, poc_time={}",
         params.height,
         params.account_id,
         params.nonce,
-        result.quality,
+        result.raw_quality,
         result.poc_time
     );
 }
@@ -384,29 +375,4 @@ fn log_server_busy(params: &SubmitNonceParams) {
         params.account_id,
         params.nonce
     );
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_queued_submission_creation() {
-        let sub = QueuedSubmission {
-            params: SubmitNonceParams::new(
-                100,
-                "gensig1".to_string(),
-                "acc1".to_string(),
-                "seed1".to_string(),
-                1000,
-                5,
-            ),
-            block_hash: "hash1".to_string(),
-            quality: 500,
-        };
-
-        assert_eq!(sub.block_hash, "hash1");
-        assert_eq!(sub.quality, 500);
-        assert_eq!(sub.params.height, 100);
-    }
 }

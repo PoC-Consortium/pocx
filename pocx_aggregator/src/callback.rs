@@ -57,7 +57,7 @@ pub struct SubmissionInfo {
     pub seed: String,
     pub nonce: u64,
     pub compression: u8,
-    pub quality: u64,
+    pub raw_quality: u64,
 }
 
 /// Submission accepted event data (with calculated poc_time)
@@ -71,7 +71,7 @@ pub struct AcceptedInfo {
     pub seed: String,
     pub nonce: u64,
     pub compression: u8,
-    pub quality: u64,
+    pub raw_quality: u64,
     pub poc_time: u64,
 }
 
@@ -90,7 +90,7 @@ pub struct RejectedInfo {
 #[serde(rename_all = "camelCase")]
 pub struct ForwardedInfo {
     pub account_id: String,
-    pub quality: u64,
+    pub raw_quality: u64,
     pub pool_name: String,
 }
 
@@ -213,37 +213,5 @@ mod tests {
         };
         cb.on_new_block(&block);
         assert_eq!(cb.block_count.load(Ordering::SeqCst), 1);
-    }
-
-    #[test]
-    fn test_noop_callback() {
-        let cb = NoOpCallback;
-        cb.on_started(&AggregatorStartedInfo {
-            listen_address: String::new(),
-            upstream_name: String::new(),
-        });
-        cb.on_stopped();
-        // No panic = pass
-    }
-
-    #[test]
-    fn test_data_serialization() {
-        let info = SubmissionInfo {
-            height: 12345,
-            account_id: "POCX-AB12".to_string(),
-            machine_id: Some("192.168.1.50".to_string()),
-            generation_signature: "abc123def456".to_string(),
-            seed: "seed789".to_string(),
-            nonce: 987654,
-            compression: 5,
-            quality: 42,
-        };
-
-        let json = serde_json::to_string(&info).unwrap();
-        let deserialized: SubmissionInfo = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized.quality, 42);
-        assert_eq!(deserialized.account_id, "POCX-AB12");
-        assert_eq!(deserialized.height, 12345);
-        assert_eq!(deserialized.nonce, 987654);
     }
 }

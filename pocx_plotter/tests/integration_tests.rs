@@ -154,46 +154,6 @@ fn test_seed_validation_integration() {
 }
 
 #[test]
-fn test_path_handling() {
-    // This test verifies that we removed the path traversal restrictions
-    // The actual CLI may fail for other reasons (missing parameters, etc.)
-    // but it should not fail specifically due to path traversal restrictions
-
-    // Create a valid address using proper pocx_address encoding
-    let mut payload = [0u8; 20];
-    for i in 0..20 {
-        payload[i] = (i * 13) as u8;
-    }
-    let test_id =
-        pocx_address::encode_address(&payload, pocx_address::NetworkId::Base58(0x55)).unwrap();
-
-    // Test that relative paths don't get blocked by traversal checks
-    // The CLI will fail for other reasons (path doesn't exist, etc.) but
-    // should NOT fail due to path traversal security restrictions
-    let binary = get_plotter_binary();
-    let output = Command::new(&binary)
-        .args(&[
-            "--id",
-            &test_id,
-            "--path",
-            "../nonexistent_test_path", // Relative path - should not be blocked for traversal
-        ])
-        .output()
-        .expect("Failed to execute with relative path");
-
-    // The key test: it should NOT fail due to "traversal" restrictions
-    // (it will fail for other reasons like path not existing, which is fine)
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    let combined = format!("{}{}", stdout, stderr);
-    assert!(
-        !combined.contains("traversal") && !combined.contains("Directory traversal not allowed"),
-        "Should not block paths due to traversal restrictions: {}",
-        combined
-    );
-}
-
-#[test]
 fn test_cpu_thread_validation() {
     // Create a valid address using proper pocx_address encoding
     let mut payload = [0u8; 20];

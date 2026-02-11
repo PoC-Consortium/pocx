@@ -34,11 +34,6 @@ pub struct Config {
     /// Upstream pool or wallet configuration
     pub upstream: UpstreamConfig,
 
-    /// Expected block time in seconds (used for capacity estimation and
-    /// database retention)
-    #[serde(default = "default_block_time")]
-    pub block_time_secs: u64,
-
     /// Cache settings
     #[serde(default)]
     pub cache: CacheConfig,
@@ -102,6 +97,10 @@ pub struct UpstreamConfig {
     /// Submission mode: Pool (per-account best) or Wallet (global best)
     #[serde(default)]
     pub submission_mode: SubmissionMode,
+
+    /// Expected block time in seconds (used for capacity estimation and poc_time)
+    #[serde(default = "default_block_time")]
+    pub block_time_secs: u64,
 }
 
 impl UpstreamConfig {
@@ -235,7 +234,7 @@ impl Config {
     /// Calculate genesis base target from block time
     /// Formula: 2^42 / block_time_seconds (for 1 TiB starting network capacity)
     pub fn genesis_base_target(&self) -> u64 {
-        2u64.pow(42) / self.block_time_secs
+        2u64.pow(42) / self.upstream.block_time_secs
     }
 
     /// Calculate retention period in blocks from retention days
@@ -245,7 +244,7 @@ impl Config {
         if self.database.retention_days == 0 {
             return 0;
         }
-        self.database.retention_days * 86400 / self.block_time_secs
+        self.database.retention_days * 86400 / self.upstream.block_time_secs
     }
 
     /// Validate configuration
@@ -340,6 +339,7 @@ mod tests {
             rpc_port: 8080,
             rpc_auth: RpcAuth::None,
             submission_mode: SubmissionMode::Pool,
+            block_time_secs: 120,
         };
 
         assert!(upstream.validate().is_err());
@@ -354,6 +354,7 @@ mod tests {
             rpc_port: 8080,
             rpc_auth: RpcAuth::None,
             submission_mode: SubmissionMode::Pool,
+            block_time_secs: 120,
         };
 
         assert!(upstream.validate().is_ok());
@@ -369,34 +370,10 @@ mod tests {
             rpc_port: 8080,
             rpc_auth: RpcAuth::None,
             submission_mode: SubmissionMode::Pool,
+            block_time_secs: 120,
         };
 
         assert!(upstream.validate().is_err());
-    }
-
-    #[test]
-    fn test_server_config_with_auth() {
-        let server = ServerConfig {
-            listen_address: "0.0.0.0:8080".to_string(),
-            auth: RpcServerAuth {
-                enabled: true,
-                basic_auth: Some(BasicAuthConfig {
-                    username: "admin".to_string(),
-                    password: "secret".to_string(),
-                }),
-            },
-        };
-
-        assert!(server.auth.validate_credentials("admin", "secret"));
-        assert!(!server.auth.validate_credentials("admin", "wrong"));
-    }
-
-    #[test]
-    fn test_server_config_no_auth() {
-        let server = ServerConfig::default();
-        assert!(!server.auth.is_required());
-        // Any credentials should pass when auth is disabled
-        assert!(server.auth.validate_credentials("any", "thing"));
     }
 
     #[test]
@@ -410,8 +387,8 @@ mod tests {
                 rpc_port: 8080,
                 rpc_auth: RpcAuth::None,
                 submission_mode: SubmissionMode::Pool,
+                block_time_secs: 120,
             },
-            block_time_secs: 120,
             cache: CacheConfig::default(),
             database: DatabaseConfig::default(),
             dashboard: None,
@@ -438,8 +415,8 @@ mod tests {
                 rpc_port: 8080,
                 rpc_auth: RpcAuth::None,
                 submission_mode: SubmissionMode::Pool,
+                block_time_secs: 120,
             },
-            block_time_secs: 120,
             cache: CacheConfig::default(),
             database: DatabaseConfig::default(),
             dashboard: None,

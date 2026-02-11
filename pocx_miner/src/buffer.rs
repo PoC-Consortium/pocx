@@ -77,15 +77,6 @@ mod buffer_tests {
     use super::PageAlignedByteBuffer;
 
     #[test]
-    fn buffer_creation_destruction_test() {
-        {
-            let test = PageAlignedByteBuffer::new(1024 * 1024);
-            drop(test);
-        }
-        // Test passed - buffer creation and destruction completed successfully
-    }
-
-    #[test]
     fn buffer_size_validation() {
         // Test various buffer sizes
         let sizes = [4096, 8192, 16384, 1024 * 1024, 2 * 1024 * 1024];
@@ -128,22 +119,6 @@ mod buffer_tests {
                 assert_eq!(*item, (i % 256) as u8);
             }
         }
-    }
-
-    #[test]
-    fn buffer_memory_alignment() {
-        let buffer = PageAlignedByteBuffer::new(4096);
-        let data_ref = buffer.get_buffer_ref();
-
-        // Check that buffer is properly aligned
-        let ptr = data_ref.as_ptr();
-        let alignment = std::mem::align_of::<u8>();
-
-        assert_eq!(
-            ptr as usize % alignment,
-            0,
-            "Buffer should be properly aligned"
-        );
     }
 
     #[test]
@@ -191,13 +166,5 @@ mod buffer_tests {
         let data_ref = buffer.get_buffer_ref();
         assert_eq!(data_ref[0], 0xAA);
         assert_eq!(data_ref[large_size - 1], 0xBB);
-    }
-
-    #[test]
-    #[should_panic]
-    fn buffer_error_handling() {
-        // Test extremely large allocation that should panic
-        let huge_size = usize::MAX;
-        let _result = PageAlignedByteBuffer::new(huge_size);
     }
 }

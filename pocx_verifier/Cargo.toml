@@ -28,5 +28,3 @@ pocx_hashlib = { version = "1.0.0-rc.8", path = "../pocx_hashlib" }
 pocx_plotfile = { version = "1.0.0-rc.8", path = "../pocx_plotfile" }
 
 [dev-dependencies]
-proptest = { workspace = true }
-tempfile = { workspace = true }

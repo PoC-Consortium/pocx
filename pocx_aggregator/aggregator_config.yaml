@@ -32,11 +32,6 @@ server:
     #   username: "aggregator"
     #   password: "secret"
 
-# Expected block time in seconds (used for capacity estimation and database retention)
-# PoCX: 120, Burst: 240
-# Default: 120
-block_time_secs: 120
-
 # Upstream pool or wallet configuration
 upstream:
   name: "primary_pool"
@@ -48,6 +43,11 @@ upstream:
   rpc_auth:
     type: none
   submission_mode: pool
+
+  # Expected block time in seconds (used for capacity estimation and poc_time)
+  # PoCX: 120, Burst: 240
+  # Default: 120
+  block_time_secs: 120
 
   # HTTPS upstream with Basic auth
   # rpc_transport: https

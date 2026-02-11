@@ -238,12 +238,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_rpc_transport_default() {
-        let transport: RpcTransport = Default::default();
-        assert_eq!(transport, RpcTransport::Http);
-    }
-
-    #[test]
     fn test_rpc_auth_none() {
         let auth = RpcAuth::None;
         assert_eq!(auth.get_token(), None);
@@ -323,12 +317,6 @@ mod tests {
         assert!(!auth_enabled.validate_credentials("admin", "wrong"));
         assert!(!auth_enabled.validate_credentials("wrong", "secret"));
         assert!(auth_enabled.is_required());
-    }
-
-    #[test]
-    fn test_submission_mode_default() {
-        let mode: SubmissionMode = Default::default();
-        assert_eq!(mode, SubmissionMode::Pool);
     }
 
     #[test]

@@ -35,10 +35,10 @@ enum SubmissionHandler {
 }
 
 impl SubmissionHandler {
-    async fn submit(&self, params: SubmitNonceParams, block_hash: String, quality: u64) -> bool {
+    async fn submit(&self, params: SubmitNonceParams) -> bool {
         match self {
-            Self::Pool(queue) => queue.submit(params, block_hash, quality).await,
-            Self::Wallet(queue) => queue.submit(params, block_hash, quality).await,
+            Self::Pool(queue) => queue.submit(params).await,
+            Self::Wallet(queue) => queue.submit(params).await,
         }
     }
 }
@@ -52,6 +52,7 @@ pub struct PoolManager {
     cache_ttl: Duration,
     fetch_lock: Arc<Mutex<()>>, // Prevents thundering herd on cache miss
     submission_handler: SubmissionHandler,
+    block_time_secs: u64,
 }
 
 struct CachedMiningInfo {
@@ -105,6 +106,7 @@ impl PoolManager {
             cache_ttl: Duration::from_secs(cache_ttl_secs),
             fetch_lock: Arc::new(Mutex::new(())),
             submission_handler,
+            block_time_secs: upstream.block_time_secs,
         })
     }
 
@@ -169,31 +171,18 @@ impl PoolManager {
     }
 
     /// Submit a nonce to the pool
-    pub async fn submit_nonce(
-        &self,
-        params: SubmitNonceParams,
-        block_hash: String,
-    ) -> Result<SubmitNonceResult> {
-        // Extract quality from params (required for filtering)
-        let quality = params
-            .quality
-            .ok_or_else(|| Error::Pool("Quality field is required for submission".to_string()))?;
-
+    pub async fn submit_nonce(&self, params: SubmitNonceParams) -> Result<SubmitNonceResult> {
         // Queue submission using configured handler (Pool or Wallet mode)
-        let queued = self
-            .submission_handler
-            .submit(params.clone(), block_hash, quality)
-            .await;
+        // Always return success to miner (actual upstream submission happens async)
+        self.submission_handler.submit(params.clone()).await;
 
-        if queued {
-            // Return immediate success response (actual submission happens async)
-            // The quality returned is what the miner calculated, poc_time is estimated
-            // block time
-            Ok(SubmitNonceResult::new(quality, 240))
-        } else {
-            // Still return success to miner (submission was filtered as duplicate)
-            Ok(SubmitNonceResult::new(quality, 240))
-        }
+        let poc_time = crate::time_bending::calculate_time_bended_deadline(
+            params.raw_quality,
+            params.base_target,
+            self.block_time_secs,
+        );
+
+        Ok(SubmitNonceResult::new(params.raw_quality, poc_time))
     }
 
     /// Fetch mining info from upstream

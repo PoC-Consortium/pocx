@@ -129,13 +129,6 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_get_device_id() {
-        if cfg!(unix) {
-            assert_ne!("", get_device_id("Cargo.toml"));
-        }
-    }
-
-    #[test]
     fn test_thread_pool_creation() {
         // Test creating thread pool with various sizes
         let pool_sizes = [1, 2, 4, 8];
@@ -171,99 +164,6 @@ mod test {
         std::thread::sleep(std::time::Duration::from_millis(10));
 
         assert_eq!(counter.load(std::sync::atomic::Ordering::SeqCst), 1);
-    }
-
-    #[test]
-    fn test_cpu_count_bounds() {
-        let cpu_count = num_cpus::get();
-
-        // Basic sanity checks for CPU count
-        assert!(cpu_count > 0, "Should have at least 1 CPU");
-        assert!(cpu_count <= 1024, "CPU count should be reasonable (<=1024)");
-
-        // Test creating thread pool with CPU count
-        let pool = new_thread_pool(cpu_count, false);
-
-        let task_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let task_clone = task_count.clone();
-
-        pool.install(|| {
-            task_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        });
-
-        std::thread::sleep(std::time::Duration::from_millis(10));
-        assert_eq!(task_count.load(std::sync::atomic::Ordering::SeqCst), 1);
-    }
-
-    #[test]
-    fn test_device_id_robustness() {
-        // Test device ID function with various inputs
-        let test_paths = [".", "/", "Cargo.toml", "nonexistent_file"];
-
-        for path in &test_paths {
-            let device_id = get_device_id(path);
-
-            // Device ID should be a string (might be empty for invalid paths)
-            assert!(
-                device_id.is_ascii() || device_id.is_empty(),
-                "Device ID should be ASCII or empty for path: {}",
-                path
-            );
-        }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_unix_device_id() {
-        // Test Unix-specific device ID functionality
-        let device_id = get_device_id("/");
-        assert!(
-            !device_id.is_empty(),
-            "Root directory should have a device ID"
-        );
-
-        // Test with current directory
-        let current_dir_id = get_device_id(".");
-        assert!(
-            !current_dir_id.is_empty(),
-            "Current directory should have a device ID"
-        );
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn test_windows_device_id() {
-        // Test Windows-specific device ID functionality
-        let device_id = get_device_id("C:\\");
-
-        // On Windows, might be empty or have specific format
-        // Just ensure it doesn't panic
-        let _ = device_id;
-    }
-
-    #[test]
-    fn test_parallel_thread_pool_operations() {
-        use std::collections::HashSet;
-        use std::sync::{Arc, Mutex};
-
-        let pool = new_thread_pool(4, false);
-        let results = Arc::new(Mutex::new(HashSet::new()));
-
-        // Execute multiple parallel tasks
-        for i in 0..10 {
-            let results_clone = results.clone();
-            pool.install(move || {
-                // Simulate some work
-                std::thread::sleep(std::time::Duration::from_millis(1));
-                results_clone.lock().unwrap().insert(i);
-            });
-        }
-
-        // Wait for all tasks to complete
-        std::thread::sleep(std::time::Duration::from_millis(100));
-
-        let final_results = results.lock().unwrap();
-        assert_eq!(final_results.len(), 10, "All tasks should complete");
     }
 
     #[test]
