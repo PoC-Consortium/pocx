@@ -46,4 +46,8 @@ harness = false
 name = "benches_quality"
 harness = false
 
+[[bench]]
+name = "benches_batch_validation"
+harness = false
+
 
