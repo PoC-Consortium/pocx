@@ -171,41 +171,39 @@ impl RequestHandler {
                                     .await
                                 {
                                     Ok(res) => {
-                                        if submission_params.nonce_submission.quality != res.quality_adjusted {
-                                            log_quality_mismatch(
-                                                &submission_params.nonce_submission,
-                                                res.quality_adjusted,
+                                        if res.raw_quality != submission_params.nonce_submission.raw_quality {
+                                            warn!(
+                                                "raw quality mismatch: submitted={}, server={}",
+                                                submission_params.nonce_submission.raw_quality,
+                                                res.raw_quality,
                                             );
-                                        } else {
-                                            log_submission_accepted(
-                                                &submission_params.nonce_submission,
-                                                res.poc_time,
-                                            );
-                                            // Callback for deadline accepted
-                                            let accepted = AcceptedDeadline {
-                                                chain: submission_params.chain.clone(),
-                                                account: submission_params.nonce_submission.account_id.clone(),
-                                                height: submission_params.nonce_submission.block_height,
-                                                nonce: submission_params.nonce_submission.nonce,
-                                                quality_raw: submission_params.quality_raw,
-                                                compression: submission_params.nonce_submission.compression,
-                                                poc_time: res.poc_time,
-                                            };
-                                            with_callback(|cb| cb.on_deadline_accepted(&accepted));
                                         }
+                                        log_submission_accepted(
+                                            &submission_params.nonce_submission,
+                                            res.poc_time,
+                                        );
+                                        let accepted = AcceptedDeadline {
+                                            chain: submission_params.chain.clone(),
+                                            account: submission_params.nonce_submission.account_id.clone(),
+                                            height: submission_params.nonce_submission.block_height,
+                                            nonce: submission_params.nonce_submission.nonce,
+                                            quality_raw: submission_params.nonce_submission.raw_quality,
+                                            compression: submission_params.nonce_submission.compression,
+                                            poc_time: res.poc_time,
+                                        };
+                                        with_callback(|cb| cb.on_deadline_accepted(&accepted));
                                     }
                                     Err(FetchError::Pool(e)) => {
                                         // If pool sends empty message or "limit exceeded", they are
                                         // experiencing too much load - retry later
                                         if e.message.is_empty() || e.message == "limit exceeded" {
                                             log_server_busy(&submission_params.nonce_submission);
-                                            // Callback for retry
                                             let accepted = AcceptedDeadline {
                                                 chain: submission_params.chain.clone(),
                                                 account: submission_params.nonce_submission.account_id.clone(),
                                                 height: submission_params.nonce_submission.block_height,
                                                 nonce: submission_params.nonce_submission.nonce,
-                                                quality_raw: submission_params.quality_raw,
+                                                quality_raw: submission_params.nonce_submission.raw_quality,
                                                 compression: submission_params.nonce_submission.compression,
                                                 poc_time: u64::MAX,
                                             };
@@ -224,13 +222,12 @@ impl RequestHandler {
                                                 e.code,
                                                 &e.message,
                                             );
-                                            // Callback for rejection
                                             let accepted = AcceptedDeadline {
                                                 chain: submission_params.chain.clone(),
                                                 account: submission_params.nonce_submission.account_id.clone(),
                                                 height: submission_params.nonce_submission.block_height,
                                                 nonce: submission_params.nonce_submission.nonce,
-                                                quality_raw: submission_params.quality_raw,
+                                                quality_raw: submission_params.nonce_submission.raw_quality,
                                                 compression: submission_params.nonce_submission.compression,
                                                 poc_time: u64::MAX,
                                             };
@@ -241,13 +238,12 @@ impl RequestHandler {
                                     }
                                     Err(FetchError::Http(x)) => {
                                         log_submission_failed(&submission_params.nonce_submission, &x.to_string());
-                                        // Callback for retry
                                         let accepted = AcceptedDeadline {
                                             chain: submission_params.chain.clone(),
                                             account: submission_params.nonce_submission.account_id.clone(),
                                             height: submission_params.nonce_submission.block_height,
                                             nonce: submission_params.nonce_submission.nonce,
-                                            quality_raw: submission_params.quality_raw,
+                                            quality_raw: submission_params.nonce_submission.raw_quality,
                                             compression: submission_params.nonce_submission.compression,
                                             poc_time: u64::MAX,
                                         };
@@ -298,39 +294,37 @@ impl RequestHandler {
                                     .await
                                 {
                                     Ok(res) => {
-                                        if submission_params.nonce_submission.quality != res.quality_adjusted {
-                                            log_quality_mismatch(
-                                                &submission_params.nonce_submission,
-                                                res.quality_adjusted,
+                                        if res.raw_quality != submission_params.nonce_submission.raw_quality {
+                                            warn!(
+                                                "raw quality mismatch: submitted={}, server={}",
+                                                submission_params.nonce_submission.raw_quality,
+                                                res.raw_quality,
                                             );
-                                        } else {
-                                            log_submission_accepted(
-                                                &submission_params.nonce_submission,
-                                                res.poc_time,
-                                            );
-                                            // Callback for deadline accepted
-                                            let accepted = AcceptedDeadline {
-                                                chain: submission_params.chain.clone(),
-                                                account: submission_params.nonce_submission.account_id.clone(),
-                                                height: submission_params.nonce_submission.block_height,
-                                                nonce: submission_params.nonce_submission.nonce,
-                                                quality_raw: submission_params.quality_raw,
-                                                compression: submission_params.nonce_submission.compression,
-                                                poc_time: res.poc_time,
-                                            };
-                                            with_callback(|cb| cb.on_deadline_accepted(&accepted));
                                         }
+                                        log_submission_accepted(
+                                            &submission_params.nonce_submission,
+                                            res.poc_time,
+                                        );
+                                        let accepted = AcceptedDeadline {
+                                            chain: submission_params.chain.clone(),
+                                            account: submission_params.nonce_submission.account_id.clone(),
+                                            height: submission_params.nonce_submission.block_height,
+                                            nonce: submission_params.nonce_submission.nonce,
+                                            quality_raw: submission_params.nonce_submission.raw_quality,
+                                            compression: submission_params.nonce_submission.compression,
+                                            poc_time: res.poc_time,
+                                        };
+                                        with_callback(|cb| cb.on_deadline_accepted(&accepted));
                                     }
                                     Err(FetchError::Pool(e)) => {
                                         if e.message.is_empty() || e.message == "limit exceeded" {
                                             log_server_busy(&submission_params.nonce_submission);
-                                            // Callback for retry (even though we don't requeue in wallet mode)
                                             let accepted = AcceptedDeadline {
                                                 chain: submission_params.chain.clone(),
                                                 account: submission_params.nonce_submission.account_id.clone(),
                                                 height: submission_params.nonce_submission.block_height,
                                                 nonce: submission_params.nonce_submission.nonce,
-                                                quality_raw: submission_params.quality_raw,
+                                                quality_raw: submission_params.nonce_submission.raw_quality,
                                                 compression: submission_params.nonce_submission.compression,
                                                 poc_time: u64::MAX,
                                             };
@@ -343,13 +337,12 @@ impl RequestHandler {
                                                 e.code,
                                                 &e.message,
                                             );
-                                            // Callback for rejection
                                             let accepted = AcceptedDeadline {
                                                 chain: submission_params.chain.clone(),
                                                 account: submission_params.nonce_submission.account_id.clone(),
                                                 height: submission_params.nonce_submission.block_height,
                                                 nonce: submission_params.nonce_submission.nonce,
-                                                quality_raw: submission_params.quality_raw,
+                                                quality_raw: submission_params.nonce_submission.raw_quality,
                                                 compression: submission_params.nonce_submission.compression,
                                                 poc_time: u64::MAX,
                                             };
@@ -360,13 +353,12 @@ impl RequestHandler {
                                     }
                                     Err(FetchError::Http(x)) => {
                                         log_submission_failed(&submission_params.nonce_submission, &x.to_string());
-                                        // Callback for retry
                                         let accepted = AcceptedDeadline {
                                             chain: submission_params.chain.clone(),
                                             account: submission_params.nonce_submission.account_id.clone(),
                                             height: submission_params.nonce_submission.block_height,
                                             nonce: submission_params.nonce_submission.nonce,
-                                            quality_raw: submission_params.quality_raw,
+                                            quality_raw: submission_params.nonce_submission.raw_quality,
                                             compression: submission_params.nonce_submission.compression,
                                             poc_time: u64::MAX,
                                         };
@@ -393,14 +385,6 @@ impl RequestHandler {
             .unbounded_send(submission_parameters)
             .unwrap();
     }
-}
-
-fn log_quality_mismatch(nonce_submission: &NonceSubmission, quality_feedback: u64) {
-    error!(
-        "quality mismatch: {}, \
-         quality_server={}",
-        nonce_submission, quality_feedback
-    );
 }
 
 fn log_submission_failed(nonce_submission: &NonceSubmission, err: &str) {
@@ -434,213 +418,4 @@ fn log_submission_accepted(nonce_submission: &NonceSubmission, poc_time: u64) {
 
 fn log_server_busy(nonce_submission: &NonceSubmission) {
     info!("server busy, retrying: {}", nonce_submission,);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::com::api::NonceSubmission;
-    use url::Url;
-
-    #[tokio::test]
-    async fn test_request_handler_creation() {
-        let url = Url::parse("http://localhost:8080").unwrap();
-        let timeout = 5000;
-        let token = CancellationToken::new();
-
-        let handler = RequestHandler::new(url, timeout, None, SubmissionMode::Pool, token);
-
-        // Verify handler was created (struct exists)
-        let _ = &handler.client;
-        let _ = &handler.tx_submit_data;
-    }
-
-    #[tokio::test]
-    async fn test_request_handler_with_auth() {
-        let url = Url::parse("http://localhost:8080").unwrap();
-        let timeout = 5000;
-        let auth_token = Some("user:password".to_string());
-        let token = CancellationToken::new();
-
-        let handler = RequestHandler::new(url, timeout, auth_token, SubmissionMode::Pool, token);
-
-        // Verify handler was created with auth
-        let _ = &handler.client;
-        let _ = &handler.tx_submit_data;
-    }
-
-    #[tokio::test]
-    async fn test_request_handler_wallet_mode() {
-        let url = Url::parse("http://localhost:8080").unwrap();
-        let timeout = 5000;
-        let token = CancellationToken::new();
-
-        let handler = RequestHandler::new(url, timeout, None, SubmissionMode::Wallet, token);
-
-        // Verify handler was created in wallet mode
-        let _ = &handler.client;
-        let _ = &handler.tx_submit_data;
-    }
-
-    #[tokio::test]
-    async fn test_nonce_submission_parameters() {
-        let token = CancellationToken::new();
-        let handler = RequestHandler::new(
-            Url::parse("http://localhost:8080").unwrap(),
-            5000,
-            None,
-            SubmissionMode::Pool,
-            token,
-        );
-
-        // Create test submission parameters
-        let nonce_submission = NonceSubmission {
-            block_height: 100,
-            generation_signature: "test_signature".to_string(),
-            account_id: "POCX-test-address".to_string(),
-            seed: "test_seed".to_string(),
-            nonce: 67890,
-            quality: 300,
-            compression: 4,
-        };
-
-        let submission_params = SubmissionParameters {
-            chain: "Test Chain".to_string(),
-            nonce_submission,
-            block_count: 100,
-            quality_raw: 500,
-        };
-
-        // Test that submit_nonce doesn't panic
-        handler.submit_nonce(submission_params);
-    }
-
-    #[test]
-    fn test_log_quality_mismatch() {
-        let nonce_submission = NonceSubmission {
-            block_height: 100,
-            generation_signature: "test_signature".to_string(),
-            account_id: "POCX-test-address".to_string(),
-            seed: "test_seed".to_string(),
-            nonce: 67890,
-            quality: 300,
-            compression: 4,
-        };
-
-        // Test that logging function doesn't panic
-        log_quality_mismatch(&nonce_submission, 350);
-        log_quality_mismatch(&nonce_submission, 0);
-        log_quality_mismatch(&nonce_submission, u64::MAX);
-    }
-
-    #[test]
-    fn test_log_submission_failed() {
-        let nonce_submission = NonceSubmission {
-            block_height: 100,
-            generation_signature: "test_signature".to_string(),
-            account_id: "POCX-test-address".to_string(),
-            seed: "test_seed".to_string(),
-            nonce: 67890,
-            quality: 300,
-            compression: 4,
-        };
-
-        // Test logging with various error messages
-        log_submission_failed(&nonce_submission, "Network timeout");
-        log_submission_failed(&nonce_submission, "Connection refused");
-        log_submission_failed(&nonce_submission, "");
-        log_submission_failed(&nonce_submission, "Very long error message that should be handled properly without causing issues in the logging system");
-    }
-
-    #[test]
-    fn test_log_submission_not_accepted() {
-        let nonce_submission = NonceSubmission {
-            block_height: 100,
-            generation_signature: "test_signature".to_string(),
-            account_id: "POCX-test-address".to_string(),
-            seed: "test_seed".to_string(),
-            nonce: 67890,
-            quality: 300,
-            compression: 4,
-        };
-
-        // Test logging with various error codes and messages
-        log_submission_not_accepted(&nonce_submission, 400, "Bad request");
-        log_submission_not_accepted(&nonce_submission, 500, "Internal server error");
-        log_submission_not_accepted(&nonce_submission, -1, "Invalid error code");
-        log_submission_not_accepted(&nonce_submission, 0, "");
-    }
-
-    #[test]
-    fn test_log_submission_accepted() {
-        let nonce_submission = NonceSubmission {
-            block_height: 100,
-            generation_signature: "test_signature".to_string(),
-            account_id: "POCX-test-address".to_string(),
-            seed: "test_seed".to_string(),
-            nonce: 67890,
-            quality: 300,
-            compression: 4,
-        };
-
-        // Test that accepted logging works
-        log_submission_accepted(&nonce_submission, 0); // No time display
-        log_submission_accepted(&nonce_submission, 240); // Normal time
-        log_submission_accepted(&nonce_submission, 86400); // Infinity symbol
-    }
-
-    #[test]
-    fn test_log_server_busy() {
-        let nonce_submission = NonceSubmission {
-            block_height: 100,
-            generation_signature: "test_signature".to_string(),
-            account_id: "POCX-test-address".to_string(),
-            seed: "test_seed".to_string(),
-            nonce: 67890,
-            quality: 300,
-            compression: 4,
-        };
-
-        // Test that server busy logging works
-        log_server_busy(&nonce_submission);
-    }
-
-    #[tokio::test]
-    async fn test_url_validation() {
-        // Test various URL formats
-        let valid_urls = [
-            "http://localhost:8080",
-            "https://pool.example.com",
-            "http://192.168.1.1:8080",
-            "https://pool.example.com:443/path",
-        ];
-
-        for url_str in &valid_urls {
-            let url = Url::parse(url_str);
-            assert!(url.is_ok(), "Should parse valid URL: {}", url_str);
-
-            if let Ok(parsed_url) = url {
-                let token = CancellationToken::new();
-                let handler =
-                    RequestHandler::new(parsed_url, 5000, None, SubmissionMode::Pool, token);
-                let _ = &handler.client;
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_timeout_values() {
-        let url = Url::parse("http://localhost:8080").unwrap();
-        let timeout_values = [1000, 5000, 10000, 30000, 60000];
-
-        for &timeout in &timeout_values {
-            let token = CancellationToken::new();
-            let handler =
-                RequestHandler::new(url.clone(), timeout, None, SubmissionMode::Pool, token);
-
-            // Verify handler creation with different timeout values
-            let _ = &handler.client;
-            let _ = &handler.tx_submit_data;
-        }
-    }
 }

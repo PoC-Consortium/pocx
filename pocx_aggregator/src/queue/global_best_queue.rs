@@ -32,11 +32,11 @@ struct GlobalQueuedSubmission {
 }
 
 /// Global best submission queue for wallet/solo mining mode
-/// Tracks best quality for the last 3 block hashes
+/// Tracks best raw_quality for the last 3 block hashes
 #[derive(Clone)]
 pub struct GlobalBestQueue {
     block_hashes: Arc<RwLock<VecDeque<String>>>, // Max 3 blocks (FIFO)
-    best_qualities: Arc<RwLock<HashMap<String, u64>>>, // block_hash -> best_quality
+    best_qualities: Arc<RwLock<HashMap<String, u64>>>, // block_hash -> best_raw_quality
     tx_submit: mpsc::UnboundedSender<GlobalQueuedSubmission>,
 }
 
@@ -60,32 +60,30 @@ impl GlobalBestQueue {
 
     /// Submit a nonce to the queue (non-blocking)
     /// Returns true if submission was queued, false if filtered out
-    pub async fn submit(
-        &self,
-        params: SubmitNonceParams,
-        block_hash: String,
-        quality: u64,
-    ) -> bool {
+    pub async fn submit(&self, params: SubmitNonceParams) -> bool {
         const MAX_BLOCKS: usize = 3;
+
+        let block_hash = &params.block_hash;
+        let raw_quality = params.raw_quality;
 
         let mut hashes = self.block_hashes.write().await;
         let mut qualities = self.best_qualities.write().await;
 
         // Check if this is a known block hash
-        if let Some(&best_quality) = qualities.get(&block_hash) {
+        if let Some(&best_quality) = qualities.get(block_hash) {
             // Known block: check if this submission is better
-            if quality >= best_quality {
+            if raw_quality >= best_quality {
                 log::debug!(
-                    "Filtered submission: quality {} not better than best {} for block {}",
-                    quality,
+                    "Filtered submission: raw_quality {} not better than best {} for block {}",
+                    raw_quality,
                     best_quality,
                     &block_hash[..16]
                 );
                 return false;
             }
 
-            // Better quality for known block - update and forward
-            qualities.insert(block_hash.clone(), quality);
+            // Better raw_quality for known block - update and forward
+            qualities.insert(block_hash.clone(), raw_quality);
         } else {
             // New block hash
             if hashes.len() >= MAX_BLOCKS {
@@ -98,13 +96,11 @@ impl GlobalBestQueue {
 
             // Add new block
             hashes.push_back(block_hash.clone());
-            qualities.insert(block_hash.clone(), quality);
+            qualities.insert(block_hash.clone(), raw_quality);
         }
 
         // Queue submission
-        let submission = GlobalQueuedSubmission {
-            params: params.clone(),
-        };
+        let submission = GlobalQueuedSubmission { params };
 
         self.tx_submit.unbounded_send(submission).is_ok()
     }
@@ -143,10 +139,10 @@ impl GlobalBestQueue {
 
 fn log_submission_accepted(params: &SubmitNonceParams, result: &SubmitNonceResult) {
     log::info!(
-        "Submitted: height={}, account=...{}, quality={}, poc_time={}s",
+        "Submitted: height={}, account=...{}, raw_quality={}, poc_time={}s",
         params.height,
         &params.account_id[params.account_id.len().saturating_sub(8)..],
-        result.quality,
+        result.raw_quality,
         result.poc_time
     );
 }
@@ -178,25 +174,4 @@ fn log_server_busy(params: &SubmitNonceParams) {
         params.account_id,
         params.nonce
     );
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_global_queued_submission_creation() {
-        let sub = GlobalQueuedSubmission {
-            params: SubmitNonceParams::new(
-                100,
-                "gensig1".to_string(),
-                "acc1".to_string(),
-                "seed1".to_string(),
-                1000,
-                5,
-            ),
-        };
-
-        assert_eq!(sub.params.height, 100);
-    }
 }

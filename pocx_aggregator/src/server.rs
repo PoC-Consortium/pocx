@@ -78,7 +78,7 @@ impl AggregatorServer {
         )?;
 
         // Create stats with block time from config
-        let stats = Stats::new(config.block_time_secs);
+        let stats = Stats::new(config.upstream.block_time_secs);
 
         // Initialize database
         let database = Database::new(&config.database.path)?;
@@ -93,8 +93,7 @@ impl AggregatorServer {
                         .record_submission(
                             &sub.account_id,
                             Some(sub.machine_id),
-                            sub.quality as u64,
-                            sub.base_target as u64,
+                            sub.raw_quality as u64,
                             sub.height as u64,
                         )
                         .await;
@@ -335,80 +334,54 @@ async fn handle_submit_nonce(
         }
     };
 
-    // Get current height for the submission info
-    let current_height = *state.current_height.read().await;
-
     crate::callback::with_callback(|cb| {
         cb.on_submission_received(&crate::callback::SubmissionInfo {
-            height: current_height,
+            height: req.params.height,
             account_id: req.params.account_id.clone(),
             machine_id: Some(client_ip.clone()),
             generation_signature: req.params.generation_signature.clone(),
             seed: req.params.seed.clone(),
             nonce: req.params.nonce,
             compression: req.params.compression,
-            quality: req.params.quality.unwrap_or(0),
+            raw_quality: req.params.raw_quality,
         });
     });
 
-    // Get current block_hash for submission filtering
-    let block_hash = state.current_block_hash.read().await.clone();
-
-    // Submit to pool with block_hash for filtering
-    match state
-        .pool_manager
-        .submit_nonce(req.params.clone(), block_hash)
-        .await
-    {
-        Ok(mut result) => {
-            // Get current base_target and height
-            let base_target = *state.current_base_target.read().await;
-            let height = *state.current_height.read().await;
-
-            // Use client IP as machine identifier
+    // Submit to pool (block_hash for filtering is inside params)
+    match state.pool_manager.submit_nonce(req.params.clone()).await {
+        Ok(result) => {
             let machine_id = Some(client_ip);
 
-            // Calculate poc_time using time-bending formula
-            // Note: result.quality is adjusted quality (raw_quality / base_target)
-            // The time-bending formula expects raw quality, so multiply back
-            let raw_quality = result.quality * base_target;
-            let poc_time = state.stats.calculate_poc_time(raw_quality, base_target);
-            result.poc_time = poc_time;
-
-            // Update stats (without poc_time, it's calculated on display)
             state
                 .stats
                 .record_submission(
                     &req.params.account_id,
                     machine_id.clone(),
-                    result.quality,
-                    base_target,
-                    height,
+                    result.raw_quality,
+                    req.params.height,
                 )
                 .await;
 
-            // Save to database (queued in dedicated writer task)
             if let Err(e) = state.database.save_submission(
                 &req.params.account_id,
                 machine_id.clone(),
-                result.quality,
-                base_target,
-                height,
+                result.raw_quality,
+                req.params.height,
             ) {
                 error!("Failed to queue submission save: {}", e);
             }
 
             crate::callback::with_callback(|cb| {
                 cb.on_submission_accepted(&crate::callback::AcceptedInfo {
-                    height,
+                    height: req.params.height,
                     account_id: req.params.account_id.clone(),
                     machine_id,
                     generation_signature: req.params.generation_signature.clone(),
                     seed: req.params.seed.clone(),
                     nonce: req.params.nonce,
                     compression: req.params.compression,
-                    quality: result.quality,
-                    poc_time,
+                    raw_quality: result.raw_quality,
+                    poc_time: result.poc_time,
                 });
             });
 
@@ -422,7 +395,7 @@ async fn handle_submit_nonce(
             error!("Failed to submit nonce: {}", e);
             crate::callback::with_callback(|cb| {
                 cb.on_submission_rejected(&crate::callback::RejectedInfo {
-                    height: current_height,
+                    height: req.params.height,
                     account_id: req.params.account_id.clone(),
                     machine_id: Some(client_ip.clone()),
                     reason: e.to_string(),

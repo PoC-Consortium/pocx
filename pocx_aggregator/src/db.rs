@@ -19,7 +19,6 @@
 // SOFTWARE.
 
 use crate::error::{Error, Result};
-use crate::schema::submissions;
 use chrono::NaiveDateTime;
 use diesel::connection::SimpleConnection;
 use diesel::prelude::*;
@@ -36,8 +35,7 @@ enum DbCommand {
     SaveSubmission {
         account_id: String,
         machine_id: Option<String>,
-        quality: u64,
-        base_target: u64,
+        raw_quality: u64,
         height: u64,
     },
     Cleanup {
@@ -59,19 +57,8 @@ pub struct Submission {
     pub account_id: String,
     pub machine_id: String,
     pub height: i64,
-    pub quality: i64,
-    pub base_target: i64,
+    pub raw_quality: i64,
     pub timestamp: NaiveDateTime,
-}
-
-#[derive(Insertable)]
-#[diesel(table_name = submissions)]
-pub struct NewSubmission {
-    pub account_id: String,
-    pub machine_id: String,
-    pub height: i64,
-    pub quality: i64,
-    pub base_target: i64,
 }
 
 impl Database {
@@ -118,16 +105,14 @@ impl Database {
                 DbCommand::SaveSubmission {
                     account_id,
                     machine_id,
-                    quality,
-                    base_target,
+                    raw_quality,
                     height,
                 } => {
                     if let Err(e) = Self::do_save_submission(
                         &pool,
                         &account_id,
                         machine_id,
-                        quality,
-                        base_target,
+                        raw_quality,
                         height,
                     ) {
                         error!("Failed to save submission to database: {}", e);
@@ -149,8 +134,7 @@ impl Database {
         pool: &Pool<ConnectionManager<SqliteConnection>>,
         account_id_param: &str,
         machine_id_param: Option<String>,
-        quality_param: u64,
-        base_target_param: u64,
+        raw_quality_param: u64,
         height_param: u64,
     ) -> Result<()> {
         let mut conn = pool
@@ -160,18 +144,16 @@ impl Database {
         let machine_id_str = machine_id_param.unwrap_or_else(|| "unknown".to_string());
 
         conn.batch_execute(&format!(
-            "INSERT INTO submissions (account_id, machine_id, height, quality, base_target, timestamp)
-             VALUES ('{}', '{}', {}, {}, {}, CURRENT_TIMESTAMP)
+            "INSERT INTO submissions (account_id, machine_id, height, raw_quality, timestamp)
+             VALUES ('{}', '{}', {}, {}, CURRENT_TIMESTAMP)
              ON CONFLICT(account_id, machine_id, height)
              DO UPDATE SET
-                quality = CASE WHEN excluded.quality < quality THEN excluded.quality ELSE quality END,
-                base_target = CASE WHEN excluded.quality < quality THEN excluded.base_target ELSE base_target END,
-                timestamp = CASE WHEN excluded.quality < quality THEN CURRENT_TIMESTAMP ELSE timestamp END",
+                raw_quality = CASE WHEN excluded.raw_quality < raw_quality THEN excluded.raw_quality ELSE raw_quality END,
+                timestamp = CASE WHEN excluded.raw_quality < raw_quality THEN CURRENT_TIMESTAMP ELSE timestamp END",
             account_id_param.replace('\'', "''"),
             machine_id_str.replace('\'', "''"),
             height_param,
-            quality_param,
-            base_target_param
+            raw_quality_param
         ))
         .map_err(|e| Error::Config(format!("Failed to save submission: {}", e)))?;
 
@@ -229,16 +211,14 @@ impl Database {
         &self,
         account_id: &str,
         machine_id: Option<String>,
-        quality: u64,
-        base_target: u64,
+        raw_quality: u64,
         height: u64,
     ) -> Result<()> {
         self.tx
             .send(DbCommand::SaveSubmission {
                 account_id: account_id.to_string(),
                 machine_id,
-                quality,
-                base_target,
+                raw_quality,
                 height,
             })
             .map_err(|e| Error::Config(format!("Failed to send save command: {}", e)))?;

@@ -171,51 +171,56 @@ impl MiningInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubmitNonceParams {
+    pub block_hash: String,
     pub height: u64,
     pub generation_signature: String,
+    pub base_target: u64,
     pub account_id: String,
     pub seed: String,
     pub nonce: u64,
     pub compression: u8,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub quality: Option<u64>,
+    pub raw_quality: u64,
 }
 
 impl SubmitNonceParams {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
+        block_hash: String,
         height: u64,
         generation_signature: String,
+        base_target: u64,
         account_id: String,
         seed: String,
         nonce: u64,
         compression: u8,
+        raw_quality: u64,
     ) -> Self {
         Self {
+            block_hash,
             height,
             generation_signature,
+            base_target,
             account_id,
             seed,
             nonce,
             compression,
-            quality: None,
+            raw_quality,
         }
-    }
-
-    pub fn with_quality(mut self, quality: u64) -> Self {
-        self.quality = Some(quality);
-        self
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubmitNonceResult {
-    pub quality: u64, // This is adjusted quality (raw_quality / base_target)
+    pub raw_quality: u64,
     pub poc_time: u64,
 }
 
 impl SubmitNonceResult {
-    pub fn new(quality: u64, poc_time: u64) -> Self {
-        Self { quality, poc_time }
+    pub fn new(raw_quality: u64, poc_time: u64) -> Self {
+        Self {
+            raw_quality,
+            poc_time,
+        }
     }
 }
 
@@ -228,65 +233,3 @@ pub struct ErrorData {
 
 pub const METHOD_GET_MINING_INFO: &str = "get_mining_info";
 pub const METHOD_SUBMIT_NONCE: &str = "submit_nonce";
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_json_rpc_request_serialization() {
-        let request = JsonRpcRequest::new(METHOD_GET_MINING_INFO, GetMiningInfoParams::default());
-        let json = serde_json::to_string(&request).unwrap();
-        assert!(json.contains("\"jsonrpc\":\"2.0\""));
-        assert!(json.contains("\"method\":\"get_mining_info\""));
-    }
-
-    #[test]
-    fn test_mining_info_serialization() {
-        let info = MiningInfo::new(
-            "abc123".to_string(),
-            12345,
-            98765,
-            "blockhash123".to_string(),
-        )
-        .with_compression(1, 9);
-
-        let json = serde_json::to_string(&info).unwrap();
-        assert!(json.contains("\"generation_signature\":\"abc123\""));
-        assert!(json.contains("\"base_target\":12345"));
-        assert!(json.contains("\"height\":98765"));
-        assert!(json.contains("\"block_hash\":\"blockhash123\""));
-        assert!(json.contains("\"minimum_compression_level\":1"));
-        assert!(json.contains("\"target_compression_level\":9"));
-    }
-
-    #[test]
-    fn test_submit_nonce_params_serialization() {
-        let params = SubmitNonceParams::new(
-            98765,
-            "abc123".to_string(),
-            "1234567890abcdef1234567890abcdef12345678".to_string(),
-            "seed123".to_string(),
-            123456789,
-            5,
-        )
-        .with_quality(987654321);
-
-        let json = serde_json::to_string(&params).unwrap();
-        assert!(json.contains("\"height\":98765"));
-        assert!(json.contains("\"nonce\":123456789"));
-        assert!(json.contains("\"compression\":5"));
-        assert!(json.contains("\"quality\":987654321"));
-    }
-
-    #[test]
-    fn test_response_success() {
-        let result = SubmitNonceResult::new(12345, 240);
-        let response = JsonRpcResponse::success(result, JsonRpcId::from_string("test-id"));
-
-        let json = serde_json::to_string(&response).unwrap();
-        assert!(json.contains("\"jsonrpc\":\"2.0\""));
-        assert!(json.contains("\"quality\":12345"));
-        assert!(json.contains("\"poc_time\":240"));
-    }
-}

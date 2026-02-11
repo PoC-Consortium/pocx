@@ -72,7 +72,7 @@ mod integration_tests {
                     submitted: params.height,
                 });
             }
-            Ok(SubmitNonceResult::new(params.nonce, 120))
+            Ok(SubmitNonceResult::new(params.raw_quality, 120))
         }
     }
 
@@ -105,12 +105,15 @@ mod integration_tests {
             "jsonrpc": "2.0",
             "method": "submit_nonce",
             "params": {
+                "block_hash": "abcdef123456",
                 "height": 500,
                 "generation_signature": "abcdef123456",
+                "base_target": 1000,
                 "account_id": "1234567890abcdef1234567890abcdef12345678",
                 "seed": "test_seed",
                 "nonce": 999888777,
-                "compression": 5
+                "compression": 5,
+                "raw_quality": 999888777
             },
             "id": "test-2"
         }"#;
@@ -119,7 +122,7 @@ mod integration_tests {
         let response_value: serde_json::Value = serde_json::from_str(&response).unwrap();
 
         assert_eq!(response_value["jsonrpc"], "2.0");
-        assert_eq!(response_value["result"]["quality"], 999888777);
+        assert_eq!(response_value["result"]["raw_quality"], 999888777);
         assert_eq!(response_value["result"]["poc_time"], 120);
 
         // Test submit_nonce error
@@ -127,12 +130,15 @@ mod integration_tests {
             "jsonrpc": "2.0",
             "method": "submit_nonce",
             "params": {
+                "block_hash": "abcdef123456",
                 "height": 999,
                 "generation_signature": "abcdef123456",
+                "base_target": 1000,
                 "account_id": "1234567890abcdef1234567890abcdef12345678",
                 "seed": "test_seed",
                 "nonce": 123456,
-                "compression": 5
+                "compression": 5,
+                "raw_quality": 123456
             },
             "id": "test-3"
         }"#;

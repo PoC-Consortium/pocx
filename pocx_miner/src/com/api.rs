@@ -25,19 +25,21 @@ use std::fmt;
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct NonceSubmission {
+    pub block_hash: String,
     pub block_height: u64,
     pub generation_signature: String,
-    pub account_id: String, // Changed from base58 to account_id (hex payload)
+    pub base_target: u64,
+    pub account_id: String,
     pub seed: String,
     pub nonce: u64,
-    pub quality: u64, // Changed from quality_adjusted to quality
+    pub raw_quality: u64,
     pub compression: u8,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubmitNonceResponse {
-    pub quality_adjusted: u64,
+    pub raw_quality: u64,
     #[serde(default = "default_poc_time")]
     pub poc_time: u64,
 }
@@ -110,15 +112,16 @@ impl From<PoolError> for FetchError {
 
 impl fmt::Display for NonceSubmission {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // Write strictly the first element into the supplied output
-        // stream: `f`. Returns `fmt::Result` which indicates whether the
-        // operation succeeded or failed. Note that `write!` uses syntax which
-        // is very similar to `println!`.
         write!(
             f,
-            "height={}, gensig=...{}, account=...{}, seed=...{}, nonce={}, X={}, \
-        quality={}",
+            "height={}, hash=...{}, gensig=...{}, account=...{}, seed=...{}, nonce={}, X={}, \
+        raw_quality={}",
             self.block_height,
+            if self.block_hash.len() > 8 {
+                &self.block_hash[self.block_hash.len() - 8..]
+            } else {
+                &self.block_hash
+            },
             self.generation_signature
                 .chars()
                 .skip(56)
@@ -135,7 +138,7 @@ impl fmt::Display for NonceSubmission {
             self.seed.chars().skip(56).take(8).collect::<String>(),
             self.nonce,
             self.compression,
-            self.quality
+            self.raw_quality
         )
     }
 }
@@ -235,7 +238,6 @@ where
 pub struct SubmissionParameters {
     pub chain: String,
     pub block_count: u64,
-    pub quality_raw: u64,
     pub nonce_submission: NonceSubmission,
 }
 
@@ -246,7 +248,10 @@ pub struct SubmissionParameters {
 impl Ord for SubmissionParameters {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         match self.block_count.cmp(&other.block_count) {
-            std::cmp::Ordering::Equal => other.quality_raw.cmp(&self.quality_raw),
+            std::cmp::Ordering::Equal => other
+                .nonce_submission
+                .raw_quality
+                .cmp(&self.nonce_submission.raw_quality),
             other => other,
         }
     }

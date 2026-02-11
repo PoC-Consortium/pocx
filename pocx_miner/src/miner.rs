@@ -209,6 +209,7 @@ pub struct Channels {
 pub struct ChainState {
     generation_signature: String,
     block_hash: String,
+    base_target: u64,
     outage: bool,
     account_id_to_best_quality: HashMap<String, u64>,
     account_id_to_target_quality: HashMap<String, u64>,
@@ -228,6 +229,7 @@ impl ChainState {
     ) {
         self.generation_signature = mining_info.generation_signature.clone();
         self.block_hash = mining_info.block_hash.clone();
+        self.base_target = mining_info.base_target;
         self.submission_mode = submission_mode;
 
         // Reset best qualities for new block
@@ -1071,6 +1073,14 @@ impl Miner {
                 if chain_state.generation_signature.to_lowercase()
                     == submission_parameter.nonce_submission.generation_signature
                 {
+                    // Derive adjusted quality for comparison (target_quality and best_quality
+                    // are in adjusted units)
+                    let adjusted_quality = if chain_state.base_target > 0 {
+                        submission_parameter.nonce_submission.raw_quality / chain_state.base_target
+                    } else {
+                        u64::MAX
+                    };
+
                     // Determine best quality based on submission mode
                     let best_quality = if chain_state.submission_mode == SubmissionMode::Wallet {
                         // Wallet mode: global best across all accounts
@@ -1094,18 +1104,16 @@ impl Miner {
                         .unwrap_or(&u64::MAX);
 
                     // Check: 1) Better than our best, 2) Better than target quality
-                    if submission_parameter.nonce_submission.quality < best_quality
-                        && submission_parameter.nonce_submission.quality < target_quality
-                    {
+                    if adjusted_quality < best_quality && adjusted_quality < target_quality {
                         chain_state.account_id_to_best_quality.insert(
                             submission_parameter.nonce_submission.account_id.clone(),
-                            submission_parameter.nonce_submission.quality,
+                            adjusted_quality,
                         );
                         request_handler[chain_id].submit_nonce(submission_parameter);
-                    } else if submission_parameter.nonce_submission.quality >= target_quality {
+                    } else if adjusted_quality >= target_quality {
                         debug!(
-                            "Filtered nonce - quality {} exceeds target {}",
-                            submission_parameter.nonce_submission.quality, target_quality
+                            "Filtered nonce - adjusted quality {} exceeds target {}",
+                            adjusted_quality, target_quality
                         );
                     }
                 }
@@ -1299,6 +1307,7 @@ impl Miner {
                                 .generation_signature_bytes,
                             account_id: read_reply.account_id,
                             seed: read_reply.seed,
+                            block_hash: mining_info.block_hash.clone(),
                             block_height: mining_info.height,
                             base_target: mining_info.base_target,
                             start_warp: read_reply.warp_offset,

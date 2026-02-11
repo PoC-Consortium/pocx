@@ -63,6 +63,13 @@ impl JsonRpcHandler for MockchainJsonRpcHandler {
     ) -> Result<SubmitNonceResult> {
         let mining_info = self.db.get_mining_info();
 
+        // Validate block hash
+        if params.block_hash.to_lowercase() != mining_info.block_hash.to_lowercase() {
+            return Err(ProtocolError::InvalidSubmission(
+                "unexpected block hash, stale submission?".to_string(),
+            ));
+        }
+
         // Validate block height
         if params.height != mining_info.height {
             return Err(ProtocolError::WrongHeight {
@@ -231,6 +238,6 @@ impl JsonRpcHandler for MockchainJsonRpcHandler {
             });
         }
 
-        Ok(SubmitNonceResult::new(quality_adjusted, poc_time))
+        Ok(SubmitNonceResult::new(quality, poc_time))
     }
 }

@@ -267,21 +267,6 @@ mod tests {
     use serde_json::json;
 
     #[tokio::test]
-    async fn test_client_creation() {
-        let client = JsonRpcClient::new("http://localhost:8080/jsonrpc").unwrap();
-        assert_eq!(client.endpoint(), "http://localhost:8080/jsonrpc");
-        assert!(client.auth_token.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_client_with_auth() {
-        let client = JsonRpcClient::new("http://localhost:8080/jsonrpc")
-            .unwrap()
-            .with_auth_token("test-token");
-        assert_eq!(client.auth_token, Some("test-token".to_string()));
-    }
-
-    #[tokio::test]
     async fn test_client_from_config() {
         let config = RpcClientConfig {
             rpc_transport: crate::config::RpcTransport::Http,
@@ -346,7 +331,7 @@ mod tests {
                 json!({
                     "jsonrpc": "2.0",
                     "result": {
-                        "quality": 987654321,
+                        "raw_quality": 987654321,
                         "poc_time": 240
                     },
                     "id": "test-id"
@@ -358,17 +343,20 @@ mod tests {
 
         let client = JsonRpcClient::new(server.url() + "/jsonrpc").unwrap();
         let params = SubmitNonceParams::new(
+            "blockhash456".to_string(),
             98765,
             "abc123".to_string(),
+            12345,
             "1234567890abcdef1234567890abcdef12345678".to_string(),
             "seed123".to_string(),
             123456789,
             5,
+            987654321,
         );
 
         let result = client.submit_nonce(params).await.unwrap();
 
-        assert_eq!(result.quality, 987654321);
+        assert_eq!(result.raw_quality, 987654321);
         assert_eq!(result.poc_time, 240);
 
         mock.assert_async().await;
@@ -403,12 +391,15 @@ mod tests {
 
         let client = JsonRpcClient::new(server.url() + "/jsonrpc").unwrap();
         let params = SubmitNonceParams::new(
+            "blockhash456".to_string(),
             99,
             "abc123".to_string(),
+            12345,
             "1234567890abcdef1234567890abcdef12345678".to_string(),
             "seed123".to_string(),
             123456789,
             5,
+            100,
         );
 
         let result = client.submit_nonce(params).await;

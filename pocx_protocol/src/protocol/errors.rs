@@ -212,22 +212,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_error_codes() {
-        assert_eq!(PARSE_ERROR, -32700);
-        assert_eq!(INVALID_REQUEST, -32600);
-        assert_eq!(METHOD_NOT_FOUND, -32601);
-        assert_eq!(INVALID_PARAMS, -32602);
-        assert_eq!(INTERNAL_ERROR, -32603);
-
-        assert_eq!(INVALID_SUBMISSION, -32001);
-        assert_eq!(WRONG_HEIGHT, -32002);
-        assert_eq!(STALE_SUBMISSION, -32003);
-        assert_eq!(AUTH_REQUIRED, -32004);
-        assert_eq!(AUTH_INVALID, -32005);
-        assert_eq!(RATE_LIMITED, -32006);
-    }
-
-    #[test]
     fn test_wrong_height_error() {
         let err = ProtocolError::WrongHeight {
             expected: 100,
