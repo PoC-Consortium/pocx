@@ -40,7 +40,7 @@ impl ProtocolClient {
             Ok(jsonrpc_mining_info) => Ok(convert_jsonrpc_to_mining_info(jsonrpc_mining_info)),
             Err(ProtocolError::NetworkError(e)) => Err(FetchError::Http(e)),
             Err(e) => Err(FetchError::Pool(PoolError {
-                code: -1,
+                code: e.error_code(),
                 message: e.to_string(),
             })),
         }
@@ -56,7 +56,7 @@ impl ProtocolClient {
             Ok(result) => Ok(convert_jsonrpc_to_submit_response(result)),
             Err(ProtocolError::NetworkError(e)) => Err(FetchError::Http(e)),
             Err(e) => Err(FetchError::Pool(PoolError {
-                code: -1,
+                code: e.error_code(),
                 message: e.to_string(),
             })),
         }

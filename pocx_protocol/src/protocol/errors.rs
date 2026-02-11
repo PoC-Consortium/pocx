@@ -35,6 +35,7 @@ pub const STALE_SUBMISSION: i32 = -32003;
 pub const AUTH_REQUIRED: i32 = -32004;
 pub const AUTH_INVALID: i32 = -32005;
 pub const RATE_LIMITED: i32 = -32006;
+pub const NOT_ASSIGNED: i32 = -32007;
 
 #[derive(Error, Debug)]
 pub enum ProtocolError {
@@ -71,6 +72,9 @@ pub enum ProtocolError {
     #[error("Rate limited")]
     RateLimited,
 
+    #[error("Not assigned to pool: {0}")]
+    NotAssigned(String),
+
     #[error("Network error: {0}")]
     NetworkError(#[from] reqwest::Error),
 
@@ -82,6 +86,27 @@ pub enum ProtocolError {
 }
 
 impl ProtocolError {
+    /// Returns the JSON-RPC error code for this error variant.
+    pub fn error_code(&self) -> i32 {
+        match self {
+            Self::ParseError(_) => PARSE_ERROR,
+            Self::InvalidRequest(_) => INVALID_REQUEST,
+            Self::MethodNotFound(_) => METHOD_NOT_FOUND,
+            Self::InvalidParams(_) => INVALID_PARAMS,
+            Self::InternalError(_) => INTERNAL_ERROR,
+            Self::InvalidSubmission(_) => INVALID_SUBMISSION,
+            Self::WrongHeight { .. } => WRONG_HEIGHT,
+            Self::StaleSubmission => STALE_SUBMISSION,
+            Self::AuthRequired => AUTH_REQUIRED,
+            Self::AuthInvalid => AUTH_INVALID,
+            Self::RateLimited => RATE_LIMITED,
+            Self::NotAssigned(_) => NOT_ASSIGNED,
+            Self::NetworkError(_) => INTERNAL_ERROR,
+            Self::JsonError(_) => PARSE_ERROR,
+            Self::Other(_) => INTERNAL_ERROR,
+        }
+    }
+
     pub fn to_json_rpc_error(&self) -> JsonRpcError {
         match self {
             Self::ParseError(msg) => JsonRpcError {
@@ -144,6 +169,11 @@ impl ProtocolError {
             Self::RateLimited => JsonRpcError {
                 code: RATE_LIMITED,
                 message: "Rate limited".to_string(),
+                data: None,
+            },
+            Self::NotAssigned(reason) => JsonRpcError {
+                code: NOT_ASSIGNED,
+                message: reason.clone(),
                 data: None,
             },
             Self::NetworkError(err) => JsonRpcError {

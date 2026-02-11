@@ -232,6 +232,9 @@ impl JsonRpcClient {
                     crate::protocol::errors::AUTH_REQUIRED => Err(ProtocolError::AuthRequired),
                     crate::protocol::errors::AUTH_INVALID => Err(ProtocolError::AuthInvalid),
                     crate::protocol::errors::RATE_LIMITED => Err(ProtocolError::RateLimited),
+                    crate::protocol::errors::NOT_ASSIGNED => {
+                        Err(ProtocolError::NotAssigned(error.message))
+                    }
                     crate::protocol::errors::PARSE_ERROR => {
                         Err(ProtocolError::ParseError(error.message))
                     }
