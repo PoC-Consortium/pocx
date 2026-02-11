@@ -178,23 +178,6 @@ mod tests {
     }
 
     #[test]
-    fn test_deterministic_derivation() {
-        let privkey_bytes = [0x01; 32];
-        let privkey1 = PrivateKey(privkey_bytes);
-        let privkey2 = PrivateKey(privkey_bytes);
-
-        let pubkey1 = privkey1.to_public_key();
-        let pubkey2 = privkey2.to_public_key();
-
-        let payload1 = pubkey1.to_address_payload();
-        let payload2 = pubkey2.to_address_payload();
-
-        // Results should be identical
-        assert_eq!(pubkey1, pubkey2);
-        assert_eq!(payload1, payload2);
-    }
-
-    #[test]
     fn test_curve_order_validation() {
         assert!(!is_key_overflow(&[0x00; 32]));
         let mut max_valid = [

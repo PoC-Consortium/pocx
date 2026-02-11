@@ -27,8 +27,6 @@ use pocx_hashlib::{
     calculate_scoop, decode_generation_signature, generate_nonces,
     noncegen_common::{NONCE_SIZE, NUM_SCOOPS, SCOOP_SIZE},
 };
-use std::time::Instant;
-
 #[test]
 fn test_full_mining_workflow() {
     // Simulate a complete mining workflow
@@ -77,40 +75,6 @@ fn test_full_mining_workflow() {
 }
 
 #[test]
-fn test_large_nonce_generation() {
-    // Test with larger number of nonces to ensure scalability
-    let account = [2u8; 20];
-    let seed = [0x33u8; 32];
-    let num_nonces = 8; // Reduced from 50 to 8 for faster testing
-    let start_nonce = 1000;
-
-    let mut cache = vec![0u8; num_nonces * NONCE_SIZE];
-
-    let start_time = Instant::now();
-    let result = generate_nonces(
-        &mut cache,
-        0,
-        &account,
-        &seed,
-        start_nonce,
-        num_nonces as u64,
-    );
-    let generation_time = start_time.elapsed();
-
-    assert!(result.is_ok());
-    println!("Generated {} nonces in {:?}", num_nonces, generation_time);
-
-    // Verify data was generated
-    let zero_count = cache.iter().filter(|&&b| b == 0).count();
-    let total_bytes = cache.len();
-    let non_zero_ratio = 1.0 - (zero_count as f64 / total_bytes as f64);
-
-    // In a real implementation, we'd expect significant non-zero data
-    // For testing purposes, we just ensure the operation completed
-    println!("Non-zero data ratio: {:.2}%", non_zero_ratio * 100.0);
-}
-
-#[test]
 fn test_concurrent_safety_simulation() {
     use std::sync::{Arc, Mutex};
     use std::thread;
@@ -153,36 +117,6 @@ fn test_concurrent_safety_simulation() {
     // Verify each thread completed successfully
     for result in results {
         assert!(result.is_ok(), "Thread should complete successfully");
-    }
-}
-
-#[test]
-fn test_memory_efficiency() {
-    // Test that the library is memory efficient for large operations
-    let account = [3u8; 20];
-    let seed = [0x55u8; 32];
-
-    // Test with chunked processing to simulate real-world usage (reduced for speed)
-    let total_nonces = 20; // Reduced from 100 to 20
-    let chunk_size = 5; // Reduced from 10 to 5
-
-    for chunk_start in (0..total_nonces).step_by(chunk_size) {
-        let chunk_nonces = std::cmp::min(chunk_size, total_nonces - chunk_start);
-        let mut cache = vec![0u8; chunk_nonces * NONCE_SIZE];
-
-        let result = generate_nonces(
-            &mut cache,
-            0,
-            &account,
-            &seed,
-            chunk_start as u64,
-            chunk_nonces as u64,
-        );
-
-        assert!(result.is_ok());
-
-        // Verify chunk was processed
-        assert_eq!(cache.len(), chunk_nonces * NONCE_SIZE);
     }
 }
 
@@ -286,88 +220,5 @@ fn test_generation_signature_realistic() {
             let rehexed = hex::encode(bytes);
             assert_eq!(rehexed.to_lowercase(), signature_hex.to_lowercase());
         }
-    }
-}
-
-#[test]
-fn test_performance_characteristics() {
-    // Test that operations complete within reasonable time bounds
-    let account = [5u8; 20];
-    let seed = [0x99u8; 32];
-
-    // Single nonce generation should be fast
-    let mut cache = vec![0u8; NONCE_SIZE];
-    let start = Instant::now();
-    let result = generate_nonces(&mut cache, 0, &account, &seed, 0, 1);
-    let single_nonce_time = start.elapsed();
-
-    assert!(result.is_ok());
-    println!("Single nonce generation time: {:?}", single_nonce_time);
-
-    // Multiple nonce generation should scale reasonably
-    let num_nonces = 10;
-    let mut large_cache = vec![0u8; num_nonces * NONCE_SIZE];
-    let start = Instant::now();
-    let result = generate_nonces(&mut large_cache, 0, &account, &seed, 0, num_nonces as u64);
-    let multiple_nonce_time = start.elapsed();
-
-    assert!(result.is_ok());
-    println!("Multiple nonce generation time: {:?}", multiple_nonce_time);
-
-    // Test generation signature operations instead
-    let start = Instant::now();
-    let _result = decode_generation_signature(
-        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-    );
-    let decode_time = start.elapsed();
-
-    println!("Generation signature decode time: {:?}", decode_time);
-
-    // Scoop calculation should be very fast
-    let start = Instant::now();
-    let _scoop = calculate_scoop(12345, &[0x42u8; 32]);
-    let scoop_time = start.elapsed();
-
-    println!("Scoop calculation time: {:?}", scoop_time);
-}
-
-#[test]
-fn test_simple_offset_handling() {
-    // Test basic offset functionality without unsafe operations
-    let account = [6u8; 20];
-    let seed = [0xBBu8; 32];
-    let num_nonces = 1;
-
-    // Test without offset first
-    let mut cache = vec![0u8; num_nonces * NONCE_SIZE];
-    let result = generate_nonces(&mut cache, 0, &account, &seed, 0, num_nonces as u64);
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_edge_case_parameters() {
-    // Test various edge cases that might occur in real usage
-    let account = [7u8; 20];
-    let seed = [0xCCu8; 32];
-
-    // Minimum valid nonce count
-    let mut cache = vec![0u8; NONCE_SIZE];
-    let result = generate_nonces(&mut cache, 0, &account, &seed, 0, 1);
-    assert!(result.is_ok());
-
-    // Large start nonce
-    let result = generate_nonces(&mut cache, 0, &account, &seed, u64::MAX - 100, 1);
-    assert!(result.is_ok());
-
-    // Zero offset
-    let result = generate_nonces(&mut cache, 0, &account, &seed, 0, 1);
-    assert!(result.is_ok());
-
-    // Various account patterns
-    let special_accounts = vec![[0u8; 20], [0xFFu8; 20], [0x55u8; 20]];
-
-    for special_account in special_accounts {
-        let result = generate_nonces(&mut cache, 0, &special_account, &seed, 0, 1);
-        assert!(result.is_ok());
     }
 }

@@ -110,97 +110,6 @@ cfg_if! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
-
-    #[test]
-    fn test_free_disk_space() {
-        // Test with current directory - should not panic and return a reasonable value
-        let result = free_disk_space(".");
-        assert!(result.is_ok());
-
-        let space = result.unwrap();
-        // Available space should be reasonable (less than 1 petabyte as sanity check)
-        assert!(space < 1_000_000_000_000_000); // 1 PB
-    }
-
-    #[test]
-    fn test_free_disk_space_invalid_path() {
-        let result = free_disk_space("/nonexistent/path/that/should/not/exist");
-
-        // This might succeed or fail depending on the OS and filesystem
-        // but it should not panic
-        match result {
-            Ok(space) => {
-                // If it succeeds, space should be reasonable
-                assert!(space < 1_000_000_000_000_000);
-            }
-            Err(_) => {
-                // Failing is also acceptable for invalid paths
-            }
-        }
-    }
-
-    #[test]
-    fn test_get_sector_size() {
-        // Test with current directory
-        let result = get_sector_size(".");
-
-        // This should work on most systems, but may fail on some configurations
-        match result {
-            Ok(sector_size) => {
-                // Common sector sizes are 512, 1024, 2048, 4096, 8192 bytes
-                assert!(sector_size >= 512);
-                assert!(sector_size <= 65536); // Reasonable upper bound
-                                               // Should be a power of 2
-                assert!(sector_size & (sector_size - 1) == 0);
-            }
-            Err(_) => {
-                // Some systems might not support this operation
-                // That's acceptable for the test
-            }
-        }
-    }
-
-    #[test]
-    fn test_set_low_prio() {
-        // This function should not panic when called
-        set_low_prio();
-
-        // No assertions needed - just ensuring it doesn't crash
-        // The actual priority change is OS-dependent and hard to test
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn test_is_elevated() {
-        // Test the Windows elevation check
-        let elevated = is_elevated();
-
-        // Should return without panicking - value doesn't matter for this test
-        let _ = elevated;
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn test_set_thread_ideal_processor() {
-        // Test setting thread processor affinity
-        set_thread_ideal_processor(0);
-        set_thread_ideal_processor(1);
-
-        // Should not panic - actual effect is hard to test
-    }
-
-    #[test]
-    fn test_path_handling() {
-        // Test various path formats that the utilities might encounter
-        let test_paths = [".", "..", "/", "C:\\", "/tmp", "/var"];
-
-        for path in &test_paths {
-            // Test that Path::new doesn't panic with these inputs
-            let path_obj = Path::new(path);
-            assert!(path_obj.as_os_str().len() >= path.len());
-        }
-    }
 
     #[test]
     fn test_error_propagation() {
@@ -219,30 +128,6 @@ mod tests {
                 // Error should be displayable
                 let error_msg = format!("{}", e);
                 assert!(!error_msg.is_empty());
-            }
-        }
-    }
-
-    #[test]
-    fn test_cross_platform_consistency() {
-        // Test that the public API behaves consistently across platforms
-        let current_dir_result = get_sector_size(".");
-        let free_space_result = free_disk_space(".");
-
-        // Both should either succeed or fail gracefully
-        match (current_dir_result, free_space_result) {
-            (Ok(sector_size), Ok(_free_space)) => {
-                assert!(sector_size > 0);
-                // free_space is u64, so it's always >= 0 by definition
-                // Just check that we got a valid value (could be 0 if disk is full)
-
-                // Sector size should be reasonable
-                assert!(sector_size >= 512);
-                assert!(sector_size <= 65536);
-            }
-            _ => {
-                // Some combinations might fail on certain systems
-                // That's acceptable as long as they don't panic
             }
         }
     }

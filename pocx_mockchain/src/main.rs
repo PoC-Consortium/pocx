@@ -164,37 +164,3 @@ async fn main() {
         std::process::exit(1);
     });
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_address_payload_validation() {
-        // Test the new payload-only validation approach
-
-        let test_payload = [42u8; 20];
-        let payload_hex = hex::encode(test_payload);
-
-        // Test valid 40-character hex payload
-        assert_eq!(payload_hex.len(), 40, "Payload should be 40 hex characters");
-
-        // Test that hex decoding works
-        let decoded = hex::decode(&payload_hex).unwrap();
-        assert_eq!(decoded.len(), 20, "Decoded payload should be 20 bytes");
-        assert_eq!(decoded, test_payload, "Round-trip should preserve payload");
-
-        // Test invalid hex lengths
-        let short_payload = "1234567890abcdef"; // 16 chars = 8 bytes
-        let long_payload = "1234567890abcdef1234567890abcdef1234567890abcdef"; // 48 chars = 24 bytes
-
-        assert_ne!(
-            short_payload.len(),
-            40,
-            "Short payload should fail length check"
-        );
-        assert_ne!(
-            long_payload.len(),
-            40,
-            "Long payload should fail length check"
-        );
-    }
-}

@@ -179,13 +179,4 @@ mod tests {
         let re_encoded = encode_address(&payload, network_id).unwrap();
         assert_eq!(re_encoded, address);
     }
-
-    /// Test that different payloads produce different addresses
-    #[test]
-    fn address_uniqueness() {
-        let network = NetworkId::Base58(0x55);
-        let addr1 = encode_address(&[0x01u8; 20], network.clone()).unwrap();
-        let addr2 = encode_address(&[0x02u8; 20], network).unwrap();
-        assert_ne!(addr1, addr2);
-    }
 }

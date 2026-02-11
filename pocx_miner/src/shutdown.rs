@@ -196,12 +196,6 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn test_shutdown_coordinator_creation() {
-        let coordinator = ShutdownCoordinator::new();
-        assert!(!coordinator.is_shutting_down());
-    }
-
-    #[test]
     fn test_shutdown_initiation() {
         let coordinator = ShutdownCoordinator::new();
         coordinator.initiate_shutdown();

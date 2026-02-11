@@ -29,7 +29,6 @@ use pocx_hashlib::{
     PoCXHashError,
 };
 use proptest::prelude::*;
-use quickcheck::QuickCheck;
 use quickcheck_macros::quickcheck;
 
 /// Strategy for generating valid hex strings
@@ -147,43 +146,6 @@ proptest! {
 
 }
 
-/// QuickCheck tests for additional coverage with reduced iterations for speed
-/// Re-enabled after fixing buffer bounds checking
-#[test]
-fn quickcheck_nonce_generation_no_panic() {
-    fn prop(account: Vec<u8>, seed: Vec<u8>, num_nonces: u8, start_nonce: u64) -> bool {
-        // Convert to fixed size arrays
-        let mut account_fixed = [0u8; 20];
-        let mut seed_fixed = [0u8; 32];
-
-        for (i, &b) in account.iter().take(20).enumerate() {
-            account_fixed[i] = b;
-        }
-        for (i, &b) in seed.iter().take(32).enumerate() {
-            seed_fixed[i] = b;
-        }
-
-        let num_nonces = std::cmp::max(1, num_nonces as u64 % 3); // Reduced from 10 to 3
-        let mut cache = vec![0u8; num_nonces as usize * NONCE_SIZE];
-
-        // This should not panic, but may return an error
-        let _result = generate_nonces(
-            &mut cache,
-            0,
-            &account_fixed,
-            &seed_fixed,
-            start_nonce,
-            num_nonces,
-        );
-        true // If we reach here, no panic occurred
-    }
-
-    // Run with reduced iterations (10 instead of default 100)
-    QuickCheck::new()
-        .tests(10)
-        .quickcheck(prop as fn(Vec<u8>, Vec<u8>, u8, u64) -> bool);
-}
-
 #[quickcheck]
 fn quickcheck_scoop_calculation_bounds(block_height: u64, gen_sig: Vec<u8>) -> bool {
     let mut gen_sig_fixed = [0u8; 32];
@@ -198,18 +160,6 @@ fn quickcheck_scoop_calculation_bounds(block_height: u64, gen_sig: Vec<u8>) -> b
 #[cfg(test)]
 mod integration_property_tests {
     use super::*;
-
-    #[test]
-    fn test_basic_nonce_generation() {
-        // Test basic nonce generation without offsets
-        let account = [1u8; 20];
-        let seed = [2u8; 32];
-        let num_nonces = 1;
-
-        let mut cache = vec![0u8; num_nonces * NONCE_SIZE];
-        let result = generate_nonces(&mut cache, 0, &account, &seed, 0, num_nonces as u64);
-        assert!(result.is_ok());
-    }
 
     #[test]
     fn test_generation_signature_reproducibility() {

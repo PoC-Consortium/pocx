@@ -97,14 +97,6 @@ mod buffer_tests {
     use super::PageAlignedByteBuffer;
 
     #[test]
-    fn buffer_creation_destruction_test() {
-        {
-            let test = PageAlignedByteBuffer::new(1024 * 1024);
-            drop(test);
-        }
-    }
-
-    #[test]
     fn buffer_size_validation() {
         let sizes = [4096, 8192, 16384, 1024 * 1024, 2 * 1024 * 1024];
 

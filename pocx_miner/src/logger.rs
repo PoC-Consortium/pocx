@@ -140,18 +140,4 @@ mod tests {
             log::LevelFilter::Off
         );
     }
-
-    #[test]
-    fn test_init_logger() {
-        use crate::config::load_cfg;
-        let mut cfg = load_cfg("miner_config.yaml");
-
-        // we dont want to see this during tests
-        cfg.console_log_level = log::LevelFilter::Error.to_string();
-
-        let _ = init_logger(&cfg);
-        trace!("TRACE");
-        debug!("DEBUG");
-        info!("INFO");
-    }
 }

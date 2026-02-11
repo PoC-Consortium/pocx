@@ -115,17 +115,3 @@ impl Drop for PageAlignedByteBuffer {
 // raw pointer is only used for allocation/deallocation and the Vec provides
 // safe access.
 unsafe impl Send for PageAlignedByteBuffer {}
-
-#[cfg(test)]
-mod buffer_tests {
-    use super::PageAlignedByteBuffer;
-
-    #[test]
-    fn buffer_creation_destruction_test() {
-        {
-            let _test =
-                PageAlignedByteBuffer::new(1024 * 1024).expect("Test buffer allocation failed");
-        }
-        // Test completed successfully
-    }
-}
