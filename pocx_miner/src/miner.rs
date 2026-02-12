@@ -916,6 +916,10 @@ impl Miner {
                                         chain: chains[chain_id].name.clone(),
                                         height: mining_info.height,
                                         total_warps,
+                                        warps_scanned: resume_states[chain_id]
+                                            .as_ref()
+                                            .map(|i| i.warps_scanned)
+                                            .unwrap_or(0),
                                         resuming: is_resuming,
                                     });
                                 });
