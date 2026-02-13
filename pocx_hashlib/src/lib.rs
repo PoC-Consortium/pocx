@@ -153,7 +153,8 @@ mod shabal256_neon;
 
 // Re-export batch validation types
 pub use batch_validation::{
-    validate_proof, validate_proofs, BatchValidationResult, ProofInput, ValidationResult,
+    validate_proof, validate_proofs, BatchValidationResult, ProofInput, SurrenderPolicy,
+    ValidationResult,
 };
 // Re-export main error types for convenience
 pub use error::{PoCXHashError, Result};

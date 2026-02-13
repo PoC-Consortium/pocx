@@ -1,7 +1,7 @@
 // Copyright (c) 2025 Proof of Capacity Consortium
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use pocx_hashlib::{validate_proof, validate_proofs, ProofInput};
+use pocx_hashlib::{validate_proof, validate_proofs, ProofInput, SurrenderPolicy};
 
 fn bench_gensig() -> [u8; 32] {
     let mut gensig = [0u8; 32];
@@ -69,7 +69,7 @@ fn bench_validate_batch(c: &mut Criterion) {
                         claimed_quality: None,
                     })
                     .collect();
-                b.iter(|| validate_proofs(&inputs).unwrap());
+                b.iter(|| validate_proofs(&inputs, SurrenderPolicy::ContinueAll).unwrap());
             },
         );
     }
@@ -97,7 +97,7 @@ fn bench_validate_batch_compressed(c: &mut Criterion) {
                         claimed_quality: None,
                     })
                     .collect();
-                b.iter(|| validate_proofs(&inputs).unwrap());
+                b.iter(|| validate_proofs(&inputs, SurrenderPolicy::ContinueAll).unwrap());
             },
         );
     }
