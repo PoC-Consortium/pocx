@@ -71,15 +71,17 @@ pub fn new_thread_pool(num_threads: usize, thread_pinning: bool) -> rayon::Threa
 
 cfg_if! {
     if #[cfg(unix)] {
-        use std::process::Command;
-
         pub fn get_device_id(path: &str) -> String {
-            let output = Command::new("stat")
-                .arg(path)
-                .args(["-c", "%D"])
-                .output()
-                .expect("failed to execute 'stat -c %D'");
-            String::from_utf8(output.stdout).expect("not utf8").trim_end().to_owned()
+            use std::ffi::CString;
+            let c_path = CString::new(path).expect("invalid path");
+            unsafe {
+                let mut stat_buf: libc::stat = std::mem::zeroed();
+                if libc::stat(c_path.as_ptr(), &mut stat_buf) == 0 {
+                    format!("{:x}", stat_buf.st_dev)
+                } else {
+                    String::new()
+                }
+            }
         }
 
     } else {
