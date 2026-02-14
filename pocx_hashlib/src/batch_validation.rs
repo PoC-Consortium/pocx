@@ -48,6 +48,15 @@ use crate::noncegen_batch_neon::generate_and_extract_scoops_neon;
 // Public types
 // ---------------------------------------------------------------------------
 
+/// Controls whether a quality mismatch stops the entire batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SurrenderPolicy {
+    /// Stop batch on first mismatch (block validation).
+    StopOnFirst,
+    /// Mark individual mismatches but continue all (pool validation).
+    ContinueAll,
+}
+
 /// Input for validating a single PoC proof.
 #[derive(Clone, Debug)]
 pub struct ProofInput {
@@ -109,7 +118,10 @@ struct ProofAccumulator {
 /// Each proof is expanded into work units based on its compression level,
 /// processed in SIMD-width batches, and finalized with quality computation.
 /// Supports early surrender when `claimed_quality` is set and mismatches.
-pub fn validate_proofs(inputs: &[ProofInput]) -> Result<BatchValidationResult> {
+pub fn validate_proofs(
+    inputs: &[ProofInput],
+    policy: SurrenderPolicy,
+) -> Result<BatchValidationResult> {
     if inputs.is_empty() {
         return Ok(BatchValidationResult {
             results: vec![],
@@ -183,9 +195,11 @@ pub fn validate_proofs(inputs: &[ProofInput]) -> Result<BatchValidationResult> {
             if quality == claimed {
                 (true, None)
             } else {
-                early_surrender_flag = true;
-                if surrender_index.is_none() {
-                    surrender_index = Some(idx);
+                if policy == SurrenderPolicy::StopOnFirst {
+                    early_surrender_flag = true;
+                    if surrender_index.is_none() {
+                        surrender_index = Some(idx);
+                    }
                 }
                 (
                     false,
@@ -217,7 +231,7 @@ pub fn validate_proofs(inputs: &[ProofInput]) -> Result<BatchValidationResult> {
 
 /// Validate a single PoC proof (convenience wrapper).
 pub fn validate_proof(input: &ProofInput) -> Result<ValidationResult> {
-    let batch = validate_proofs(std::slice::from_ref(input))?;
+    let batch = validate_proofs(std::slice::from_ref(input), SurrenderPolicy::ContinueAll)?;
     Ok(batch.results.into_iter().next().unwrap())
 }
 
@@ -523,7 +537,7 @@ mod tests {
             })
             .collect();
 
-        let batch_result = validate_proofs(&inputs).unwrap();
+        let batch_result = validate_proofs(&inputs, SurrenderPolicy::ContinueAll).unwrap();
         assert_eq!(batch_result.results.len(), 8);
         assert!(!batch_result.early_surrender);
 
@@ -601,7 +615,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_proofs_early_surrender() {
+    fn test_validate_proofs_early_surrender_stop_on_first() {
         let gensig = test_gensig();
 
         let inputs = vec![
@@ -627,19 +641,56 @@ mod tests {
             },
         ];
 
-        let result = validate_proofs(&inputs).unwrap();
+        let result = validate_proofs(&inputs, SurrenderPolicy::StopOnFirst).unwrap();
         assert_eq!(result.results.len(), 2);
-        // First proof should fail (wrong claimed quality)
         assert!(!result.results[0].is_valid);
-        // Second proof should still be computed and valid
         assert!(result.results[1].is_valid);
         assert!(result.early_surrender);
         assert_eq!(result.surrender_index, Some(0));
     }
 
     #[test]
+    fn test_validate_proofs_continue_all_on_mismatch() {
+        let gensig = test_gensig();
+
+        let inputs = vec![
+            ProofInput {
+                address_payload: [0x01; 20],
+                seed: [0xAA; 32],
+                nonce: 100,
+                compression: 0,
+                block_height: 0,
+                generation_signature: gensig,
+                base_target: 1,
+                claimed_quality: Some(999), // wrong
+            },
+            ProofInput {
+                address_payload: [0x02; 20],
+                seed: [0xBB; 32],
+                nonce: 200,
+                compression: 0,
+                block_height: 0,
+                generation_signature: gensig,
+                base_target: 1,
+                claimed_quality: Some(888), // also wrong
+            },
+        ];
+
+        let result = validate_proofs(&inputs, SurrenderPolicy::ContinueAll).unwrap();
+        assert_eq!(result.results.len(), 2);
+        // Both proofs marked invalid individually
+        assert!(!result.results[0].is_valid);
+        assert!(!result.results[1].is_valid);
+        assert!(result.results[0].error.is_some());
+        assert!(result.results[1].error.is_some());
+        // But no batch-level surrender
+        assert!(!result.early_surrender);
+        assert!(result.surrender_index.is_none());
+    }
+
+    #[test]
     fn test_validate_proofs_empty() {
-        let result = validate_proofs(&[]).unwrap();
+        let result = validate_proofs(&[], SurrenderPolicy::ContinueAll).unwrap();
         assert!(result.results.is_empty());
         assert!(!result.early_surrender);
     }
@@ -780,7 +831,7 @@ mod tests {
             })
             .collect();
 
-        let batch = validate_proofs(&inputs).unwrap();
+        let batch = validate_proofs(&inputs, SurrenderPolicy::ContinueAll).unwrap();
         assert_eq!(batch.results.len(), 32);
 
         for (idx, input) in inputs.iter().enumerate() {

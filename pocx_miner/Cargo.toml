@@ -1,6 +1,6 @@
 [package]
 name = "pocx_miner"
-version = "1.0.0-rc.9"
+version = "1.0.0-rc.10"
 license = "MIT"
 authors = ["Proof of Capacity Consortium"]
 description = "High-performance PoCX cryptocurrency miner with SIMD optimizations"
@@ -56,9 +56,9 @@ rand = { workspace = true }
 bytesize = "2.0.1"
 
 # Internal dependencies
-pocx_hashlib = { version = "1.0.0-rc.9", path = "../pocx_hashlib" }
-pocx_plotfile = { version = "1.0.0-rc.9", path = "../pocx_plotfile" }
-pocx_protocol = { version = "1.0.0-rc.9", path = "../pocx_protocol" }
+pocx_hashlib = { version = "1.0.0-rc.10", path = "../pocx_hashlib" }
+pocx_plotfile = { version = "1.0.0-rc.10", path = "../pocx_plotfile" }
+pocx_protocol = { version = "1.0.0-rc.10", path = "../pocx_protocol" }
 
 [target.'cfg(windows)'.dependencies]
 winapi = { workspace = true }
