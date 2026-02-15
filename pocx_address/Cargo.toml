@@ -13,13 +13,8 @@ keywords = ["cryptocurrency", "address", "base58", "bech32", "poc"]
 categories = ["cryptography"]
 
 [dependencies]
-rand = { workspace = true }
 bs58 = { workspace = true }
 bech32 = { workspace = true }
-secp256k1 = { workspace = true }
-sha2 = { workspace = true }
-ripemd = { workspace = true }
-hex = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

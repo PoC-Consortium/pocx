@@ -23,7 +23,6 @@
 pub mod base58;
 pub mod bech32;
 pub mod common;
-pub mod crypto;
 
 // Re-export common types and constants
 pub use common::{
@@ -146,23 +145,6 @@ mod tests {
         // Invalid addresses
         assert_eq!(detect_address_format("invalid"), None);
         assert_eq!(detect_address_format(""), None);
-    }
-
-    /// Test cryptographic integration
-    #[test]
-    fn crypto_integration() {
-        let private_key = crypto::PrivateKey::generate_random();
-        let payload = private_key.to_public_key().to_address_payload();
-
-        // Should work with both formats
-        let base58_addr = encode_address(&payload, NetworkId::Base58(0x55)).unwrap();
-        let bech32_addr = encode_address(&payload, NetworkId::Bech32("pocx".to_string())).unwrap();
-
-        let (payload1, _) = decode_address(&base58_addr).unwrap();
-        let (payload2, _) = decode_address(&bech32_addr).unwrap();
-
-        assert_eq!(payload1, payload);
-        assert_eq!(payload2, payload);
     }
 
     /// Test bech32 address with witness version 2 and roundtrip
