@@ -1,0 +1,114 @@
+# Cross-compilation for MIPS32 (little-endian, soft-float, statically linked with musl).
+# Developed and tested on a Dreambox DM7080 HD satellite DVR:
+#   - Broadcom BCM7435 SoC, quad-core BMIPS5000 @ 1.4GHz
+#   - MIPS32r1 ISA (no r2 support), soft-float, Linux 3.4, glibc 2.23
+# Key constraint: must explicitly disable MIPS32r2 code generation (-mips32r2)
+# since Rust/LLVM defaults to r2 for the mipsel-unknown-linux-musl target.
+# Uses zig as a cross-compiler/linker and -Zbuild-std to build std from source.
+
+name: Build MIPS
+
+on:
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: 'Packages to build (space-separated)'
+        required: true
+        default: 'pocx_miner'
+
+env:
+  CARGO_TERM_COLOR: always
+  ZIG_VERSION: "0.15.2"
+  TARGET: mipsel-unknown-linux-musl
+
+jobs:
+  build:
+    name: Build - mipsel-unknown-linux-musl
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly with rust-src
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+
+      - name: Install zig
+        run: |
+          curl -L "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-x86_64-${ZIG_VERSION}.tar.xz" | tar -xJ
+          echo "$PWD/zig-linux-x86_64-${ZIG_VERSION}" >> $GITHUB_PATH
+
+      - name: Create zig wrapper scripts
+        run: |
+          # Linker wrapper: uses zig as linker with mips32r1 ISA
+          cat > zig-ld-mipsel <<'EOF'
+          #!/bin/sh
+          ARGS=""
+          for arg in "$@"; do
+            case "$arg" in --target=*) ;; *) ARGS="$ARGS $arg" ;; esac
+          done
+          exec zig cc -target mipsel-linux-musleabi -march=mips32 -fuse-ld=lld $ARGS
+          EOF
+
+          # CC wrapper: used by cc-rs for C dependencies (ring, etc.)
+          cat > zig-cc-mipsel <<'EOF'
+          #!/bin/sh
+          ARGS=""
+          for arg in "$@"; do
+            case "$arg" in --target=*) ;; *) ARGS="$ARGS $arg" ;; esac
+          done
+          exec zig cc -target mipsel-linux-musleabi -march=mips32 $ARGS
+          EOF
+
+          chmod +x zig-ld-mipsel zig-cc-mipsel
+
+      - name: Configure cargo for cross-compilation
+        run: |
+          mkdir -p .cargo
+          cat > .cargo/config.toml <<EOF
+          [target.mipsel-unknown-linux-musl]
+          linker = "$PWD/zig-ld-mipsel"
+          rustflags = ["-C", "relocation-model=static", "-C", "target-cpu=mips32", "-C", "target-feature=+mips32,-mips32r2,+soft-float"]
+          EOF
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: mips-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache target directory
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: mips-target-release-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build
+        run: |
+          PKGS=""
+          for pkg in ${{ github.event.inputs.packages }}; do
+            PKGS="$PKGS -p $pkg"
+          done
+          cargo +nightly build --release --target $TARGET -Zbuild-std $PKGS
+        env:
+          CC_mipsel_unknown_linux_musl: ${{ github.workspace }}/zig-cc-mipsel
+        timeout-minutes: 30
+
+      - name: Prepare artifacts
+        run: |
+          mkdir -p artifacts
+          for pkg in ${{ github.event.inputs.packages }}; do
+            bin="target/${TARGET}/release/${pkg}"
+            if [ -f "$bin" ]; then
+              cp "$bin" artifacts/
+              chmod +x "artifacts/${pkg}"
+            fi
+          done
+          ls -lh artifacts/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pocx-mipsel-linux-musl
+          path: artifacts/*
+          retention-days: 30
