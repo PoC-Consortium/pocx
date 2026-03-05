@@ -41,6 +41,7 @@ winapi = { version = "0.3", features = ["std", "fileapi", "securitybaseapi", "er
 
 [target.'cfg(not(windows))'.dependencies]
 fs2 = "0.4"
+libc = "0.2"
 
 [features]
 opencl = []

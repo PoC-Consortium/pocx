@@ -29,13 +29,30 @@ cfg_if! {
         use std::os::unix::fs::OpenOptionsExt;
         use fs2::FileExt;
 
-        const O_DIRECT: i32 = 0o0_040_000;
+        #[cfg(not(target_os = "macos"))]
+        fn apply_direct_io_flags(opts: &mut OpenOptions) {
+            opts.custom_flags(libc::O_DIRECT);
+        }
+
+        #[cfg(target_os = "macos")]
+        fn apply_direct_io_post_open(file: &File) -> io::Result<()> {
+            use std::os::unix::io::AsRawFd;
+            let fd = file.as_raw_fd();
+            if unsafe { libc::fcntl(fd, libc::F_NOCACHE, 1) } != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        }
 
         pub fn open_r_using_direct_io<P: AsRef<Path>>(path: P) -> io::Result<File> {
-            OpenOptions::new()
-                .read(true)
-                .custom_flags(O_DIRECT)
-                .open(path)
+            let mut opts = OpenOptions::new();
+            opts.read(true);
+            #[cfg(not(target_os = "macos"))]
+            apply_direct_io_flags(&mut opts);
+            let file = opts.open(path)?;
+            #[cfg(target_os = "macos")]
+            apply_direct_io_post_open(&file)?;
+            Ok(file)
         }
 
         pub fn open_r<P: AsRef<Path>>(path: P) -> io::Result<File> {
@@ -45,12 +62,14 @@ cfg_if! {
         }
 
         pub fn open_rw_using_direct_io<P: AsRef<Path>>(path: P) -> io::Result<File> {
-            OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .custom_flags(O_DIRECT)
-                .open(path)
+            let mut opts = OpenOptions::new();
+            opts.read(true).write(true).create(true);
+            #[cfg(not(target_os = "macos"))]
+            apply_direct_io_flags(&mut opts);
+            let file = opts.open(path)?;
+            #[cfg(target_os = "macos")]
+            apply_direct_io_post_open(&file)?;
+            Ok(file)
         }
 
         pub fn open_rw<P: AsRef<Path>>(path: P) -> io::Result<File> {
