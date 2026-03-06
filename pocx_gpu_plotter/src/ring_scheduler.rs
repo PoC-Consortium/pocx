@@ -34,7 +34,7 @@ use crate::get_plotter_callback;
 use crate::is_stop_requested;
 use crate::ocl::{
     gpu_ring_compress, gpu_ring_hash, gpu_ring_transfer, gpu_upload_base58, gpu_upload_seed,
-    gpu_zero_compressed_buffer, GpuRingContext,
+    GpuRingContext,
 };
 use crate::plotter::{PlotterTask, WARP_SIZE};
 use crossbeam_channel::{Receiver, Sender};
@@ -88,11 +88,6 @@ pub fn create_ring_scheduler_thread(
                 break;
             }
 
-            // Zero compressed buffer before first pass of each warp
-            if pass_in_warp == 0 {
-                gpu_zero_compressed_buffer(&gpu_ctx);
-            }
-
             // Phase 1: Fill ring with hash dispatches
             while ring_available + worksize <= ring_size
                 && nonces_hashed < total_raw_nonces
@@ -126,7 +121,7 @@ pub fn create_ring_scheduler_thread(
                 let compress_start =
                     (ring_head + ring_size - ring_available) % ring_size;
 
-                gpu_ring_compress(&gpu_ctx, compress_start);
+                gpu_ring_compress(&gpu_ctx, compress_start, pass_in_warp > 0);
                 ring_available -= COMPRESS_BATCH;
                 pass_in_warp += 1;
 
