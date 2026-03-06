@@ -88,31 +88,15 @@ pub fn create_ring_scheduler_thread(
         // Xn compression: 2^(x-1) helix passes per warp, each consuming 8192 nonces
         let passes_per_warp = 1u64 << (task.compress - 1);
 
-        // Total warps across all paths
-        let total_warps: u64 = task
-            .warps
-            .iter()
-            .zip(task.number_of_plots.iter())
-            .map(|(w, n)| w * n)
-            .sum::<u64>()
-            - resume;
-        let total_raw_nonces = total_warps * passes_per_warp * COMPRESS_BATCH;
-
-        let mut global_nonce: u64 = 0;
+        let mut global_nonces: Vec<u64> = vec![0; num_paths];
         let mut ring_head: u64 = 0;
         let mut ring_available: u64 = 0;
-        let mut nonces_hashed: u64 = 0;
         let mut pass_in_warp: u64 = 0;
         let mut path_pointer: usize = 0;
 
         // If resuming, start nonce counter at resume offset for first path
         if resume > 0 {
-            global_nonce = resume * passes_per_warp * COMPRESS_BATCH;
-        }
-
-        // Upload seed for starting path (handles resume on path 0)
-        if path_pointer == 0 && resume > 0 {
-            // Already uploaded above
+            global_nonces[0] = resume * passes_per_warp * COMPRESS_BATCH;
         }
 
         // Escalation: accumulate multiple warps into one write buffer
@@ -146,33 +130,45 @@ pub fn create_ring_scheduler_thread(
                 }
             };
 
-        while nonces_hashed < total_raw_nonces {
+        loop {
+            // Check if all paths are complete
+            if files_done
+                .iter()
+                .zip(task.number_of_plots.iter())
+                .all(|(d, n)| d >= n)
+            {
+                break;
+            }
             if is_stop_requested() {
                 break;
             }
 
+            let nonces_for_file =
+                task.warps[path_pointer] * passes_per_warp * COMPRESS_BATCH;
+
             // Phase 1: Fill ring with hash dispatches
             while ring_available + worksize <= ring_size
-                && nonces_hashed < total_raw_nonces
+                && global_nonces[path_pointer] < nonces_for_file
             {
                 if is_stop_requested() {
                     break;
                 }
 
-                let nonces_this_batch =
-                    std::cmp::min(worksize, total_raw_nonces - nonces_hashed);
+                let nonces_this_batch = std::cmp::min(
+                    worksize,
+                    nonces_for_file - global_nonces[path_pointer],
+                );
 
                 gpu_ring_hash(
                     &gpu_ctx,
-                    global_nonce,
+                    global_nonces[path_pointer],
                     nonces_this_batch,
                     ring_head,
                 );
 
                 ring_head = (ring_head + worksize) % ring_size;
                 ring_available += worksize;
-                nonces_hashed += nonces_this_batch;
-                global_nonce += nonces_this_batch;
+                global_nonces[path_pointer] += nonces_this_batch;
             }
 
             // Phase 2: Compress available batches (XOR-accumulate into compressed buffer)
@@ -231,10 +227,10 @@ pub fn create_ring_scheduler_thread(
                     }
 
                     let current_warps = task.warps[path_pointer];
-
-                    // Flush buffer when full or at file boundary
                     let at_file_boundary =
                         warp_offsets[path_pointer] == current_warps;
+
+                    // Flush buffer when full or at file boundary
                     if warps_in_buffer == escalate || at_file_boundary {
                         flush_buffer(
                             &mut write_buffer,
@@ -246,35 +242,60 @@ pub fn create_ring_scheduler_thread(
                             current_warps,
                             &tx_full_per_path,
                         );
-                    }
 
-                    // Check if current file is complete
-                    if at_file_boundary {
-                        files_done[path_pointer] += 1;
-                        warp_offsets[path_pointer] = 0;
-
-                        if files_done[path_pointer]
-                            < task.number_of_plots[path_pointer]
-                        {
-                            rand::rng().fill(&mut seeds[path_pointer]);
+                        // Handle file completion
+                        if at_file_boundary {
+                            files_done[path_pointer] += 1;
+                            if files_done[path_pointer]
+                                < task.number_of_plots[path_pointer]
+                            {
+                                rand::rng().fill(&mut seeds[path_pointer]);
+                            }
                         }
 
-                        // Advance to next path (round-robin)
-                        path_pointer = (path_pointer + 1) % num_paths;
+                        // Round-robin: find next active path
+                        let old_path = path_pointer;
+                        if num_paths > 1 {
+                            let mut found = false;
+                            for i in 1..=num_paths {
+                                let candidate =
+                                    (old_path + i) % num_paths;
+                                if files_done[candidate]
+                                    < task.number_of_plots[candidate]
+                                {
+                                    path_pointer = candidate;
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if !found {
+                                break; // All paths complete
+                            }
+                        }
 
-                        // Discard leftover ring nonces — they were hashed
-                        // with the old seed and must not be compressed for
-                        // the new path/file.
-                        nonces_hashed -= ring_available;
-                        ring_available = 0;
-                        ring_head = 0;
+                        let path_changed = path_pointer != old_path;
 
-                        // Reset nonce counter — each file starts from nonce 0
-                        global_nonce = 0;
+                        // Discard ring when seed changes (path switch or new file)
+                        if path_changed || at_file_boundary {
+                            // Undo nonce counter for uncompressed ring leftovers
+                            if !at_file_boundary {
+                                global_nonces[old_path] -= ring_available;
+                            }
+                            ring_available = 0;
+                            ring_head = 0;
 
-                        // Upload seed for the new path
-                        gpu_upload_seed(&mut gpu_ctx, &seeds[path_pointer]);
-                        buffer_start_warp = warp_offsets[path_pointer];
+                            if at_file_boundary {
+                                warp_offsets[old_path] = 0;
+                                global_nonces[old_path] = 0;
+                            }
+
+                            gpu_upload_seed(
+                                &mut gpu_ctx,
+                                &seeds[path_pointer],
+                            );
+                            buffer_start_warp = warp_offsets[path_pointer];
+                            break; // Exit Phase 2, refill ring for new seed
+                        }
                     }
                 }
             }
