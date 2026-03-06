@@ -134,60 +134,65 @@ impl Plotter {
             }
         }
 
-        // Validate warps and disk space
+        // Validate warps and disk space per path
         if task.benchmark {
-            // Benchmark mode: default to 1 warp if not specified, skip disk checks
-            if task.warps[0] == 0 {
-                task.warps[0] = 1;
-            }
-            if task.number_of_plots[0] == 0 {
-                task.number_of_plots[0] = 1;
+            for i in 0..task.output_paths.len() {
+                if task.warps[i] == 0 {
+                    task.warps[i] = 1;
+                }
+                if task.number_of_plots[i] == 0 {
+                    task.number_of_plots[i] = 1;
+                }
             }
         } else {
-            let path = Path::new(&task.output_paths[0]);
-            if !path.exists() {
-                return Err(PoCXPlotterError::InvalidInput(format!(
-                    "Specified target path does not exist: {:?}",
-                    path
-                )));
-            }
-
-            let space = free_disk_space(&task.output_paths[0])?;
-
-            if task.warps[0] == 0 {
-                if task.number_of_plots[0] == 0 {
-                    return Err(PoCXPlotterError::InvalidInput(
-                        "Need to specify either number of plots or number of warps".to_string(),
-                    ));
-                }
-                task.warps[0] = space / WARP_SIZE / task.number_of_plots[0];
-                if task.warps[0] == 0 {
-                    return Err(PoCXPlotterError::Config(format!(
-                        "Insufficient disk space, MiB_required={:.2}, MiB_available={:.2}, path={}",
-                        (task.number_of_plots[0] * WARP_SIZE) as f64 / 1024.0 / 1024.0,
-                        space as f64 / 1024.0 / 1024.0,
-                        &task.output_paths[0]
+            for i in 0..task.output_paths.len() {
+                let path = Path::new(&task.output_paths[i]);
+                if !path.exists() {
+                    return Err(PoCXPlotterError::InvalidInput(format!(
+                        "Specified target path does not exist: {:?}",
+                        path
                     )));
                 }
-            } else if task.number_of_plots[0] == 0 {
-                task.number_of_plots[0] = space / WARP_SIZE / task.warps[0];
-            } else {
-                let required_space = task.warps[0]
-                    .checked_mul(task.number_of_plots[0])
-                    .and_then(|v| v.checked_mul(WARP_SIZE))
-                    .ok_or_else(|| {
-                        PoCXPlotterError::Config(
-                            "Disk space calculation overflow".to_string(),
-                        )
-                    })?;
 
-                if resume == 0 && required_space >= space {
-                    return Err(PoCXPlotterError::Config(format!(
-                        "Insufficient disk space, MiB_required={:.2}, MiB_available={:.2}, path={}",
-                        required_space as f64 / 1024.0 / 1024.0,
-                        space as f64 / 1024.0 / 1024.0,
-                        &task.output_paths[0]
-                    )));
+                let space = free_disk_space(&task.output_paths[i])?;
+
+                if task.warps[i] == 0 {
+                    if task.number_of_plots[i] == 0 {
+                        return Err(PoCXPlotterError::InvalidInput(
+                            "Need to specify either number of plots or number of warps"
+                                .to_string(),
+                        ));
+                    }
+                    task.warps[i] = space / WARP_SIZE / task.number_of_plots[i];
+                    if task.warps[i] == 0 {
+                        return Err(PoCXPlotterError::Config(format!(
+                            "Insufficient disk space, MiB_required={:.2}, MiB_available={:.2}, path={}",
+                            (task.number_of_plots[i] * WARP_SIZE) as f64 / 1024.0 / 1024.0,
+                            space as f64 / 1024.0 / 1024.0,
+                            &task.output_paths[i]
+                        )));
+                    }
+                } else if task.number_of_plots[i] == 0 {
+                    task.number_of_plots[i] = space / WARP_SIZE / task.warps[i];
+                } else {
+                    let required_space = task.warps[i]
+                        .checked_mul(task.number_of_plots[i])
+                        .and_then(|v| v.checked_mul(WARP_SIZE))
+                        .ok_or_else(|| {
+                            PoCXPlotterError::Config(
+                                "Disk space calculation overflow".to_string(),
+                            )
+                        })?;
+
+                    // Only check disk space for first path if resuming
+                    if (i > 0 || resume == 0) && required_space >= space {
+                        return Err(PoCXPlotterError::Config(format!(
+                            "Insufficient disk space, MiB_required={:.2}, MiB_available={:.2}, path={}",
+                            required_space as f64 / 1024.0 / 1024.0,
+                            space as f64 / 1024.0 / 1024.0,
+                            &task.output_paths[i]
+                        )));
+                    }
                 }
             }
         }
@@ -224,7 +229,12 @@ impl Plotter {
             )));
         }
 
-        let total_planned_warps = task.warps[0] * task.number_of_plots[0];
+        let total_planned_warps: u64 = task
+            .warps
+            .iter()
+            .zip(task.number_of_plots.iter())
+            .map(|(w, n)| w * n)
+            .sum();
         let total_warps = total_planned_warps - resume;
 
         if task.line_progress {
@@ -267,9 +277,9 @@ impl Plotter {
                 hex::encode_upper(task.address_payload)
             );
             println!("Compression    : {}(X{})", 1u64 << task.compress, task.compress);
-            println!("Output path    : {}", task.output_paths[0]);
-            println!("Files to plot  : {}", task.number_of_plots[0]);
-            println!("Warps per file : {}", task.warps[0]);
+            println!("Output path(s) : {:?}", task.output_paths);
+            println!("Files to plot  : {:?}", task.number_of_plots);
+            println!("Warps per file : {:?}", task.warps);
             println!("Total warps    : {}\n", total_warps);
 
             #[cfg(windows)]
@@ -286,10 +296,8 @@ impl Plotter {
             }
         }
 
-        // Create channels
+        // Create shared empty-buffer pool
         let (tx_empty_write_buffers, rx_empty_write_buffers) =
-            bounded(num_write_buffers as usize);
-        let (tx_full_write_buffers, rx_full_write_buffers) =
             bounded(num_write_buffers as usize);
 
         // Allocate write buffers (each holds `escalate` warps)
@@ -344,17 +352,23 @@ impl Plotter {
         let gpu_ctx = gpu_ring_init(&task.gpu, task.kws_override)
             .map_err(|e| PoCXPlotterError::Hardware(format!("GPU init failed: {}", e)))?;
 
-        // Create writer thread
-        let write_progress = write_pb.clone();
-        let writer = thread::spawn({
-            create_writer_thread(
-                task.clone(),
-                write_progress,
-                rx_full_write_buffers,
-                tx_empty_write_buffers.clone(),
-                0,
-            )
-        });
+        // Create one writer thread per output path, each with a dedicated channel
+        let mut writers = Vec::new();
+        let mut tx_full_per_path = Vec::new();
+        for (i, _) in task.output_paths.iter().enumerate() {
+            let (tx_full, rx_full) = bounded(num_write_buffers as usize);
+            let write_progress = write_pb.as_ref().cloned();
+            writers.push(thread::spawn({
+                create_writer_thread(
+                    task.clone(),
+                    write_progress,
+                    rx_full,
+                    tx_empty_write_buffers.clone(),
+                    i,
+                )
+            }));
+            tx_full_per_path.push(tx_full);
+        }
 
         // Create ring scheduler thread
         let hasher = thread::spawn({
@@ -363,7 +377,7 @@ impl Plotter {
                 gpu_ctx,
                 hash_pb,
                 rx_empty_write_buffers,
-                tx_full_write_buffers,
+                tx_full_per_path,
                 resume,
             )
         });
@@ -371,9 +385,11 @@ impl Plotter {
         hasher
             .join()
             .map_err(|_| PoCXPlotterError::Channel("Hasher thread panicked".to_string()))?;
-        writer
-            .join()
-            .map_err(|_| PoCXPlotterError::Channel("Writer thread panicked".to_string()))?;
+        for writer in writers {
+            writer
+                .join()
+                .map_err(|_| PoCXPlotterError::Channel("Writer thread panicked".to_string()))?;
+        }
 
         let elapsed = start_time.elapsed().as_millis() as u64;
         let hours = elapsed / 1000 / 60 / 60;

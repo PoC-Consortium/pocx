@@ -158,7 +158,8 @@ fn run() -> Result<()> {
                 .short('p')
                 .long("path")
                 .value_name("path")
-                .help("target disk path for plotfile (default: current path)"),
+                .help("target disk path(s) for plotfile(s) (default: current path)")
+                .action(clap::ArgAction::Append),
         )
         .arg(
             Arg::new("seed")
@@ -310,23 +311,28 @@ fn run() -> Result<()> {
         .transpose()?
         .unwrap_or(0);
 
-    let output_path = matches
-        .get_one::<String>("path")
-        .cloned()
+    let output_paths = matches
+        .get_many::<String>("path")
+        .map(|vals| vals.cloned().collect::<Vec<String>>())
         .unwrap_or_else(|| {
-            std::env::current_dir()
+            vec![std::env::current_dir()
                 .and_then(|dir| {
                     dir.into_os_string().into_string().map_err(|_| {
                         std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid path")
                     })
                 })
-                .unwrap_or_else(|_| ".".to_string())
+                .unwrap_or_else(|_| ".".to_string())]
         });
 
     let seed = if let Some(seed_str) = matches.get_one::<String>("seed") {
         if number_of_plots != 1 {
             return Err(PoCXPlotterError::InvalidInput(
                 "When specifying a seed, n (number of plots) must be 1".to_string(),
+            ));
+        }
+        if output_paths.len() != 1 {
+            return Err(PoCXPlotterError::InvalidInput(
+                "When specifying a seed, there can only be one output path".to_string(),
             ));
         }
 
@@ -362,14 +368,15 @@ fn run() -> Result<()> {
         .cloned()
         .unwrap_or_else(|| "0:0:0".to_string());
 
+    let num_paths = output_paths.len();
     let p = Plotter::new();
     p.run(PlotterTask {
         address_payload,
         address,
         network_id,
-        warps: vec![warps],
-        number_of_plots: vec![number_of_plots],
-        output_paths: vec![output_path],
+        warps: vec![warps; num_paths],
+        number_of_plots: vec![number_of_plots; num_paths],
+        output_paths,
         seed,
         compress,
         mem,
