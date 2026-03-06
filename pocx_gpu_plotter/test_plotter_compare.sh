@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # test_plotter_compare.sh — Plot with both plotters, then binary-compare output files.
 #
-# Usage: ./test_plotter_compare.sh [gpu_id] [compression] [warps]
+# Usage: ./test_plotter_compare.sh [gpu_id] [compression] [warps] [escalate]
 #   gpu_id:      OpenCL device spec (default: 0:0:0)
 #   compression: compression level 1-6 (default: 1)
 #   warps:       number of warps to plot (default: 9)
+#   escalate:    write buffer size multiplier (default: 1)
 set -euo pipefail
 
 GPU="${1:-0:0:0}"
 COMPRESS="${2:-1}"
 WARPS="${3:-9}"
+ESCALATE="${4:-1}"
 SEED="AFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFE"
 ADDR="tpocx1qj0hnnyffma7tru28dlj92efhujs6y24l847ccp"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -22,6 +24,7 @@ echo "Address     : $ADDR"
 echo "Seed        : $SEED"
 echo "Compression : X$COMPRESS"
 echo "Warps       : $WARPS"
+echo "Escalation  : $ESCALATE"
 echo "GPU         : $GPU"
 echo ""
 
@@ -63,6 +66,7 @@ OLD_START=$SECONDS
     --num 1 \
     --path "$DIR_OLD" \
     --compression "$COMPRESS" \
+    --escalate "$ESCALATE" \
     --gpu "$GPU" \
     --ddio
 OLD_ELAPSED=$((SECONDS - OLD_START))
@@ -70,7 +74,7 @@ echo "Old plotter finished in ${OLD_ELAPSED}s"
 echo ""
 
 # --- Run new GPU plotter ---
-echo "--- Running NEW GPU plotter (ring buffer, X$COMPRESS, $WARPS warps) ---"
+echo "--- Running NEW GPU plotter (ring buffer, X$COMPRESS, $WARPS warps, -e $ESCALATE) ---"
 NEW_START=$SECONDS
 "$NEW_BIN" \
     --id "$ADDR" \
@@ -79,6 +83,7 @@ NEW_START=$SECONDS
     --num 1 \
     --path "$DIR_NEW" \
     --compression "$COMPRESS" \
+    --escalate "$ESCALATE" \
     --gpu "$GPU" \
     --ddio
 NEW_ELAPSED=$((SECONDS - NEW_START))

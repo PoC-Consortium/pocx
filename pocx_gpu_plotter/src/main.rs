@@ -178,7 +178,15 @@ fn run() -> Result<()> {
             Arg::new("escalate")
                 .short('e')
                 .long("escalate")
-                .help("tweak: number of host write buffers (default: 1)"),
+                .help("write buffer size multiplier in warps (default: 1, e.g. -e 5 = 5 GiB buffer)"),
+        )
+        .arg(
+            Arg::new("double-buffer")
+                .short('D')
+                .long("double-buffer")
+                .help("allocate an extra write buffer for GPU/disk overlap")
+                .action(clap::ArgAction::SetTrue)
+                .global(true),
         )
         .arg(
             Arg::new("gpu")
@@ -368,6 +376,7 @@ fn run() -> Result<()> {
         gpu,
         direct_io: !matches.get_flag("disable-direct-io"),
         escalate,
+        double_buffer: matches.get_flag("double-buffer"),
         quiet: matches.get_flag("non-verbosity"),
         benchmark: matches.get_flag("benchmark"),
         line_progress: matches.get_flag("line-progress"),

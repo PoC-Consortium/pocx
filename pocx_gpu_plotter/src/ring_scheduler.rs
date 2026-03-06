@@ -54,6 +54,7 @@ pub fn create_ring_scheduler_thread(
     move || {
         let worksize = gpu_ctx.worksize;
         let ring_size = gpu_ctx.ring_size;
+        let escalate = task.escalate;
 
         // Generate seed
         let seed = if let Some(s) = task.seed {
@@ -82,6 +83,34 @@ pub fn create_ring_scheduler_thread(
         let mut warp_offset = resume;
         let mut files_done: u64 = 0;
         let mut pass_in_warp: u64 = 0;
+
+        // Escalation: accumulate multiple warps into one write buffer
+        let mut write_buffer: Option<PageAlignedByteBuffer> = None;
+        let mut warps_in_buffer: u64 = 0;
+        let mut buffer_start_warp: u64 = warp_offset;
+
+        // Helper: flush current write buffer to disk writer
+        let flush_buffer =
+            |write_buffer: &mut Option<PageAlignedByteBuffer>,
+             warps_in_buffer: &mut u64,
+             buffer_start_warp: &mut u64,
+             seed: [u8; 32],
+             warp_offset: u64,
+             current_warps: u64,
+             tx: &Sender<WriterTask>| {
+                if let Some(buf) = write_buffer.take() {
+                    tx.send(WriterTask::ProcessTask {
+                        buffer: buf,
+                        seed,
+                        warp_offset: *buffer_start_warp,
+                        warps_to_write: *warps_in_buffer,
+                        number_of_warps: current_warps,
+                    })
+                    .expect("Failed to send to writer");
+                    *warps_in_buffer = 0;
+                    *buffer_start_warp = warp_offset;
+                }
+            };
 
         while nonces_hashed < total_raw_nonces {
             if is_stop_requested() {
@@ -125,33 +154,35 @@ pub fn create_ring_scheduler_thread(
                 ring_available -= COMPRESS_BATCH;
                 pass_in_warp += 1;
 
-                // All passes for this warp done — transfer and send to writer
+                // All passes for this warp done — transfer into write buffer
                 if pass_in_warp == passes_per_warp {
                     pass_in_warp = 0;
 
-                    let write_buffer = match rx_empty_write_buffers.recv() {
-                        Ok(buf) => buf,
-                        Err(_) => break,
-                    };
-
-                    {
-                        let mutex_buf = write_buffer.get_buffer();
-                        let mut buf =
-                            lock_mutex(&mutex_buf).expect("Write buffer mutex poisoned");
-                        gpu_ring_transfer(&gpu_ctx, &mut buf, true);
+                    // Acquire a write buffer if we don't have one
+                    if write_buffer.is_none() {
+                        write_buffer = match rx_empty_write_buffers.recv() {
+                            Ok(buf) => Some(buf),
+                            Err(_) => break,
+                        };
+                        buffer_start_warp = warp_offset;
                     }
 
-                    let current_warps = task.warps[0];
-                    tx_full_write_buffers
-                        .send(WriterTask::ProcessTask {
-                            buffer: write_buffer,
-                            seed,
-                            warp_offset,
-                            warps_to_write: 1,
-                            number_of_warps: current_warps,
-                        })
-                        .expect("Failed to send to writer");
+                    // Transfer this warp into the interleaved buffer position
+                    {
+                        let buf_ref = write_buffer.as_ref().unwrap();
+                        let mutex_buf = buf_ref.get_buffer();
+                        let mut buf =
+                            lock_mutex(&mutex_buf).expect("Write buffer mutex poisoned");
+                        gpu_ring_transfer(
+                            &gpu_ctx,
+                            &mut buf,
+                            warps_in_buffer,
+                            escalate,
+                            true,
+                        );
+                    }
 
+                    warps_in_buffer += 1;
                     warp_offset += 1;
 
                     if let Some(pb) = &pb {
@@ -164,10 +195,27 @@ pub fn create_ring_scheduler_thread(
                         cb.on_hashing_progress(1);
                     }
 
+                    let current_warps = task.warps[0];
+
+                    // Flush buffer when full or at file boundary
+                    let at_file_boundary = warp_offset == current_warps;
+                    if warps_in_buffer == escalate || at_file_boundary {
+                        flush_buffer(
+                            &mut write_buffer,
+                            &mut warps_in_buffer,
+                            &mut buffer_start_warp,
+                            seed,
+                            warp_offset,
+                            current_warps,
+                            &tx_full_write_buffers,
+                        );
+                    }
+
                     // Check if current file is complete
-                    if warp_offset == current_warps {
+                    if at_file_boundary {
                         files_done += 1;
                         warp_offset = 0;
+                        buffer_start_warp = 0;
 
                         if files_done < task.number_of_plots[0] {
                             let mut new_seed = [0u8; 32];
@@ -177,6 +225,20 @@ pub fn create_ring_scheduler_thread(
                     }
                 }
             }
+        }
+
+        // Flush any remaining warps in the buffer
+        if warps_in_buffer > 0 {
+            let current_warps = task.warps[0];
+            flush_buffer(
+                &mut write_buffer,
+                &mut warps_in_buffer,
+                &mut buffer_start_warp,
+                seed,
+                warp_offset,
+                current_warps,
+                &tx_full_write_buffers,
+            );
         }
 
         // Signal writer to stop

@@ -249,15 +249,65 @@ pub fn gpu_ring_compress(ctx: &GpuRingContext, compress_start: u64, accumulate: 
         .expect("Failed to finish compress queue");
 }
 
-/// Transfer compressed buffer (1 GiB) from GPU to host.
-/// `blocking`: if true, blocks until transfer completes.
-pub fn gpu_ring_transfer(ctx: &GpuRingContext, host_buffer: &mut [u8], blocking: bool) {
-    let cl_blocking = if blocking { CL_BLOCKING } else { CL_NON_BLOCKING };
-    unsafe {
-        ctx.queue_transfer
-            .enqueue_read_buffer(&ctx.compressed_buffer, cl_blocking, 0, host_buffer, &[])
-            .expect("Failed to read compressed buffer");
+/// Transfer compressed buffer (1 warp) from GPU into interleaved host buffer.
+///
+/// GPU layout: 4096 scoops × SCOOP_SIZE contiguous.
+/// Host layout: scoops spaced by `total_warps_in_buffer × SCOOP_SIZE`,
+/// with this warp's data at `warp_index × SCOOP_SIZE` within each row.
+///
+/// For escalate=1, this is equivalent to a linear copy.
+pub fn gpu_ring_transfer(
+    ctx: &GpuRingContext,
+    host_buffer: &mut [u8],
+    warp_index: u64,
+    total_warps_in_buffer: u64,
+    blocking: bool,
+) {
+    let scoop_size = DIM as usize * DOUBLE_HASH_SIZE as usize; // 256 KiB
+    let num_scoops = DIM as usize; // 4096
+
+    // Fast path: no interleaving needed
+    if total_warps_in_buffer == 1 {
+        let cl_blocking = if blocking { CL_BLOCKING } else { CL_NON_BLOCKING };
+        unsafe {
+            ctx.queue_transfer
+                .enqueue_read_buffer(
+                    &ctx.compressed_buffer,
+                    cl_blocking,
+                    0,
+                    &mut host_buffer[..scoop_size * num_scoops],
+                    &[],
+                )
+                .expect("Failed to read compressed buffer");
+        }
+    } else {
+        // Rect transfer: GPU scoops (contiguous) → host scoops (interleaved)
+        let buffer_origin: [usize; 3] = [0, 0, 0];
+        let host_origin: [usize; 3] = [warp_index as usize * scoop_size, 0, 0];
+        let region: [usize; 3] = [scoop_size, num_scoops, 1];
+        let buffer_row_pitch = scoop_size;
+        let host_row_pitch = total_warps_in_buffer as usize * scoop_size;
+        let cl_blocking = if blocking { CL_BLOCKING } else { CL_NON_BLOCKING };
+
+        unsafe {
+            ctx.queue_transfer
+                .enqueue_read_buffer_rect(
+                    &ctx.compressed_buffer,
+                    cl_blocking,
+                    buffer_origin.as_ptr(),
+                    host_origin.as_ptr(),
+                    region.as_ptr(),
+                    buffer_row_pitch,
+                    0, // slice pitch (unused for 2D)
+                    host_row_pitch,
+                    0, // slice pitch (unused for 2D)
+                    host_buffer.as_mut_ptr() as *mut std::ffi::c_void,
+                    &[],
+                )
+                .expect("Failed to read compressed buffer rect");
+        }
     }
+
     if !blocking {
         ctx.queue_transfer
             .finish()
@@ -734,7 +784,7 @@ mod tests {
         // Read compressed output (4096 * 4096 * 64 = 1 GiB)
         let compressed_size = (DIM * DIM * DOUBLE_HASH_SIZE) as usize;
         let mut gpu_compressed = vec![0u8; compressed_size];
-        gpu_ring_transfer(&ctx, &mut gpu_compressed, true);
+        gpu_ring_transfer(&ctx, &mut gpu_compressed, 0, 1, true);
 
         // Generate 8192 nonces on CPU for reference
         let nonce_size = NONCE_SIZE as usize;

@@ -60,6 +60,7 @@ pub struct PlotterTask {
     pub compress: u8,
     pub direct_io: bool,
     pub escalate: u64,
+    pub double_buffer: bool,
     pub quiet: bool,
     pub benchmark: bool,
     pub line_progress: bool,
@@ -208,15 +209,16 @@ impl Plotter {
             available_mem
         };
 
-        let num_write_buffers = std::cmp::min(
-            std::cmp::max(max_mem_usage / mem_write, 1),
-            task.escalate,
-        );
+        // 1 buffer per output path, +1 if double buffering enabled
+        let num_write_buffers = task.output_paths.len() as u64
+            + if task.double_buffer { 1 } else { 0 };
 
-        if max_mem_usage < mem_write {
+        if max_mem_usage < mem_write * num_write_buffers {
             return Err(PoCXPlotterError::Memory(format!(
-                "Insufficient host memory!\nRAM: Available={:.2} GiB, Need={:.2} GiB (1 write buffer)\nGPU-RAM: {:.2} GiB",
+                "Insufficient host memory!\nRAM: Available={:.2} GiB, Need={:.2} GiB ({} x {:.2} GiB write buffers)\nGPU-RAM: {:.2} GiB",
                 available_mem as f64 / 1024.0 / 1024.0 / 1024.0,
+                (mem_write * num_write_buffers) as f64 / 1024.0 / 1024.0 / 1024.0,
+                num_write_buffers,
                 mem_write as f64 / 1024.0 / 1024.0 / 1024.0,
                 mem_gpu as f64 / 1024.0 / 1024.0 / 1024.0,
             )));
@@ -235,11 +237,18 @@ impl Plotter {
 
         if !task.quiet {
             println!(
-                "RAM: Total={:.2} GiB, Available={:.2} GiB, Host usage={:.2} GiB ({} write buffers)",
+                "RAM: Total={:.2} GiB, Available={:.2} GiB, Usage={:.2} GiB",
                 sys.total_memory() as f64 / 1024.0 / 1024.0 / 1024.0,
                 available_mem as f64 / 1024.0 / 1024.0 / 1024.0,
                 (mem_write * num_write_buffers) as f64 / 1024.0 / 1024.0 / 1024.0,
+            );
+            println!(
+                "     Cache(HDD)={:.2} GiB x{} (escalation) x{} (buffers{}), Cache(GPU)={:.2} GiB",
+                WARP_SIZE as f64 / 1024.0 / 1024.0 / 1024.0,
+                task.escalate,
                 num_write_buffers,
+                if task.double_buffer { ", double-buffered" } else { "" },
+                mem_gpu as f64 / 1024.0 / 1024.0 / 1024.0,
             );
 
             match &task.network_id {
@@ -283,9 +292,9 @@ impl Plotter {
         let (tx_full_write_buffers, rx_full_write_buffers) =
             bounded(num_write_buffers as usize);
 
-        // Allocate write buffers
+        // Allocate write buffers (each holds `escalate` warps)
         for _ in 0..num_write_buffers {
-            let buffer = PageAlignedByteBuffer::new(WARP_SIZE as usize)?;
+            let buffer = PageAlignedByteBuffer::new(mem_write as usize)?;
             tx_empty_write_buffers.send(buffer).map_err(|e| {
                 PoCXPlotterError::Channel(format!("Failed to send empty write buffer: {}", e))
             })?;

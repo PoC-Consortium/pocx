@@ -149,6 +149,7 @@ pub struct PlotterTaskBuilder {
     compress: u8,
     direct_io: bool,
     escalate: u64,
+    double_buffer: bool,
     quiet: bool,
     benchmark: bool,
     line_progress: bool,
@@ -218,6 +219,11 @@ impl PlotterTaskBuilder {
         self
     }
 
+    pub fn double_buffer(mut self, enabled: bool) -> Self {
+        self.double_buffer = enabled;
+        self
+    }
+
     pub fn quiet(mut self, quiet: bool) -> Self {
         self.quiet = quiet;
         self
@@ -275,6 +281,7 @@ impl PlotterTaskBuilder {
             gpu: self.gpu,
             direct_io: self.direct_io,
             escalate: self.escalate,
+            double_buffer: self.double_buffer,
             quiet: self.quiet,
             benchmark: self.benchmark,
             line_progress: self.line_progress,
