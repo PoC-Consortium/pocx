@@ -1,0 +1,64 @@
+[package]
+name = "pocx_gpu_plotter"
+version = "0.1.0"
+license = "MIT"
+authors = [
+    "Proof of Capacity Consortium",
+]
+description = """
+GPU-fused Proof-of-Capacity plotter with ring buffer design.
+Minimal host memory (1 GiB) with on-GPU scatter, shuffle, and helix compression.
+"""
+homepage = "https://bitcoin-pocx.org/"
+repository = "https://github.com/PoC-Consortium/pocx"
+documentation = "https://github.com/PoC-Consortium/pocx/wiki"
+keywords = ["poc", "proof-of-capacity", "plotter", "rust", "cryptocurrency"]
+categories = ["cryptography", "algorithms", "command-line-utilities"]
+readme = "README.md"
+edition = "2021"
+rust-version = "1.91.0"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lib]
+name = "pocx_gpu_plotter"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pocx_gpu_plotter"
+path = "src/main.rs"
+
+[features]
+default = ["opencl"]
+opencl = ["opencl3"]
+
+[dependencies]
+crossbeam-channel = { workspace = true }
+opencl3 = { version = "0.10", features = ["dynamic"], optional = true }
+clap = { workspace = true }
+sysinfo = "0.32"
+num_cpus = { workspace = true }
+cfg-if = { workspace = true }
+indicatif = { workspace = true }
+bytesize = "2.0.1"
+libc = { workspace = true }
+fs2 = "0.4"
+page_size = { workspace = true }
+hex = { workspace = true }
+rand = { workspace = true }
+pocx_plotfile = { version = "1.0.0-rc.10", path = "../pocx_plotfile" }
+pocx_address = { version = "1.0.0-rc.10", path = "../pocx_address" }
+
+[target.'cfg(linux)'.dependencies]
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["std","fileapi","securitybaseapi"] }
+
+[dev-dependencies]
+sha2 = { workspace = true }
+tempfile = "3.8"
+proptest = "1.4"
+quickcheck = "1.0"
+pocx_hashlib = { version = "1.0.0-rc.10", path = "../pocx_hashlib" }
