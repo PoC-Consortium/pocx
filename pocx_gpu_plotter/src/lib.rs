@@ -146,6 +146,7 @@ pub struct PlotterTaskBuilder {
     output_paths: Vec<String>,
     mem: String,
     gpu: String,
+    compress: u8,
     direct_io: bool,
     escalate: u64,
     quiet: bool,
@@ -159,6 +160,7 @@ impl PlotterTaskBuilder {
     pub fn new() -> Self {
         Self {
             mem: "0B".to_string(),
+            compress: 1,
             direct_io: true,
             escalate: 1,
             quiet: true,
@@ -198,6 +200,11 @@ impl PlotterTaskBuilder {
 
     pub fn gpu(mut self, gpu: String) -> Self {
         self.gpu = gpu;
+        self
+    }
+
+    pub fn compress(mut self, level: u8) -> Self {
+        self.compress = level;
         self
     }
 
@@ -260,6 +267,7 @@ impl PlotterTaskBuilder {
             address: self.address,
             network_id,
             seed: self.seed,
+            compress: self.compress,
             warps: self.warps,
             number_of_plots: self.number_of_plots,
             output_paths: self.output_paths,

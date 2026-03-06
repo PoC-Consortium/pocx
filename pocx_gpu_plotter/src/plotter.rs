@@ -57,6 +57,7 @@ pub struct PlotterTask {
     pub output_paths: Vec<String>,
     pub mem: String,
     pub gpu: String,
+    pub compress: u8,
     pub direct_io: bool,
     pub escalate: u64,
     pub quiet: bool,
@@ -121,7 +122,7 @@ impl Plotter {
                 &task.address_payload,
                 &seed,
                 task.warps[0],
-                1, // compress=1 for GPU plotter (helix only)
+                task.compress,
                 false,
                 false,
             );
@@ -256,7 +257,7 @@ impl Plotter {
                 "Address Hex   : {} (network-independent payload)",
                 hex::encode_upper(task.address_payload)
             );
-            println!("Compression    : Helix (X1)");
+            println!("Compression    : {}(X{})", 1u64 << task.compress, task.compress);
             println!("Output path    : {}", task.output_paths[0]);
             println!("Files to plot  : {}", task.number_of_plots[0]);
             println!("Warps per file : {}", task.warps[0]);
@@ -371,7 +372,8 @@ impl Plotter {
         let seconds = elapsed / 1000 - hours * 60 * 60 - minutes * 60;
 
         if !task.quiet {
-            let session_nonces = 2 * total_warps * DIM;
+            let passes_per_warp = 1u64 << (task.compress - 1);
+            let session_nonces = passes_per_warp * 2 * total_warps * DIM;
             println!(
                 "\nGenerated {} nonces in {}h{:02}m{:02}s, {:.2} MiB/s, {:.2} warps/h.",
                 session_nonces,

@@ -80,7 +80,7 @@ pub fn create_writer_thread(
                             &task.address_payload,
                             &seed,
                             number_of_warps,
-                            1, // GPU plotter: helix compress (X1)
+                            task.compress,
                             task.direct_io,
                             warp_offset == 0,
                         )

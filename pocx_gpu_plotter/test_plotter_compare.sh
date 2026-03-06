@@ -1,22 +1,26 @@
 #!/usr/bin/env bash
-# test_plotter_compare.sh — Plot 2 warps with both plotters, then binary-compare output files.
+# test_plotter_compare.sh — Plot with both plotters, then binary-compare output files.
 #
-# Usage: ./test_plotter_compare.sh [gpu_id]
-#   gpu_id: OpenCL device spec (default: 0:0:0)
+# Usage: ./test_plotter_compare.sh [gpu_id] [compression] [warps]
+#   gpu_id:      OpenCL device spec (default: 0:0:0)
+#   compression: compression level 1-6 (default: 1)
+#   warps:       number of warps to plot (default: 9)
 set -euo pipefail
 
 GPU="${1:-0:0:0}"
-WARPS=9
+COMPRESS="${2:-1}"
+WARPS="${3:-9}"
 SEED="AFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFE"
 ADDR="tpocx1qj0hnnyffma7tru28dlj92efhujs6y24l847ccp"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR"
+cd "$SCRIPT_DIR/.."
 
 echo "============================================"
 echo "  PoCX Plotter Comparison Test"
 echo "============================================"
 echo "Address     : $ADDR"
 echo "Seed        : $SEED"
+echo "Compression : X$COMPRESS"
 echo "Warps       : $WARPS"
 echo "GPU         : $GPU"
 echo ""
@@ -32,13 +36,12 @@ echo ""
 
 # Build both plotters
 echo "--- Building both plotters (release) ---"
-cargo build --release -p pocx_plotter -p pocx_gpu_plotter 2>&1 | tail -5
+cargo build --release -p pocx_plotter -p pocx_gpu_plotter 2>&1 | tail -3
 echo ""
 
 OLD_BIN="target/release/pocx_plotter"
 NEW_BIN="target/release/pocx_gpu_plotter"
 
-# Windows: append .exe if needed
 case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*) OLD_BIN="${OLD_BIN}.exe"; NEW_BIN="${NEW_BIN}.exe" ;;
 esac
@@ -50,8 +53,8 @@ for bin in "$OLD_BIN" "$NEW_BIN"; do
     fi
 done
 
-# --- Run old plotter (CPU, helix X1) ---
-echo "--- Running OLD plotter (CPU, helix X1, $WARPS warps) ---"
+# --- Run old plotter ---
+echo "--- Running OLD plotter (GPU, X$COMPRESS, $WARPS warps) ---"
 OLD_START=$SECONDS
 "$OLD_BIN" \
     --id "$ADDR" \
@@ -59,8 +62,7 @@ OLD_START=$SECONDS
     --warps "$WARPS" \
     --num 1 \
     --path "$DIR_OLD" \
-    --compression 1 \
-    --escalate 5 \
+    --compression "$COMPRESS" \
     --gpu "$GPU" \
     --ddio
 OLD_ELAPSED=$((SECONDS - OLD_START))
@@ -68,7 +70,7 @@ echo "Old plotter finished in ${OLD_ELAPSED}s"
 echo ""
 
 # --- Run new GPU plotter ---
-echo "--- Running NEW GPU plotter (ring buffer, $WARPS warps) ---"
+echo "--- Running NEW GPU plotter (ring buffer, X$COMPRESS, $WARPS warps) ---"
 NEW_START=$SECONDS
 "$NEW_BIN" \
     --id "$ADDR" \
@@ -76,6 +78,7 @@ NEW_START=$SECONDS
     --warps "$WARPS" \
     --num 1 \
     --path "$DIR_NEW" \
+    --compression "$COMPRESS" \
     --gpu "$GPU" \
     --ddio
 NEW_ELAPSED=$((SECONDS - NEW_START))
@@ -87,20 +90,17 @@ echo "============================================"
 echo "  Comparing output files"
 echo "============================================"
 
-# Find plotfiles (.pocx or .tmp) in each directory
 OLD_FILE=$(find "$DIR_OLD" -maxdepth 1 \( -name '*.pocx' -o -name '*.tmp' \) | head -1)
 NEW_FILE=$(find "$DIR_NEW" -maxdepth 1 \( -name '*.pocx' -o -name '*.tmp' \) | head -1)
 
 if [ -z "$OLD_FILE" ]; then
     echo "ERROR: No plotfile found in old plotter output dir"
-    echo "Files in $DIR_OLD:"
     ls -la "$DIR_OLD"/
     exit 1
 fi
 
 if [ -z "$NEW_FILE" ]; then
     echo "ERROR: No plotfile found in new plotter output dir"
-    echo "Files in $DIR_NEW:"
     ls -la "$DIR_NEW"/
     exit 1
 fi
@@ -117,12 +117,11 @@ if [ "$OLD_SIZE" != "$NEW_SIZE" ]; then
     exit 1
 fi
 
-# Binary comparison
 if cmp -s "$OLD_FILE" "$NEW_FILE"; then
     echo ""
     echo "============================================"
     echo "  PASS: Files are byte-identical!"
-    echo "  $WARPS warps, $OLD_SIZE bytes verified."
+    echo "  X$COMPRESS, $WARPS warps, $OLD_SIZE bytes verified."
     echo "  Old plotter: ${OLD_ELAPSED}s"
     echo "  New plotter: ${NEW_ELAPSED}s"
     echo "============================================"
@@ -133,7 +132,6 @@ else
     DIFF_INFO=$(cmp "$OLD_FILE" "$NEW_FILE" 2>&1 | head -1)
     echo "First difference: $DIFF_INFO"
 
-    # Show hex dump around first difference for debugging
     DIFF_BYTE=$(echo "$DIFF_INFO" | grep -oP 'byte \K[0-9]+' || echo "")
     if [ -n "$DIFF_BYTE" ]; then
         OFFSET=$((DIFF_BYTE - 16))

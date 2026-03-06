@@ -594,19 +594,32 @@ __kernel void fused_scatter_compress(
         // Output index: scoop-major layout (u32 words)
         unsigned long out_idx = (unsigned long)scoop_y * 4096 * 16 + (unsigned long)nonce_x * 16;
 
-        // Helix: output[y][x] = source[scoop_y, nonce_x] XOR source[scoop_x, nonce_{4096+y}]
+        // Helix: output[y][x] ^= source[scoop_y, nonce_x] XOR source[scoop_x, nonce_{4096+y}]
+        // XOR-accumulate supports multi-pass compression (Xn): zero buffer first, then ^= per pass.
         // First 32 bytes: scoop_y first-half from nonce_x XOR scoop_x first-half from nonce_{4096+y}
         for (int w = 0; w < 8; w++) {
-            ((__global unsigned int*)output)[out_idx + w] =
+            ((__global unsigned int*)output)[out_idx + w] ^=
                 ((__global unsigned int*)ring_buffer)[Address(rnx, h_y_first, w)] ^
                 ((__global unsigned int*)ring_buffer)[Address(rny, h_x_first, w)];
         }
 
         // Second 32 bytes: scoop_y second-half from nonce_x XOR scoop_x second-half from nonce_{4096+y}
         for (int w = 0; w < 8; w++) {
-            ((__global unsigned int*)output)[out_idx + 8 + w] =
+            ((__global unsigned int*)output)[out_idx + 8 + w] ^=
                 ((__global unsigned int*)ring_buffer)[Address(rnx, h_y_second, w)] ^
                 ((__global unsigned int*)ring_buffer)[Address(rny, h_x_second, w)];
         }
     }
+}
+
+/*
+ * Zero a GPU buffer (used to clear compressed buffer before multi-pass compression).
+ */
+__kernel void zero_buffer(
+    __global unsigned int* buffer,
+    unsigned long count)
+{
+    unsigned long gid = get_global_id(0);
+    if (gid < count)
+        buffer[gid] = 0;
 }

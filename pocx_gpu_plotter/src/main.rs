@@ -148,6 +148,12 @@ fn run() -> Result<()> {
                 .help("number of files to plot (default: 1, 0 = fill disk)"),
         )
         .arg(
+            Arg::new("compression")
+                .short('x')
+                .long("compression")
+                .help("compression level 1-6 (default: 1, higher = more PoW per plot)"),
+        )
+        .arg(
             Arg::new("path")
                 .short('p')
                 .long("path")
@@ -271,6 +277,22 @@ fn run() -> Result<()> {
         .transpose()?
         .unwrap_or(1);
 
+    let compress = matches
+        .get_one::<String>("compression")
+        .map(|s| {
+            let value = s.parse::<u8>().map_err(|e| {
+                PoCXPlotterError::InvalidInput(format!("Invalid compression value: {}", e))
+            })?;
+            if value == 0 || value > 6 {
+                return Err(PoCXPlotterError::InvalidInput(
+                    "Compression must be 1-6".to_string(),
+                ));
+            }
+            Ok(value)
+        })
+        .transpose()?
+        .unwrap_or(1);
+
     let kws_override = matches
         .get_one::<String>("kws")
         .map(|s| {
@@ -341,6 +363,7 @@ fn run() -> Result<()> {
         number_of_plots: vec![number_of_plots],
         output_paths: vec![output_path],
         seed,
+        compress,
         mem,
         gpu,
         direct_io: !matches.get_flag("disable-direct-io"),

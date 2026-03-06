@@ -68,6 +68,7 @@ pub struct GpuRingContext {
     queue_transfer: CommandQueue,
     hash_kernel: Kernel,
     compress_kernel: Kernel,
+    zero_kernel: Kernel,
     ldim1: [usize; 3],
     gdim1: [usize; 3],
     base58: Buffer<u8>,
@@ -113,6 +114,8 @@ impl GpuRingContext {
             .map_err(|e| format!("Failed to create hash kernel: {:?}", e))?;
         let compress_kernel = Kernel::create(&program, "fused_scatter_compress")
             .map_err(|e| format!("Failed to create compress kernel: {:?}", e))?;
+        let zero_kernel = Kernel::create(&program, "zero_buffer")
+            .map_err(|e| format!("Failed to create zero kernel: {:?}", e))?;
 
         let kernel_workgroup_size = get_kernel_work_group_size(&hash_kernel, &device, kws_override);
         let worksize = (kernel_workgroup_size * cores) as u64;
@@ -157,6 +160,7 @@ impl GpuRingContext {
             queue_transfer,
             hash_kernel,
             compress_kernel,
+            zero_kernel,
             ldim1,
             gdim1,
             base58,
@@ -246,6 +250,27 @@ pub fn gpu_ring_compress(ctx: &GpuRingContext, compress_start: u64) {
     ctx.queue_hash
         .finish()
         .expect("Failed to finish compress queue");
+}
+
+/// Zero the compressed buffer on GPU (required before multi-pass XOR-accumulate).
+pub fn gpu_zero_compressed_buffer(ctx: &GpuRingContext) {
+    // Compressed buffer = DIM * DIM * DOUBLE_HASH_SIZE bytes = DIM * DIM * 16 u32 words
+    let count = (DIM * DIM * 16) as u64;
+    let gws = count as usize;
+    let lws = min(256, gws);
+
+    unsafe {
+        ExecuteKernel::new(&ctx.zero_kernel)
+            .set_arg(&ctx.compressed_buffer)
+            .set_arg(&count)
+            .set_global_work_size(gws)
+            .set_local_work_size(lws)
+            .enqueue_nd_range(&ctx.queue_hash)
+            .expect("Failed to enqueue zero kernel");
+    }
+    ctx.queue_hash
+        .finish()
+        .expect("Failed to finish zero kernel");
 }
 
 /// Transfer compressed buffer (1 GiB) from GPU to host.
