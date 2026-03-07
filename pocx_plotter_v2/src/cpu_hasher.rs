@@ -20,6 +20,49 @@
 
 //! CPU nonce hashing using SIMD-accelerated `generate_nonces` from pocx_hashlib.
 
+#[derive(Debug, Clone)]
+pub enum SimdExtension {
+    #[cfg_attr(not(any(target_arch = "x86", target_arch = "x86_64")), allow(dead_code))]
+    Avx512f,
+    #[cfg_attr(not(any(target_arch = "x86", target_arch = "x86_64")), allow(dead_code))]
+    Avx2,
+    #[cfg_attr(not(any(target_arch = "x86", target_arch = "x86_64")), allow(dead_code))]
+    Avx,
+    #[cfg_attr(not(any(target_arch = "x86", target_arch = "x86_64")), allow(dead_code))]
+    Sse2,
+    #[cfg_attr(not(target_arch = "aarch64"), allow(dead_code))]
+    Neon,
+    #[allow(dead_code)]
+    None,
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub fn init_simd() -> SimdExtension {
+    if is_x86_feature_detected!("avx512f") {
+        SimdExtension::Avx512f
+    } else if is_x86_feature_detected!("avx2") {
+        SimdExtension::Avx2
+    } else if is_x86_feature_detected!("avx") {
+        SimdExtension::Avx
+    } else if is_x86_feature_detected!("sse2") {
+        SimdExtension::Sse2
+    } else {
+        SimdExtension::None
+    }
+}
+
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+pub fn init_simd() -> SimdExtension {
+    #[cfg(target_arch = "aarch64")]
+    {
+        SimdExtension::Neon
+    }
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        SimdExtension::None
+    }
+}
+
 const CPU_TASK_SIZE: u64 = 64;
 
 /// Hash `num_nonces` into scatter buffer using rayon thread pool.

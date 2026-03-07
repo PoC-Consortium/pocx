@@ -1896,7 +1896,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_plotter_v2"
-version = "0.1.0"
+version = "1.0.0-rc.10"
 dependencies = [
  "bytesize",
  "cfg-if",

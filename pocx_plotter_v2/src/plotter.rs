@@ -89,17 +89,38 @@ impl Plotter {
 
         let cpu_mode = task.cpu_threads > 0;
 
+        let cpu_name = sys
+            .cpus()
+            .first()
+            .map(|cpu| cpu.brand().trim().to_string())
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| {
+                #[cfg(target_arch = "aarch64")]
+                { "ARM/Other CPU".to_string() }
+                #[cfg(not(target_arch = "aarch64"))]
+                { "Unknown CPU".to_string() }
+            });
+        let cores = num_cpus::get() as u32;
+        let simd_ext = crate::cpu_hasher::init_simd();
+
         if !task.quiet {
-            if cpu_mode {
-                println!("PoCX CPU Plotter {}", env!("CARGO_PKG_VERSION"));
-            } else {
-                println!("PoCX GPU Plotter {}", env!("CARGO_PKG_VERSION"));
-            }
+            println!("PoCX Plotter {}", env!("CARGO_PKG_VERSION"));
             println!("written by Proof of Capacity Consortium in Rust\n");
         }
 
         if !task.quiet && task.benchmark {
             println!("*BENCHMARK MODE*\n");
+        }
+
+        if !task.quiet {
+            let simd_str = match simd_ext {
+                crate::cpu_hasher::SimdExtension::None => String::new(),
+                _ => format!(" + {:?}", simd_ext),
+            };
+            println!(
+                "CPU: {} [using {} of {} cores{}]",
+                cpu_name, task.cpu_threads, cores, simd_str
+            );
         }
 
         // Get GPU info (only in GPU mode)
@@ -277,13 +298,12 @@ impl Plotter {
             );
             if cpu_mode {
                 println!(
-                    "     Cache(HDD)={:.2} GiB x{} (escalation) x{} (buffers{}), Scatter={:.2} GiB, Threads={}",
+                    "     Cache(HDD)={:.2} GiB x{} (escalation) x{} (buffers{}), Scatter={:.2} GiB",
                     WARP_SIZE as f64 / 1024.0 / 1024.0 / 1024.0,
                     task.escalate,
                     num_write_buffers,
                     if task.double_buffer { ", double-buffered" } else { "" },
                     mem_scatter as f64 / 1024.0 / 1024.0 / 1024.0,
-                    task.cpu_threads,
                 );
             } else {
                 println!(
