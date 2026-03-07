@@ -29,10 +29,13 @@ use std::time::{Duration, Instant};
 use sysinfo::System;
 
 use crate::buffer::PageAlignedByteBuffer;
+use crate::cpu_scheduler::create_cpu_scheduler_thread;
 use crate::disk_writer::create_writer_thread;
 use crate::error::{PoCXPlotterError, Result};
 use crate::get_plotter_callback;
+#[cfg(feature = "opencl")]
 use crate::ocl::{gpu_get_info, gpu_ring_init};
+#[cfg(feature = "opencl")]
 use crate::ring_scheduler::create_ring_scheduler_thread;
 use crate::utils::free_disk_space;
 use crate::utils::get_sector_size;
@@ -57,6 +60,7 @@ pub struct PlotterTask {
     pub output_paths: Vec<String>,
     pub mem: String,
     pub gpu: String,
+    pub cpu_threads: usize,
     pub compress: u8,
     pub direct_io: bool,
     pub escalate: u64,
@@ -83,8 +87,14 @@ impl Plotter {
         sys.refresh_cpu_all();
         sys.refresh_memory();
 
+        let cpu_mode = task.cpu_threads > 0;
+
         if !task.quiet {
-            println!("PoCX GPU Plotter {}", env!("CARGO_PKG_VERSION"));
+            if cpu_mode {
+                println!("PoCX CPU Plotter {}", env!("CARGO_PKG_VERSION"));
+            } else {
+                println!("PoCX GPU Plotter {}", env!("CARGO_PKG_VERSION"));
+            }
             println!("written by Proof of Capacity Consortium in Rust\n");
         }
 
@@ -92,15 +102,21 @@ impl Plotter {
             println!("*BENCHMARK MODE*\n");
         }
 
-        // Get GPU info and validate memory
-        let (worksize, _ring_size, mem_gpu) =
-            gpu_get_info(&task.gpu, task.quiet, task.kws_override);
-
-        if worksize == 0 {
-            return Err(PoCXPlotterError::Hardware(
-                "No GPU available or GPU initialization failed".to_string(),
-            ));
-        }
+        // Get GPU info (only in GPU mode)
+        #[cfg(feature = "opencl")]
+        let (_worksize, _ring_size, mem_gpu) = if !cpu_mode {
+            let info = gpu_get_info(&task.gpu, task.quiet, task.kws_override);
+            if info.0 == 0 {
+                return Err(PoCXPlotterError::Hardware(
+                    "No GPU available or GPU initialization failed".to_string(),
+                ));
+            }
+            info
+        } else {
+            (0, 0, 0)
+        };
+        #[cfg(not(feature = "opencl"))]
+        let mem_gpu: u64 = 0;
 
         // Check direct I/O capabilities
         for path in &task.output_paths {
@@ -197,8 +213,13 @@ impl Plotter {
             }
         }
 
-        // Host memory: only need write buffers (1 GiB each * escalate)
+        // Host memory: write buffers + scatter buffer (CPU only)
         let mem_write = WARP_SIZE * task.escalate;
+        let mem_scatter: u64 = if cpu_mode {
+            8192 * pocx_hashlib::noncegen_common::NONCE_SIZE as u64
+        } else {
+            0
+        };
 
         let mem_limit = task.mem.parse::<ByteSize>()
             .map_err(|_| PoCXPlotterError::InvalidInput(format!(
@@ -218,13 +239,15 @@ impl Plotter {
         let num_write_buffers = task.output_paths.len() as u64
             + if task.double_buffer { 1 } else { 0 };
 
-        if max_mem_usage < mem_write * num_write_buffers {
+        let total_host_mem = mem_write * num_write_buffers + mem_scatter;
+        if max_mem_usage < total_host_mem {
             return Err(PoCXPlotterError::Memory(format!(
-                "Insufficient host memory!\nRAM: Available={:.2} GiB, Need={:.2} GiB ({} x {:.2} GiB write buffers)\nGPU-RAM: {:.2} GiB",
+                "Insufficient host memory!\nRAM: Available={:.2} GiB, Need={:.2} GiB ({} x {:.2} GiB write buffers{})\nGPU-RAM: {:.2} GiB",
                 available_mem as f64 / 1024.0 / 1024.0 / 1024.0,
-                (mem_write * num_write_buffers) as f64 / 1024.0 / 1024.0 / 1024.0,
+                total_host_mem as f64 / 1024.0 / 1024.0 / 1024.0,
                 num_write_buffers,
                 mem_write as f64 / 1024.0 / 1024.0 / 1024.0,
+                if cpu_mode { " + 2 GiB scatter" } else { "" },
                 mem_gpu as f64 / 1024.0 / 1024.0 / 1024.0,
             )));
         }
@@ -250,16 +273,28 @@ impl Plotter {
                 "RAM: Total={:.2} GiB, Available={:.2} GiB, Usage={:.2} GiB",
                 sys.total_memory() as f64 / 1024.0 / 1024.0 / 1024.0,
                 available_mem as f64 / 1024.0 / 1024.0 / 1024.0,
-                (mem_write * num_write_buffers) as f64 / 1024.0 / 1024.0 / 1024.0,
+                total_host_mem as f64 / 1024.0 / 1024.0 / 1024.0,
             );
-            println!(
-                "     Cache(HDD)={:.2} GiB x{} (escalation) x{} (buffers{}), Cache(GPU)={:.2} GiB",
-                WARP_SIZE as f64 / 1024.0 / 1024.0 / 1024.0,
-                task.escalate,
-                num_write_buffers,
-                if task.double_buffer { ", double-buffered" } else { "" },
-                mem_gpu as f64 / 1024.0 / 1024.0 / 1024.0,
-            );
+            if cpu_mode {
+                println!(
+                    "     Cache(HDD)={:.2} GiB x{} (escalation) x{} (buffers{}), Scatter={:.2} GiB, Threads={}",
+                    WARP_SIZE as f64 / 1024.0 / 1024.0 / 1024.0,
+                    task.escalate,
+                    num_write_buffers,
+                    if task.double_buffer { ", double-buffered" } else { "" },
+                    mem_scatter as f64 / 1024.0 / 1024.0 / 1024.0,
+                    task.cpu_threads,
+                );
+            } else {
+                println!(
+                    "     Cache(HDD)={:.2} GiB x{} (escalation) x{} (buffers{}), Cache(GPU)={:.2} GiB",
+                    WARP_SIZE as f64 / 1024.0 / 1024.0 / 1024.0,
+                    task.escalate,
+                    num_write_buffers,
+                    if task.double_buffer { ", double-buffered" } else { "" },
+                    mem_gpu as f64 / 1024.0 / 1024.0 / 1024.0,
+                );
+            }
 
             match &task.network_id {
                 pocx_address::NetworkId::Base58(version) => {
@@ -348,10 +383,6 @@ impl Plotter {
         let start_time = Instant::now();
         let task = Arc::new(task);
 
-        // Initialize GPU
-        let gpu_ctx = gpu_ring_init(&task.gpu, task.kws_override)
-            .map_err(|e| PoCXPlotterError::Hardware(format!("GPU init failed: {}", e)))?;
-
         // Create one writer thread per output path, each with a dedicated channel
         let mut writers = Vec::new();
         let mut tx_full_per_path = Vec::new();
@@ -370,21 +401,50 @@ impl Plotter {
             tx_full_per_path.push(tx_full);
         }
 
-        // Create ring scheduler thread
-        let hasher = thread::spawn({
-            create_ring_scheduler_thread(
-                task.clone(),
-                gpu_ctx,
-                hash_pb,
-                rx_empty_write_buffers,
-                tx_full_per_path,
-                resume,
-            )
-        });
+        if cpu_mode {
+            // CPU mode: use CPU scheduler with rayon thread pool
+            let hasher = thread::spawn({
+                create_cpu_scheduler_thread(
+                    task.clone(),
+                    task.cpu_threads,
+                    hash_pb,
+                    rx_empty_write_buffers,
+                    tx_full_per_path,
+                    resume,
+                )
+            });
+            hasher
+                .join()
+                .map_err(|_| PoCXPlotterError::Channel("CPU hasher thread panicked".to_string()))?;
+        } else {
+            // GPU mode: initialize GPU and use ring scheduler
+            #[cfg(feature = "opencl")]
+            {
+                let gpu_ctx = gpu_ring_init(&task.gpu, task.kws_override)
+                    .map_err(|e| PoCXPlotterError::Hardware(format!("GPU init failed: {}", e)))?;
 
-        hasher
-            .join()
-            .map_err(|_| PoCXPlotterError::Channel("Hasher thread panicked".to_string()))?;
+                let hasher = thread::spawn({
+                    create_ring_scheduler_thread(
+                        task.clone(),
+                        gpu_ctx,
+                        hash_pb,
+                        rx_empty_write_buffers,
+                        tx_full_per_path,
+                        resume,
+                    )
+                });
+                hasher
+                    .join()
+                    .map_err(|_| PoCXPlotterError::Channel("GPU hasher thread panicked".to_string()))?;
+            }
+            #[cfg(not(feature = "opencl"))]
+            {
+                return Err(PoCXPlotterError::Hardware(
+                    "GPU mode requires the 'opencl' feature".to_string(),
+                ));
+            }
+        }
+
         for writer in writers {
             writer
                 .join()

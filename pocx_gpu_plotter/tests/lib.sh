@@ -98,6 +98,50 @@ run_new_plotter_seeded() {
         --seed "$FIXED_SEED" "$@" -- "$dir"
 }
 
+# Run new plotter in CPU mode with given args.
+# run_new_plotter_cpu <warps> <num> <compress> <escalate> <threads> [extra_args...] -- <paths...>
+run_new_plotter_cpu() {
+    local warps="$1" num="$2" compress="$3" escalate="$4" threads="$5"
+    shift 5
+
+    local extra_args=()
+    local paths=()
+    local past_separator=false
+    for arg in "$@"; do
+        if [ "$arg" = "--" ]; then
+            past_separator=true
+            continue
+        fi
+        if $past_separator; then
+            paths+=("$arg")
+        else
+            extra_args+=("$arg")
+        fi
+    done
+
+    local path_args=()
+    for p in "${paths[@]}"; do
+        path_args+=(--path "$p")
+    done
+
+    "$NEW_BIN" \
+        --id "$ADDR" \
+        --warps "$warps" --num "$num" \
+        --compression "$compress" --escalate "$escalate" \
+        --cpu "$threads" --ddio \
+        "${extra_args[@]}" \
+        "${path_args[@]}"
+}
+
+# Run new plotter in CPU mode with a fixed seed (single path only).
+# run_new_plotter_cpu_seeded <output_dir> <warps> <compress> <escalate> <threads> [extra_args...]
+run_new_plotter_cpu_seeded() {
+    local dir="$1" warps="$2" compress="$3" escalate="$4" threads="$5"
+    shift 5
+    run_new_plotter_cpu "$warps" 1 "$compress" "$escalate" "$threads" \
+        --seed "$FIXED_SEED" "$@" -- "$dir"
+}
+
 # Find the first plotfile (.pocx or .tmp) in a directory.
 find_plotfile() {
     find "$1" -maxdepth 1 \( -name '*.pocx' -o -name '*.tmp' \) | head -1
