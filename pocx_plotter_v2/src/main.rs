@@ -46,7 +46,6 @@ mod disk_writer;
 mod error;
 #[cfg(feature = "opencl")]
 mod ocl;
-mod perf_monitor;
 mod plotter;
 #[cfg(feature = "opencl")]
 mod ring_scheduler;

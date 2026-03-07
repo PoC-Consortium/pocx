@@ -14,19 +14,19 @@ static INIT: Once = Once::new();
 fn get_plotter_binary() -> PathBuf {
     INIT.call_once(|| {
         let output = Command::new("cargo")
-            .args(["build", "--bin", "pocx_gpu_plotter"])
+            .args(["build", "--bin", "pocx_plotter_v2"])
             .current_dir("../")
             .output()
-            .expect("Failed to build pocx_gpu_plotter");
+            .expect("Failed to build pocx_plotter_v2");
 
         assert!(
             output.status.success(),
-            "Failed to build pocx_gpu_plotter: {}",
+            "Failed to build pocx_plotter_v2: {}",
             String::from_utf8_lossy(&output.stderr)
         );
     });
 
-    PathBuf::from("../target/debug/pocx_gpu_plotter")
+    PathBuf::from("../target/debug/pocx_plotter_v2")
 }
 
 #[test]
@@ -90,8 +90,8 @@ fn test_seed_validation_integration() {
 
 #[test]
 fn test_comprehensive_error_recovery() {
-    use pocx_gpu_plotter::buffer::PageAlignedByteBuffer;
-    use pocx_gpu_plotter::error::PoCXPlotterError;
+    use pocx_plotter_v2::buffer::PageAlignedByteBuffer;
+    use pocx_plotter_v2::error::PoCXPlotterError;
 
     // Buffer allocation error recovery
     let valid_buffer_result = PageAlignedByteBuffer::new(4096);

@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$SCRIPT_DIR/../.."
 
 OLD_BIN="$REPO_ROOT/target/release/pocx_plotter"
-NEW_BIN="$REPO_ROOT/target/release/pocx_gpu_plotter"
+NEW_BIN="$REPO_ROOT/target/release/pocx_plotter_v2"
 
 case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*) OLD_BIN="${OLD_BIN}.exe"; NEW_BIN="${NEW_BIN}.exe" ;;
@@ -23,7 +23,7 @@ SKIP_COUNT=0
 # Build both plotters (called once by run_all.sh)
 build_plotters() {
     echo "--- Building plotters (release) ---"
-    cargo build --release -p pocx_plotter -p pocx_gpu_plotter \
+    cargo build --release -p pocx_plotter -p pocx_plotter_v2 \
         --manifest-path "$REPO_ROOT/Cargo.toml" 2>&1 | tail -3
     for bin in "$OLD_BIN" "$NEW_BIN"; do
         if [ ! -f "$bin" ]; then

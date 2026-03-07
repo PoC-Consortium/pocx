@@ -51,7 +51,7 @@ cfg_if! {
         use std::ptr::null_mut;
         use std::mem;
         use winapi::um::handleapi::CloseHandle;
-        use winapi::um::processthreadsapi::{SetThreadIdealProcessor,GetCurrentThread,OpenProcessToken,GetCurrentProcess,SetPriorityClass};
+        use winapi::um::processthreadsapi::{OpenProcessToken,GetCurrentProcess,SetPriorityClass};
         use winapi::um::winnt::TokenElevation;
         use winapi::um::winnt::{HANDLE,TOKEN_ELEVATION,TOKEN_QUERY};
         use winapi::ctypes::c_void;
@@ -87,15 +87,6 @@ cfg_if! {
             elevation_struct.TokenIsElevated == 1
         }
 
-        pub fn set_thread_ideal_processor(id: usize){
-            // Set core affinity for current thread.
-        unsafe {
-            SetThreadIdealProcessor(
-                GetCurrentThread(),
-                id as u32
-            );
-            }
-        }
         pub fn set_low_prio() {
             unsafe{
                 SetPriorityClass(GetCurrentProcess(),BELOW_NORMAL_PRIORITY_CLASS);

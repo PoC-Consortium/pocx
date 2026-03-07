@@ -1,7 +1,7 @@
 // Copyright (c) 2025 Proof of Capacity Consortium
 // MIT License
 
-use pocx_gpu_plotter::buffer::PageAlignedByteBuffer;
+use pocx_plotter_v2::buffer::PageAlignedByteBuffer;
 
 struct SimplePrng {
     state: u64,
@@ -202,7 +202,7 @@ fn fuzz_crypto_operations() {
 #[cfg(feature = "opencl")]
 #[test]
 fn fuzz_ring_size_computation() {
-    use pocx_gpu_plotter::ocl::compute_ring_size;
+    use pocx_plotter_v2::ocl::compute_ring_size;
 
     let mut prng = SimplePrng::new(44444);
 

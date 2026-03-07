@@ -54,7 +54,6 @@ pub mod disk_writer;
 pub mod error;
 #[cfg(feature = "opencl")]
 pub mod ocl;
-pub mod perf_monitor;
 pub mod plotter;
 #[cfg(feature = "opencl")]
 pub mod ring_scheduler;
@@ -149,7 +148,7 @@ pub struct PlotterTaskBuilder {
     output_paths: Vec<String>,
     mem: String,
     gpu: String,
-    cpu_threads: usize,
+    cpu_threads: u8,
     compress: u8,
     direct_io: bool,
     escalate: u64,
@@ -208,12 +207,12 @@ impl PlotterTaskBuilder {
         self
     }
 
-    pub fn cpu_threads(mut self, threads: usize) -> Self {
+    pub fn cpu_threads(mut self, threads: u8) -> Self {
         self.cpu_threads = threads;
         self
     }
 
-    pub fn compress(mut self, level: u8) -> Self {
+    pub fn compression(mut self, level: u8) -> Self {
         self.compress = level;
         self
     }
@@ -288,7 +287,7 @@ impl PlotterTaskBuilder {
             output_paths: self.output_paths,
             mem: self.mem,
             gpu: self.gpu,
-            cpu_threads: self.cpu_threads,
+            cpu_threads: self.cpu_threads as usize,
             direct_io: self.direct_io,
             escalate: self.escalate,
             double_buffer: self.double_buffer,

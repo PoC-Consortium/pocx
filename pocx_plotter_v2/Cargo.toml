@@ -1,5 +1,5 @@
 [package]
-name = "pocx_gpu_plotter"
+name = "pocx_plotter_v2"
 version = "0.1.0"
 license = "MIT"
 authors = [
@@ -23,11 +23,11 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [lib]
-name = "pocx_gpu_plotter"
+name = "pocx_plotter_v2"
 path = "src/lib.rs"
 
 [[bin]]
-name = "pocx_gpu_plotter"
+name = "pocx_plotter_v2"
 path = "src/main.rs"
 
 [features]

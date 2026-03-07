@@ -2,7 +2,7 @@
 members = [
     "pocx_address",
     "pocx_aggregator",
-    "pocx_gpu_plotter",
+    "pocx_plotter_v2",
     "pocx_hashlib",
     "pocx_miner",
     "pocx_mockchain",

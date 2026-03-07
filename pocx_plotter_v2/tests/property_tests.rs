@@ -1,7 +1,7 @@
 // Copyright (c) 2025 Proof of Capacity Consortium
 // MIT License
 
-use pocx_gpu_plotter::buffer::PageAlignedByteBuffer;
+use pocx_plotter_v2::buffer::PageAlignedByteBuffer;
 use proptest::prelude::*;
 use quickcheck::{quickcheck, TestResult};
 
@@ -235,7 +235,7 @@ mod cli_fuzzing_tests {
 #[cfg(test)]
 mod ring_buffer_property_tests {
     use super::*;
-    use pocx_gpu_plotter::ocl::compute_ring_size;
+    use pocx_plotter_v2::ocl::compute_ring_size;
 
     proptest! {
         #[test]

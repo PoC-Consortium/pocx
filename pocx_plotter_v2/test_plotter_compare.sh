@@ -39,11 +39,11 @@ echo ""
 
 # Build both plotters
 echo "--- Building both plotters (release) ---"
-cargo build --release -p pocx_plotter -p pocx_gpu_plotter 2>&1 | tail -3
+cargo build --release -p pocx_plotter -p pocx_plotter_v2 2>&1 | tail -3
 echo ""
 
 OLD_BIN="target/release/pocx_plotter"
-NEW_BIN="target/release/pocx_gpu_plotter"
+NEW_BIN="target/release/pocx_plotter_v2"
 
 case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*) OLD_BIN="${OLD_BIN}.exe"; NEW_BIN="${NEW_BIN}.exe" ;;
