@@ -162,21 +162,35 @@ cfg_if! {
             }
         }
 
+        /// Preallocates disk space for a file.
+        ///
+        /// Attempts fallocate() first for instant preallocation, then falls back
+        /// to ftruncate (set_len) for filesystems that don't support fallocate
+        /// (e.g., 9p/virtio, NFS, FUSE).
         pub fn preallocate(file: &Path, size_in_bytes: u64, use_direct_io: bool) {
-            let file = if use_direct_io {
+            let file_handle = if use_direct_io {
                 open_rw_using_direct_io(file)
             } else {
                 open_rw(file)
             };
-            match file {
-                Ok(file) => {
-                    if let Err(errno) = file.allocate(size_in_bytes) {
-                        println!("\n\nERROR: preallocation failed. {}\n", errno);
-                        process::exit(1);
+            match file_handle {
+                Ok(f) => {
+                    // Try fallocate first (fast, allocates contiguous space)
+                    if let Err(_fallocate_err) = f.allocate(size_in_bytes) {
+                        // Fallback to ftruncate for filesystems that don't support fallocate
+                        // (e.g., 9p/virtio, NFS, FUSE)
+                        if let Err(truncate_err) = f.set_len(size_in_bytes) {
+                            eprintln!(
+                                "\n\nERROR: preallocation failed (ftruncate fallback): {}\n",
+                                truncate_err
+                            );
+                            process::exit(1);
+                        }
+                        // ftruncate succeeded - file is sparse but usable
                     }
                 }
                 Err(e) => {
-                    println!("\n\nERROR: failed to open file for preallocation. {}\n", e);
+                    eprintln!("\n\nERROR: failed to open file for preallocation: {}\n", e);
                     process::exit(1);
                 }
             }
