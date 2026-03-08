@@ -332,7 +332,7 @@ pub fn gpu_ring_transfer_raw(ctx: &GpuRingContext, host_buffer: &mut [u8]) {
 
 /// GPU memory needed for ring buffer plotter (ring + compressed + constants)
 pub fn gpu_mem_needed(_worksize: u64, ring_size: u64) -> u64 {
-    let ring_bytes = ring_size * NONCE_SIZE as u64;
+    let ring_bytes = ring_size * NONCE_SIZE;
     let compressed_bytes = DIM * DIM * DOUBLE_HASH_SIZE;
     ring_bytes + compressed_bytes + 64 // +64 for base58+seed
 }
