@@ -208,7 +208,7 @@ fn fuzz_ring_size_computation() {
 
     for _iteration in 0..200 {
         // Test various worksize values (must be > 0)
-        let worksize = (prng.next_u64(32768) + 1) as u64;
+        let worksize = prng.next_u64(32768) + 1;
         let ring_size = compute_ring_size(worksize);
 
         // Ring size must be >= max(worksize, 8192)
