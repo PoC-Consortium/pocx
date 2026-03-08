@@ -63,8 +63,7 @@ pub trait PlotterCallback: Send + Sync {
     fn on_error(&self, error: &str);
 }
 
-static PLOTTER_CALLBACK: std::sync::OnceLock<Arc<dyn PlotterCallback>> =
-    std::sync::OnceLock::new();
+static PLOTTER_CALLBACK: std::sync::OnceLock<Arc<dyn PlotterCallback>> = std::sync::OnceLock::new();
 
 pub fn get_plotter_callback() -> Option<Arc<dyn PlotterCallback>> {
     PLOTTER_CALLBACK.get().cloned()
@@ -83,145 +82,143 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-    let cmd = Command::new("PoCX GPU Plotter")
-        .version(env!("CARGO_PKG_VERSION"))
-        .about("PoCX GPU Plotter — ring buffer design with fused scatter+compress")
-        .arg_required_else_help(true)
-        .next_display_order(None)
-        .arg(
-            Arg::new("disable-direct-io")
-                .short('d')
-                .long("ddio")
-                .help("Disables direct i/o")
-                .action(clap::ArgAction::SetTrue)
-                .global(true),
-        )
-        .arg(
-            Arg::new("low-priority")
-                .short('l')
-                .long("prio")
-                .help("Runs plotter with low priority")
-                .action(clap::ArgAction::SetTrue)
-                .global(true),
-        )
-        .arg(
-            Arg::new("non-verbosity")
-                .short('q')
-                .long("quiet")
-                .help("Runs plotter in non-verbose mode")
-                .action(clap::ArgAction::SetTrue)
-                .global(true),
-        )
-        .arg(
-            Arg::new("benchmark")
-                .short('b')
-                .long("bench")
-                .help("Runs plotter in GPU benchmark mode")
-                .action(clap::ArgAction::SetTrue)
-                .global(true),
-        )
-        .arg(
-            Arg::new("line-progress")
-                .long("line-progress")
-                .help("Output machine-readable progress lines")
-                .action(clap::ArgAction::SetTrue)
-                .hide(true)
-                .global(true),
-        )
-        .arg(
-            Arg::new("address")
-                .short('i')
-                .long("id")
-                .value_name("address")
-                .help("your PoC mining address (any PoC coin)"),
-        )
-        .arg(
-            Arg::new("warps")
-                .short('w')
-                .long("warps")
-                .value_name("warps")
-                .help("how many warps you want to plot (1 warp = 1 GiB, default: fill disk)"),
-        )
-        .arg(
-            Arg::new("number")
-                .short('n')
-                .long("num")
-                .value_name("number")
-                .help("number of files to plot (default: 1, 0 = fill disk)"),
-        )
-        .arg(
-            Arg::new("compression")
-                .short('x')
-                .long("compression")
-                .help("compression level 1-6 (default: 1, higher = more PoW per plot)"),
-        )
-        .arg(
-            Arg::new("path")
-                .short('p')
-                .long("path")
-                .value_name("path")
-                .help("target disk path(s) for plotfile(s) (default: current path)")
-                .action(clap::ArgAction::Append),
-        )
-        .arg(
-            Arg::new("seed")
-                .short('s')
-                .long("seed")
-                .value_name("seed")
-                .help("specify seed to resume an unfinished plot (optional, needs n=1)"),
-        )
-        .arg(
-            Arg::new("memory")
-                .short('m')
-                .long("mem")
-                .value_name("memory")
-                .help("limit host memory usage (optional)"),
-        )
-        .arg(
-            Arg::new("escalate")
-                .short('e')
-                .long("escalate")
-                .help("write buffer size multiplier in warps (default: 1, e.g. -e 5 = 5 GiB buffer)"),
-        )
-        .arg(
-            Arg::new("double-buffer")
-                .short('D')
-                .long("double-buffer")
-                .help("allocate an extra write buffer for GPU/disk overlap")
-                .action(clap::ArgAction::SetTrue)
-                .global(true),
-        )
-        .arg(
-            Arg::new("gpu")
-                .short('g')
-                .long("gpu")
-                .value_name("platform_id:device_id:cores")
-                .help("GPU to use for plotting (default: 0:0:0 = first GPU, all CUs)")
-                .conflicts_with("cpu"),
-        )
-        .arg(
-            Arg::new("cpu")
-                .short('c')
-                .long("cpu")
-                .value_name("threads")
-                .help("CPU-only plotting with N threads (0 = auto-detect)")
-                .conflicts_with("gpu"),
-        )
-        .arg(
-            Arg::new("ocl-devices")
-                .short('o')
-                .long("opencl")
-                .help("Display OpenCL platforms and devices")
-                .action(clap::ArgAction::SetTrue)
-                .global(true),
-        )
-        .arg(
-            Arg::new("kws")
-                .short('k')
-                .long("kws-override")
-                .help("tweak: overrides default gpu kernel workgroup size")
-                .global(true),
-        );
+    let cmd =
+        Command::new("PoCX GPU Plotter")
+            .version(env!("CARGO_PKG_VERSION"))
+            .about("PoCX GPU Plotter — ring buffer design with fused scatter+compress")
+            .arg_required_else_help(true)
+            .next_display_order(None)
+            .arg(
+                Arg::new("disable-direct-io")
+                    .short('d')
+                    .long("ddio")
+                    .help("Disables direct i/o")
+                    .action(clap::ArgAction::SetTrue)
+                    .global(true),
+            )
+            .arg(
+                Arg::new("low-priority")
+                    .short('l')
+                    .long("prio")
+                    .help("Runs plotter with low priority")
+                    .action(clap::ArgAction::SetTrue)
+                    .global(true),
+            )
+            .arg(
+                Arg::new("non-verbosity")
+                    .short('q')
+                    .long("quiet")
+                    .help("Runs plotter in non-verbose mode")
+                    .action(clap::ArgAction::SetTrue)
+                    .global(true),
+            )
+            .arg(
+                Arg::new("benchmark")
+                    .short('b')
+                    .long("bench")
+                    .help("Runs plotter in GPU benchmark mode")
+                    .action(clap::ArgAction::SetTrue)
+                    .global(true),
+            )
+            .arg(
+                Arg::new("line-progress")
+                    .long("line-progress")
+                    .help("Output machine-readable progress lines")
+                    .action(clap::ArgAction::SetTrue)
+                    .hide(true)
+                    .global(true),
+            )
+            .arg(
+                Arg::new("address")
+                    .short('i')
+                    .long("id")
+                    .value_name("address")
+                    .help("your PoC mining address (any PoC coin)"),
+            )
+            .arg(
+                Arg::new("warps")
+                    .short('w')
+                    .long("warps")
+                    .value_name("warps")
+                    .help("how many warps you want to plot (1 warp = 1 GiB, default: fill disk)"),
+            )
+            .arg(
+                Arg::new("number")
+                    .short('n')
+                    .long("num")
+                    .value_name("number")
+                    .help("number of files to plot (default: 1, 0 = fill disk)"),
+            )
+            .arg(
+                Arg::new("compression")
+                    .short('x')
+                    .long("compression")
+                    .help("compression level 1-6 (default: 1, higher = more PoW per plot)"),
+            )
+            .arg(
+                Arg::new("path")
+                    .short('p')
+                    .long("path")
+                    .value_name("path")
+                    .help("target disk path(s) for plotfile(s) (default: current path)")
+                    .action(clap::ArgAction::Append),
+            )
+            .arg(
+                Arg::new("seed")
+                    .short('s')
+                    .long("seed")
+                    .value_name("seed")
+                    .help("specify seed to resume an unfinished plot (optional, needs n=1)"),
+            )
+            .arg(
+                Arg::new("memory")
+                    .short('m')
+                    .long("mem")
+                    .value_name("memory")
+                    .help("limit host memory usage (optional)"),
+            )
+            .arg(Arg::new("escalate").short('e').long("escalate").help(
+                "write buffer size multiplier in warps (default: 1, e.g. -e 5 = 5 GiB buffer)",
+            ))
+            .arg(
+                Arg::new("double-buffer")
+                    .short('D')
+                    .long("double-buffer")
+                    .help("allocate an extra write buffer for GPU/disk overlap")
+                    .action(clap::ArgAction::SetTrue)
+                    .global(true),
+            )
+            .arg(
+                Arg::new("gpu")
+                    .short('g')
+                    .long("gpu")
+                    .value_name("platform_id:device_id:cores")
+                    .help("GPU to use for plotting (default: 0:0:0 = first GPU, all CUs)")
+                    .conflicts_with("cpu"),
+            )
+            .arg(
+                Arg::new("cpu")
+                    .short('c')
+                    .long("cpu")
+                    .value_name("threads")
+                    .help("CPU-only plotting with N threads (0 = auto-detect)")
+                    .conflicts_with("gpu"),
+            )
+            .arg(
+                Arg::new("ocl-devices")
+                    .short('o')
+                    .long("opencl")
+                    .help("Display OpenCL platforms and devices")
+                    .action(clap::ArgAction::SetTrue)
+                    .global(true),
+            )
+            .arg(
+                Arg::new("kws")
+                    .short('k')
+                    .long("kws-override")
+                    .help("tweak: overrides default gpu kernel workgroup size")
+                    .global(true),
+            );
 
     let matches = cmd.get_matches();
 
@@ -274,9 +271,8 @@ fn run() -> Result<()> {
     let number_of_plots = matches
         .get_one::<String>("number")
         .map(|s| {
-            s.parse::<u64>().map_err(|e| {
-                PoCXPlotterError::InvalidInput(format!("Invalid number value: {}", e))
-            })
+            s.parse::<u64>()
+                .map_err(|e| PoCXPlotterError::InvalidInput(format!("Invalid number value: {}", e)))
         })
         .transpose()?
         .unwrap_or(1);
@@ -387,7 +383,11 @@ fn run() -> Result<()> {
         .transpose()?
         .unwrap_or_else(|| {
             // Default to CPU (auto-detect) when neither --cpu nor --gpu is specified
-            if gpu_explicit.is_none() { num_cpus::get() } else { 0 }
+            if gpu_explicit.is_none() {
+                num_cpus::get()
+            } else {
+                0
+            }
         });
 
     let gpu = if cpu_threads > 0 {
@@ -526,7 +526,11 @@ mod security_tests {
         let sizes = vec![4096, 1024 * 1024, 16 * 1024 * 1024];
         for size in sizes {
             let result = PageAlignedByteBuffer::new(size);
-            assert!(result.is_ok(), "Should accept reasonable buffer size: {}", size);
+            assert!(
+                result.is_ok(),
+                "Should accept reasonable buffer size: {}",
+                size
+            );
         }
     }
 

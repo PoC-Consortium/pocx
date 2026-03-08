@@ -106,29 +106,28 @@ pub fn create_ring_scheduler_thread(
         let mut buffer_path: usize = path_pointer;
 
         // Helper: flush current write buffer to the correct writer
-        let flush_buffer =
-            |write_buffer: &mut Option<PageAlignedByteBuffer>,
-             warps_in_buffer: &mut u64,
-             buffer_start_warp: &mut u64,
-             buffer_path: usize,
-             seed: [u8; 32],
-             next_warp_offset: u64,
-             current_warps: u64,
-             tx_per_path: &[Sender<WriterTask>]| {
-                if let Some(buf) = write_buffer.take() {
-                    tx_per_path[buffer_path]
-                        .send(WriterTask::ProcessTask {
-                            buffer: buf,
-                            seed,
-                            warp_offset: *buffer_start_warp,
-                            warps_to_write: *warps_in_buffer,
-                            number_of_warps: current_warps,
-                        })
-                        .expect("Failed to send to writer");
-                    *warps_in_buffer = 0;
-                    *buffer_start_warp = next_warp_offset;
-                }
-            };
+        let flush_buffer = |write_buffer: &mut Option<PageAlignedByteBuffer>,
+                            warps_in_buffer: &mut u64,
+                            buffer_start_warp: &mut u64,
+                            buffer_path: usize,
+                            seed: [u8; 32],
+                            next_warp_offset: u64,
+                            current_warps: u64,
+                            tx_per_path: &[Sender<WriterTask>]| {
+            if let Some(buf) = write_buffer.take() {
+                tx_per_path[buffer_path]
+                    .send(WriterTask::ProcessTask {
+                        buffer: buf,
+                        seed,
+                        warp_offset: *buffer_start_warp,
+                        warps_to_write: *warps_in_buffer,
+                        number_of_warps: current_warps,
+                    })
+                    .expect("Failed to send to writer");
+                *warps_in_buffer = 0;
+                *buffer_start_warp = next_warp_offset;
+            }
+        };
 
         loop {
             // Check if all paths are complete
@@ -143,8 +142,7 @@ pub fn create_ring_scheduler_thread(
                 break;
             }
 
-            let nonces_for_file =
-                task.warps[path_pointer] * passes_per_warp * COMPRESS_BATCH;
+            let nonces_for_file = task.warps[path_pointer] * passes_per_warp * COMPRESS_BATCH;
 
             // Phase 1: Fill ring with hash dispatches
             while ring_available + worksize <= ring_size
@@ -154,10 +152,8 @@ pub fn create_ring_scheduler_thread(
                     break;
                 }
 
-                let nonces_this_batch = std::cmp::min(
-                    worksize,
-                    nonces_for_file - global_nonces[path_pointer],
-                );
+                let nonces_this_batch =
+                    std::cmp::min(worksize, nonces_for_file - global_nonces[path_pointer]);
 
                 gpu_ring_hash(
                     &gpu_ctx,
@@ -177,8 +173,7 @@ pub fn create_ring_scheduler_thread(
                     break;
                 }
 
-                let compress_start =
-                    (ring_head + ring_size - ring_available) % ring_size;
+                let compress_start = (ring_head + ring_size - ring_available) % ring_size;
 
                 gpu_ring_compress(&gpu_ctx, compress_start, pass_in_warp > 0);
                 ring_available -= COMPRESS_BATCH;
@@ -202,15 +197,8 @@ pub fn create_ring_scheduler_thread(
                     {
                         let buf_ref = write_buffer.as_ref().unwrap();
                         let mutex_buf = buf_ref.get_buffer();
-                        let mut buf =
-                            lock_mutex(&mutex_buf).expect("Write buffer mutex poisoned");
-                        gpu_ring_transfer(
-                            &gpu_ctx,
-                            &mut buf,
-                            warps_in_buffer,
-                            escalate,
-                            true,
-                        );
+                        let mut buf = lock_mutex(&mutex_buf).expect("Write buffer mutex poisoned");
+                        gpu_ring_transfer(&gpu_ctx, &mut buf, warps_in_buffer, escalate, true);
                     }
 
                     warps_in_buffer += 1;
@@ -227,8 +215,7 @@ pub fn create_ring_scheduler_thread(
                     }
 
                     let current_warps = task.warps[path_pointer];
-                    let at_file_boundary =
-                        warp_offsets[path_pointer] == current_warps;
+                    let at_file_boundary = warp_offsets[path_pointer] == current_warps;
 
                     // Flush buffer when full or at file boundary
                     if warps_in_buffer == escalate || at_file_boundary {
@@ -246,9 +233,7 @@ pub fn create_ring_scheduler_thread(
                         // Handle file completion
                         if at_file_boundary {
                             files_done[path_pointer] += 1;
-                            if files_done[path_pointer]
-                                < task.number_of_plots[path_pointer]
-                            {
+                            if files_done[path_pointer] < task.number_of_plots[path_pointer] {
                                 rand::rng().fill(&mut seeds[path_pointer]);
                             }
                         }
@@ -258,11 +243,8 @@ pub fn create_ring_scheduler_thread(
                         if num_paths > 1 {
                             let mut found = false;
                             for i in 1..=num_paths {
-                                let candidate =
-                                    (old_path + i) % num_paths;
-                                if files_done[candidate]
-                                    < task.number_of_plots[candidate]
-                                {
+                                let candidate = (old_path + i) % num_paths;
+                                if files_done[candidate] < task.number_of_plots[candidate] {
                                     path_pointer = candidate;
                                     found = true;
                                     break;
@@ -289,10 +271,7 @@ pub fn create_ring_scheduler_thread(
                                 global_nonces[old_path] = 0;
                             }
 
-                            gpu_upload_seed(
-                                &mut gpu_ctx,
-                                &seeds[path_pointer],
-                            );
+                            gpu_upload_seed(&mut gpu_ctx, &seeds[path_pointer]);
                             buffer_start_warp = warp_offsets[path_pointer];
                             break; // Exit Phase 2, refill ring for new seed
                         }

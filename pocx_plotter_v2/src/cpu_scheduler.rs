@@ -97,29 +97,28 @@ pub fn create_cpu_scheduler_thread(
         let mut buffer_start_warp: u64 = warp_offsets[path_pointer];
         let mut buffer_path: usize = path_pointer;
 
-        let flush_buffer =
-            |write_buffer: &mut Option<PageAlignedByteBuffer>,
-             warps_in_buffer: &mut u64,
-             buffer_start_warp: &mut u64,
-             buffer_path: usize,
-             seed: [u8; 32],
-             next_warp_offset: u64,
-             current_warps: u64,
-             tx_per_path: &[Sender<WriterTask>]| {
-                if let Some(buf) = write_buffer.take() {
-                    tx_per_path[buffer_path]
-                        .send(WriterTask::ProcessTask {
-                            buffer: buf,
-                            seed,
-                            warp_offset: *buffer_start_warp,
-                            warps_to_write: *warps_in_buffer,
-                            number_of_warps: current_warps,
-                        })
-                        .expect("Failed to send to writer");
-                    *warps_in_buffer = 0;
-                    *buffer_start_warp = next_warp_offset;
-                }
-            };
+        let flush_buffer = |write_buffer: &mut Option<PageAlignedByteBuffer>,
+                            warps_in_buffer: &mut u64,
+                            buffer_start_warp: &mut u64,
+                            buffer_path: usize,
+                            seed: [u8; 32],
+                            next_warp_offset: u64,
+                            current_warps: u64,
+                            tx_per_path: &[Sender<WriterTask>]| {
+            if let Some(buf) = write_buffer.take() {
+                tx_per_path[buffer_path]
+                    .send(WriterTask::ProcessTask {
+                        buffer: buf,
+                        seed,
+                        warp_offset: *buffer_start_warp,
+                        warps_to_write: *warps_in_buffer,
+                        number_of_warps: current_warps,
+                    })
+                    .expect("Failed to send to writer");
+                *warps_in_buffer = 0;
+                *buffer_start_warp = next_warp_offset;
+            }
+        };
 
         loop {
             // Check if all paths are complete

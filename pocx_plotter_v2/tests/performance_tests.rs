@@ -28,7 +28,11 @@ fn test_buffer_allocation_performance() {
         let page_size = page_size::get();
         assert_eq!(ptr % page_size, 0, "Buffer should be page-aligned");
 
-        println!("Buffer {}KB: allocated in {:?}", size / 1024, allocation_time);
+        println!(
+            "Buffer {}KB: allocated in {:?}",
+            size / 1024,
+            allocation_time
+        );
     }
 
     for i in 1..allocation_times.len() {

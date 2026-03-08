@@ -96,9 +96,13 @@ impl Plotter {
             .filter(|name| !name.is_empty())
             .unwrap_or_else(|| {
                 #[cfg(target_arch = "aarch64")]
-                { "ARM/Other CPU".to_string() }
+                {
+                    "ARM/Other CPU".to_string()
+                }
                 #[cfg(not(target_arch = "aarch64"))]
-                { "Unknown CPU".to_string() }
+                {
+                    "Unknown CPU".to_string()
+                }
             });
         let cores = num_cpus::get() as u32;
         let simd_ext = crate::cpu_hasher::init_simd();
@@ -196,8 +200,7 @@ impl Plotter {
                 if task.warps[i] == 0 {
                     if task.number_of_plots[i] == 0 {
                         return Err(PoCXPlotterError::InvalidInput(
-                            "Need to specify either number of plots or number of warps"
-                                .to_string(),
+                            "Need to specify either number of plots or number of warps".to_string(),
                         ));
                     }
                     task.warps[i] = space / WARP_SIZE / task.number_of_plots[i];
@@ -216,9 +219,7 @@ impl Plotter {
                         .checked_mul(task.number_of_plots[i])
                         .and_then(|v| v.checked_mul(WARP_SIZE))
                         .ok_or_else(|| {
-                            PoCXPlotterError::Config(
-                                "Disk space calculation overflow".to_string(),
-                            )
+                            PoCXPlotterError::Config("Disk space calculation overflow".to_string())
                         })?;
 
                     // Only check disk space for first path if resuming
@@ -242,11 +243,15 @@ impl Plotter {
             0
         };
 
-        let mem_limit = task.mem.parse::<ByteSize>()
-            .map_err(|_| PoCXPlotterError::InvalidInput(format!(
-                "Can't parse memory limit parameter: {}. Example: --mem 10GiB",
-                task.mem
-            )))?
+        let mem_limit = task
+            .mem
+            .parse::<ByteSize>()
+            .map_err(|_| {
+                PoCXPlotterError::InvalidInput(format!(
+                    "Can't parse memory limit parameter: {}. Example: --mem 10GiB",
+                    task.mem
+                ))
+            })?
             .as_u64();
 
         let available_mem = sys.available_memory();
@@ -257,8 +262,8 @@ impl Plotter {
         };
 
         // 1 buffer per output path, +1 if double buffering enabled
-        let num_write_buffers = task.output_paths.len() as u64
-            + if task.double_buffer { 1 } else { 0 };
+        let num_write_buffers =
+            task.output_paths.len() as u64 + if task.double_buffer { 1 } else { 0 };
 
         let total_host_mem = mem_write * num_write_buffers + mem_scatter;
         if max_mem_usage < total_host_mem {
@@ -302,7 +307,11 @@ impl Plotter {
                     WARP_SIZE as f64 / 1024.0 / 1024.0 / 1024.0,
                     task.escalate,
                     num_write_buffers,
-                    if task.double_buffer { ", double-buffered" } else { "" },
+                    if task.double_buffer {
+                        ", double-buffered"
+                    } else {
+                        ""
+                    },
                     mem_scatter as f64 / 1024.0 / 1024.0 / 1024.0,
                 );
             } else {
@@ -331,7 +340,11 @@ impl Plotter {
                 "Address Hex   : {} (network-independent payload)",
                 hex::encode_upper(task.address_payload)
             );
-            println!("Compression    : {}(X{})", 1u64 << task.compress, task.compress);
+            println!(
+                "Compression    : {}(X{})",
+                1u64 << task.compress,
+                task.compress
+            );
             println!("Output path(s) : {:?}", task.output_paths);
             println!("Files to plot  : {:?}", task.number_of_plots);
             println!("Warps per file : {:?}", task.warps);
@@ -352,8 +365,7 @@ impl Plotter {
         }
 
         // Create shared empty-buffer pool
-        let (tx_empty_write_buffers, rx_empty_write_buffers) =
-            bounded(num_write_buffers as usize);
+        let (tx_empty_write_buffers, rx_empty_write_buffers) = bounded(num_write_buffers as usize);
 
         // Allocate write buffers (each holds `escalate` warps)
         for _ in 0..num_write_buffers {
@@ -453,9 +465,9 @@ impl Plotter {
                         resume,
                     )
                 });
-                hasher
-                    .join()
-                    .map_err(|_| PoCXPlotterError::Channel("GPU hasher thread panicked".to_string()))?;
+                hasher.join().map_err(|_| {
+                    PoCXPlotterError::Channel("GPU hasher thread panicked".to_string())
+                })?;
             }
             #[cfg(not(feature = "opencl"))]
             {

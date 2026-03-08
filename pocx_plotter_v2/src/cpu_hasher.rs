@@ -22,13 +22,25 @@
 
 #[derive(Debug, Clone)]
 pub enum SimdExtension {
-    #[cfg_attr(not(any(target_arch = "x86", target_arch = "x86_64")), allow(dead_code))]
+    #[cfg_attr(
+        not(any(target_arch = "x86", target_arch = "x86_64")),
+        allow(dead_code)
+    )]
     Avx512f,
-    #[cfg_attr(not(any(target_arch = "x86", target_arch = "x86_64")), allow(dead_code))]
+    #[cfg_attr(
+        not(any(target_arch = "x86", target_arch = "x86_64")),
+        allow(dead_code)
+    )]
     Avx2,
-    #[cfg_attr(not(any(target_arch = "x86", target_arch = "x86_64")), allow(dead_code))]
+    #[cfg_attr(
+        not(any(target_arch = "x86", target_arch = "x86_64")),
+        allow(dead_code)
+    )]
     Avx,
-    #[cfg_attr(not(any(target_arch = "x86", target_arch = "x86_64")), allow(dead_code))]
+    #[cfg_attr(
+        not(any(target_arch = "x86", target_arch = "x86_64")),
+        allow(dead_code)
+    )]
     Sse2,
     #[cfg_attr(not(target_arch = "aarch64"), allow(dead_code))]
     Neon,
@@ -93,8 +105,15 @@ pub fn hash_nonces_cpu(
                 // SAFETY: Each task writes to a distinct nonce region [cache_offset..cache_offset+chunk_size]
                 // in the scoop-major layout. No two tasks overlap.
                 let buf = unsafe { std::slice::from_raw_parts_mut(buf_addr as *mut u8, buf_len) };
-                pocx_hashlib::generate_nonces(buf, cache_offset, &addr, &s, nonce_start, chunk_size)
-                    .expect("generate_nonces failed");
+                pocx_hashlib::generate_nonces(
+                    buf,
+                    cache_offset,
+                    &addr,
+                    &s,
+                    nonce_start,
+                    chunk_size,
+                )
+                .expect("generate_nonces failed");
             });
 
             offset += chunk_size;

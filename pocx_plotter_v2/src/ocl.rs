@@ -192,12 +192,7 @@ pub fn gpu_upload_seed(ctx: &mut GpuRingContext, seed: &[u8; 32]) {
 /// `startnonce` is the global nonce number for nonce 0 of this dispatch.
 /// `ring_offset` is the slot in the ring buffer where gid=0 maps to.
 /// `nonces` is the number of nonces to hash (== worksize).
-pub fn gpu_ring_hash(
-    ctx: &GpuRingContext,
-    startnonce: u64,
-    nonces: u64,
-    ring_offset: u64,
-) {
+pub fn gpu_ring_hash(ctx: &GpuRingContext, startnonce: u64, nonces: u64, ring_offset: u64) {
     for i in (0..8192usize).step_by(GPU_HASHES_PER_RUN) {
         let (start, end) = if i + GPU_HASHES_PER_RUN < 8192 {
             (i as i32, (i + GPU_HASHES_PER_RUN - 1) as i32)
@@ -222,7 +217,9 @@ pub fn gpu_ring_hash(
                 .expect("Failed to enqueue hash kernel");
         }
     }
-    ctx.queue_hash.finish().expect("Failed to finish hash queue");
+    ctx.queue_hash
+        .finish()
+        .expect("Failed to finish hash queue");
 }
 
 /// Run the fused scatter+compress kernel on 8192 nonces starting at compress_start.
@@ -268,7 +265,11 @@ pub fn gpu_ring_transfer(
 
     // Fast path: no interleaving needed
     if total_warps_in_buffer == 1 {
-        let cl_blocking = if blocking { CL_BLOCKING } else { CL_NON_BLOCKING };
+        let cl_blocking = if blocking {
+            CL_BLOCKING
+        } else {
+            CL_NON_BLOCKING
+        };
         unsafe {
             ctx.queue_transfer
                 .enqueue_read_buffer(
@@ -287,7 +288,11 @@ pub fn gpu_ring_transfer(
         let region: [usize; 3] = [scoop_size, num_scoops, 1];
         let buffer_row_pitch = scoop_size;
         let host_row_pitch = total_warps_in_buffer as usize * scoop_size;
-        let cl_blocking = if blocking { CL_BLOCKING } else { CL_NON_BLOCKING };
+        let cl_blocking = if blocking {
+            CL_BLOCKING
+        } else {
+            CL_NON_BLOCKING
+        };
 
         unsafe {
             ctx.queue_transfer
@@ -529,10 +534,9 @@ pub fn gpu_get_info(gpu: &str, quiet: bool, kws_override: usize) -> (u64, u64, u
     let mem = device.global_mem_size().unwrap_or(0);
 
     let context = Context::from_device(&device).expect("Failed to create context");
-    let program = Program::create_and_build_from_source(&context, SRC, "")
-        .expect("Failed to build program");
-    let kernel =
-        Kernel::create(&program, "calculate_nonces").expect("Failed to create kernel");
+    let program =
+        Program::create_and_build_from_source(&context, SRC, "").expect("Failed to build program");
+    let kernel = Kernel::create(&program, "calculate_nonces").expect("Failed to create kernel");
     let kernel_workgroup_size = get_kernel_work_group_size(&kernel, &device, kws_override);
 
     let gpu_cores = if gpu_cores == 0 {
@@ -546,9 +550,11 @@ pub fn gpu_get_info(gpu: &str, quiet: bool, kws_override: usize) -> (u64, u64, u
     let mem_needed = gpu_mem_needed(worksize, ring_size);
 
     if mem_needed > mem {
-        println!("Error: Not enough GPU-memory ({:.2} GiB needed, {:.2} GiB available).",
+        println!(
+            "Error: Not enough GPU-memory ({:.2} GiB needed, {:.2} GiB available).",
             mem_needed as f64 / 1024.0 / 1024.0 / 1024.0,
-            mem as f64 / 1024.0 / 1024.0 / 1024.0);
+            mem as f64 / 1024.0 / 1024.0 / 1024.0
+        );
         println!("Please reduce number of cores.");
         process::exit(1);
     }
@@ -572,10 +578,7 @@ pub fn gpu_get_info(gpu: &str, quiet: bool, kws_override: usize) -> (u64, u64, u
     (worksize, ring_size, mem_needed)
 }
 
-pub fn gpu_ring_init(
-    gpu: &str,
-    kws_override: usize,
-) -> Result<GpuRingContext, String> {
+pub fn gpu_ring_init(gpu: &str, kws_override: usize) -> Result<GpuRingContext, String> {
     let platforms = match get_platforms() {
         Ok(p) => p,
         Err(e) => return Err(format!("Failed to get OpenCL platforms: {:?}", e)),
@@ -718,15 +721,17 @@ mod tests {
         // Generate same nonces on CPU (scoop-major layout)
         let nonce_size = NONCE_SIZE as usize;
         let mut cpu_buf = vec![0u8; ws as usize * nonce_size];
-        pocx_hashlib::generate_nonces(
-            &mut cpu_buf, 0, &addr, &seed, TEST_START_NONCE, ws,
-        ).unwrap();
+        pocx_hashlib::generate_nonces(&mut cpu_buf, 0, &addr, &seed, TEST_START_NONCE, ws).unwrap();
 
         // Compare scoops for selected nonces and scoop indices
         let test_nonces: Vec<usize> = [0, 1, 15, 16]
             .iter()
             .copied()
-            .chain(if ws as usize > 17 { vec![ws as usize - 1] } else { vec![] })
+            .chain(if ws as usize > 17 {
+                vec![ws as usize - 1]
+            } else {
+                vec![]
+            })
             .collect();
         let test_scoops = [0, 1, 100, 2048, 4095];
 
@@ -738,8 +743,11 @@ mod tests {
                 let cpu_scoop = &cpu_buf[cpu_off..cpu_off + 64];
 
                 assert_eq!(
-                    cpu_scoop, &gpu_scoop[..],
-                    "Hash mismatch: nonce_idx={}, scoop={}", ni, sc
+                    cpu_scoop,
+                    &gpu_scoop[..],
+                    "Hash mismatch: nonce_idx={}, scoop={}",
+                    ni,
+                    sc
                 );
             }
         }
@@ -790,15 +798,26 @@ mod tests {
         let nonce_size = NONCE_SIZE as usize;
         let mut cpu_buf = vec![0u8; COMPRESS_BATCH as usize * nonce_size];
         pocx_hashlib::generate_nonces(
-            &mut cpu_buf, 0, &addr, &seed, TEST_START_NONCE, COMPRESS_BATCH,
-        ).unwrap();
+            &mut cpu_buf,
+            0,
+            &addr,
+            &seed,
+            TEST_START_NONCE,
+            COMPRESS_BATCH,
+        )
+        .unwrap();
 
         // Verify helix compress for selected (scoop_y, nonce_x) pairs
         // Helix: output[y][x] = source[scoop_y from nonce_x] XOR source[scoop_x from nonce_{4096+y}]
         let test_pairs: Vec<(usize, usize)> = vec![
-            (0, 0), (0, 1), (0, 4095),
-            (1, 0), (100, 200), (2048, 2048),
-            (4095, 0), (4095, 4095),
+            (0, 0),
+            (0, 1),
+            (0, 4095),
+            (1, 0),
+            (100, 200),
+            (2048, 2048),
+            (4095, 0),
+            (4095, 4095),
         ];
         let num_nonces = COMPRESS_BATCH as usize; // 8192
 
@@ -824,8 +843,11 @@ mod tests {
             let gpu_scoop = &gpu_compressed[gpu_off..gpu_off + 64];
 
             assert_eq!(
-                &expected[..], gpu_scoop,
-                "Compress mismatch: scoop_y={}, nonce_x={}", scoop_y, nonce_x
+                &expected[..],
+                gpu_scoop,
+                "Compress mismatch: scoop_y={}, nonce_x={}",
+                scoop_y,
+                nonce_x
             );
         }
         println!(
