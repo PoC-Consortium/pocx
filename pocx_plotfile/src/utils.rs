@@ -24,7 +24,8 @@ use std::path::Path;
 
 cfg_if! {
     if #[cfg(unix)] {
-        use std::process::Command;
+        use std::ffi::CString;
+        use std::mem::MaybeUninit;
         use std::process;
         use std::os::unix::fs::OpenOptionsExt;
         use fs2::FileExt;
@@ -81,84 +82,46 @@ cfg_if! {
                 .open(path)
         }
 
-        // On unix, get the device id from 'df' command
-        fn get_device_id_unix(path: &str) -> String {
-            let output = match Command::new("df")
-                    .arg(path)
-                    .output() {
-                Ok(output) => output,
-                Err(_) => return "/dev/disk0".to_string(), // Fallback on command failure
-            };
-                let source = match String::from_utf8(output.stdout) {
-                Ok(s) => s,
-                Err(_) => return "/dev/disk0".to_string(), // Fallback on UTF-8 error
-            };
-                let lines: Vec<&str> = source.split('\n').collect();
-                if lines.len() < 2 {
-                    return "/dev/disk0".to_string(); // Fallback for tests
-                }
-                let parts: Vec<&str> = lines[1].split(' ').collect();
-                if parts.is_empty() {
-                    return "/dev/disk0".to_string(); // Fallback for tests
-                }
-                parts[0].to_string()
-            }
-
-        // on macos, use df and 'diskutil info <device>' to get the Device Block Size line
-        // and extract the size
-        fn get_sector_size_macos(path: &str) -> u64 {
-            let source = get_device_id_unix(path);
-            let output = match Command::new("diskutil")
-                .arg("info")
-                .arg(source)
-                .output() {
-                Ok(output) => output,
-                Err(_) => return 4096, // Fallback on command failure
-            };
-            let source = match String::from_utf8(output.stdout) {
-                Ok(s) => s,
-                Err(_) => return 4096, // Fallback on UTF-8 error
-            };
-            let mut sector_size: u64 = 0;
-            for line in source.split('\n').collect::<Vec<&str>>() {
-                if line.trim().starts_with("Device Block Size") {
-                    // e.g. in reverse: "Bytes 512 Size Block Device"
-                    let source = line.rsplit(' ').collect::<Vec<&str>>()[1];
-
-                    sector_size = source.parse::<u64>().unwrap_or(4096);
-                }
-            }
-            if sector_size == 0 {
-                sector_size = 4096;
-            }
-            sector_size
-        }
-
-        // on unix, use df and lsblk to extract the device sector size
-        fn get_sector_size_unix(path: &str) -> u64 {
-            let source = get_device_id_unix(path);
-            let output = Command::new("lsblk")
-                .arg(source)
-                .arg("-o")
-                .arg("PHY-SeC")
-                .output()
-                .map(|output| output.stdout)
-                .unwrap_or_default();
-
-            let sector_size = String::from_utf8(output).unwrap_or_default();
-            let lines: Vec<&str> = sector_size.split('\n').collect();
-            let sector_size_str = lines.get(1).unwrap_or(&"4096").trim();
-
-            sector_size_str.parse::<u64>().unwrap_or(4096)
-        }
-
+        /// Returns the filesystem block size for direct I/O alignment.
+        ///
+        /// Uses statvfs() syscall instead of external commands (df, lsblk, diskutil).
+        /// This approach was chosen because:
+        /// - Works on all filesystems (9p, NFS, FUSE, etc.) without special handling
+        /// - No subprocess spawning or text parsing
+        /// - Returns filesystem block size (f_frsize), which is the correct alignment
+        ///   for direct I/O (not physical sector size which only matters at device level)
+        /// - More conservative: 4096-byte alignment works on 512-byte sector drives
         pub fn get_sector_size(path: &str) -> u64 {
-            if cfg!(target_os = "android") {
-                4096
-            } else if cfg!(target_os = "macos") {
-                get_sector_size_macos(path)
+            let c_path = match CString::new(path) {
+                Ok(p) => p,
+                Err(_) => return 4096,
+            };
+
+            let mut stat: MaybeUninit<libc::statvfs> = MaybeUninit::uninit();
+
+            let result = unsafe { libc::statvfs(c_path.as_ptr(), stat.as_mut_ptr()) };
+
+            if result != 0 {
+                return 4096;
+            }
+
+            let stat = unsafe { stat.assume_init() };
+
+            // f_frsize: fundamental filesystem block size (for I/O alignment)
+            // f_bsize: preferred I/O block size (may be larger, used as fallback)
+            let block_size = if stat.f_frsize > 0 {
+                stat.f_frsize as u64
+            } else if stat.f_bsize > 0 {
+                stat.f_bsize as u64
             } else {
-                get_sector_size_unix(path)
+                4096
+            };
+
+            // Validate: must be power of 2 and reasonable size for direct I/O
+            if block_size > 0 && block_size <= 1048576 && (block_size & (block_size - 1)) == 0 {
+                block_size
+            } else {
+                4096
             }
         }
 
