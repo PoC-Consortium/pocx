@@ -24,10 +24,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux x86_64
+          # Linux x86_64 (glibc - for systems with recent glibc)
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             cross: false
+
+          # Linux x86_64 (static musl - maximum compatibility, works on any Linux)
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            cross: true
 
           # Linux ARM64
           - os: ubuntu-latest
@@ -234,10 +239,16 @@ jobs:
             The same binary works on systems with or without OpenCL installed.
 
             **Platforms:**
-            - Linux x86_64 / ARM64
+            - Linux x86_64 (glibc and musl builds)
+            - Linux ARM64 (glibc and musl builds)
             - Android ARM64
             - Windows x86_64
             - macOS x86_64 / ARM64 (Apple Silicon)
+
+            **Linux Compatibility Note:**
+            - `*-linux-musl` builds are statically linked and work on any Linux distribution
+            - Use musl builds for maximum compatibility (Ubuntu 20.04+, Debian, Alpine, etc.)
+            - `*-linux-gnu` builds require glibc 2.39+ (Ubuntu 24.04+, Fedora 40+, Arch)
 
             **Binaries:**
             - `pocx_miner` - Mining client
