@@ -93,19 +93,17 @@ cfg_if! {
 
         pub fn get_device_id(path: &str) -> String {
             let path_encoded: Vec<u16> = OsStr::new(path).encode_wide().chain(once(0)).collect();
-            let mut volume_encoded: Vec<u16> = OsStr::new(path)
-                .encode_wide()
-                .chain(once(0))
-                .collect();
+
+            const MAX_PATH: usize = 260;
+            let mut volume_encoded: Vec<u16> = vec![0u16; MAX_PATH + 1];
 
             if unsafe {
                 winapi::um::fileapi::GetVolumePathNameW(
                     path_encoded.as_ptr(),
                     volume_encoded.as_mut_ptr(),
-                    path.chars().count() as u32
+                    (MAX_PATH + 1) as u32,
                 )
             } == 0  {
-                // Return empty string for invalid paths instead of panicking
                 return String::new();
             };
             let res = String::from_utf16_lossy(&volume_encoded);

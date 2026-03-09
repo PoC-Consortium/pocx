@@ -24,7 +24,8 @@ use std::path::Path;
 
 cfg_if! {
     if #[cfg(unix)] {
-        use std::process::Command;
+        use std::ffi::CString;
+        use std::mem::MaybeUninit;
         use std::process;
         use std::os::unix::fs::OpenOptionsExt;
         use fs2::FileExt;
@@ -81,108 +82,122 @@ cfg_if! {
                 .open(path)
         }
 
-        // On unix, get the device id from 'df' command
-        fn get_device_id_unix(path: &str) -> String {
-            let output = match Command::new("df")
-                    .arg(path)
-                    .output() {
-                Ok(output) => output,
-                Err(_) => return "/dev/disk0".to_string(), // Fallback on command failure
-            };
-                let source = match String::from_utf8(output.stdout) {
-                Ok(s) => s,
-                Err(_) => return "/dev/disk0".to_string(), // Fallback on UTF-8 error
-            };
-                let lines: Vec<&str> = source.split('\n').collect();
-                if lines.len() < 2 {
-                    return "/dev/disk0".to_string(); // Fallback for tests
-                }
-                let parts: Vec<&str> = lines[1].split(' ').collect();
-                if parts.is_empty() {
-                    return "/dev/disk0".to_string(); // Fallback for tests
-                }
-                parts[0].to_string()
-            }
-
-        // on macos, use df and 'diskutil info <device>' to get the Device Block Size line
-        // and extract the size
-        fn get_sector_size_macos(path: &str) -> u64 {
-            let source = get_device_id_unix(path);
-            let output = match Command::new("diskutil")
-                .arg("info")
-                .arg(source)
-                .output() {
-                Ok(output) => output,
-                Err(_) => return 4096, // Fallback on command failure
-            };
-            let source = match String::from_utf8(output.stdout) {
-                Ok(s) => s,
-                Err(_) => return 4096, // Fallback on UTF-8 error
-            };
-            let mut sector_size: u64 = 0;
-            for line in source.split('\n').collect::<Vec<&str>>() {
-                if line.trim().starts_with("Device Block Size") {
-                    // e.g. in reverse: "Bytes 512 Size Block Device"
-                    let source = line.rsplit(' ').collect::<Vec<&str>>()[1];
-
-                    sector_size = source.parse::<u64>().unwrap_or(4096);
-                }
-            }
-            if sector_size == 0 {
-                sector_size = 4096;
-            }
-            sector_size
-        }
-
-        // on unix, use df and lsblk to extract the device sector size
-        fn get_sector_size_unix(path: &str) -> u64 {
-            let source = get_device_id_unix(path);
-            let output = Command::new("lsblk")
-                .arg(source)
-                .arg("-o")
-                .arg("PHY-SeC")
-                .output()
-                .map(|output| output.stdout)
-                .unwrap_or_default();
-
-            let sector_size = String::from_utf8(output).unwrap_or_default();
-            let lines: Vec<&str> = sector_size.split('\n').collect();
-            let sector_size_str = lines.get(1).unwrap_or(&"4096").trim();
-
-            sector_size_str.parse::<u64>().unwrap_or(4096)
-        }
-
+        /// Returns the filesystem block size for direct I/O alignment.
+        ///
+        /// Uses statvfs() instead of external commands (df, lsblk, diskutil).
+        /// Returns f_frsize which is the correct alignment for direct I/O on all
+        /// filesystem types including network (NFS, SMB, 9p) and virtual (FUSE).
         pub fn get_sector_size(path: &str) -> u64 {
-            if cfg!(target_os = "android") {
-                4096
-            } else if cfg!(target_os = "macos") {
-                get_sector_size_macos(path)
+            let c_path = match CString::new(path) {
+                Ok(p) => p,
+                Err(_) => return 4096,
+            };
+
+            let mut stat: MaybeUninit<libc::statvfs> = MaybeUninit::uninit();
+            if unsafe { libc::statvfs(c_path.as_ptr(), stat.as_mut_ptr()) } != 0 {
+                return 4096;
+            }
+            let stat = unsafe { stat.assume_init() };
+
+            #[allow(clippy::unnecessary_cast)]
+            let block_size = if stat.f_frsize > 0 {
+                stat.f_frsize as u64
+            } else if stat.f_bsize > 0 {
+                stat.f_bsize as u64
             } else {
-                get_sector_size_unix(path)
+                4096
+            };
+
+            // Must be power of 2 and reasonable (up to 1 MiB)
+            if block_size > 0 && block_size <= 1_048_576 && (block_size & (block_size - 1)) == 0 {
+                block_size
+            } else {
+                4096
             }
         }
 
+        /// Detects if a path resides on a network or virtual filesystem.
+        ///
+        /// Checks the filesystem type via statfs(). Known network/virtual FS types:
+        /// NFS, SMB/CIFS, 9p/virtio, FUSE, AFS, Ceph.
+        pub fn is_network_path(path: &str) -> bool {
+            let c_path = match CString::new(path) {
+                Ok(p) => p,
+                Err(_) => return false,
+            };
+
+            #[cfg(target_os = "macos")]
+            {
+                let mut stat: MaybeUninit<libc::statfs> = MaybeUninit::uninit();
+                if unsafe { libc::statfs(c_path.as_ptr(), stat.as_mut_ptr()) } != 0 {
+                    return false;
+                }
+                let stat = unsafe { stat.assume_init() };
+                // macOS uses f_fstypename string instead of f_type magic number
+                let fstype = unsafe {
+                    std::ffi::CStr::from_ptr(stat.f_fstypename.as_ptr())
+                };
+                let fstype_str = fstype.to_str().unwrap_or("");
+                matches!(fstype_str, "nfs" | "smbfs" | "afpfs" | "webdav" | "osxfuse"
+                    | "macfuse" | "fuse" | "fusefs")
+            }
+
+            #[cfg(not(target_os = "macos"))]
+            {
+                let mut stat: MaybeUninit<libc::statfs> = MaybeUninit::uninit();
+                if unsafe { libc::statfs(c_path.as_ptr(), stat.as_mut_ptr()) } != 0 {
+                    return false;
+                }
+                let stat = unsafe { stat.assume_init() };
+                // Linux filesystem magic numbers from statfs(2).
+                // Allow cast: __fsword_t is i64 on x86_64 but i32 on 32-bit.
+                #[allow(clippy::unnecessary_cast)]
+                let ftype = stat.f_type as i64;
+                matches!(
+                    ftype,
+                    0x6969        // NFS
+                    | 0x517B      // SMB
+                    | 0x01021997  // 9p/virtio
+                    | 0x65735546  // FUSE
+                    | 0x5346414F  // AFS
+                    | 0x00C36400  // Ceph
+                ) || ftype as u32 == 0xFE534D42  // SMB2
+                  || ftype as u32 == 0xFF534D42   // CIFS
+            }
+        }
+
+        /// Preallocates disk space for a file.
+        ///
+        /// Attempts fallocate() first for instant contiguous preallocation, then
+        /// falls back to ftruncate (set_len) for filesystems that don't support
+        /// fallocate (e.g., 9p/virtio, NFS, FUSE).
         pub fn preallocate(file: &Path, size_in_bytes: u64, use_direct_io: bool) {
-            let file = if use_direct_io {
+            let file_handle = if use_direct_io {
                 open_rw_using_direct_io(file)
             } else {
                 open_rw(file)
             };
-            match file {
-                Ok(file) => {
-                    if let Err(errno) = file.allocate(size_in_bytes) {
-                        println!("\n\nERROR: preallocation failed. {}\n", errno);
-                        process::exit(1);
+            match file_handle {
+                Ok(f) => {
+                    if f.allocate(size_in_bytes).is_err() {
+                        // fallocate unsupported (network/virtual FS) — fallback to ftruncate
+                        eprintln!(
+                            "WARNING: fallocate unsupported, using ftruncate. \
+                             Disk space is NOT reserved — ensure sufficient free space."
+                        );
+                        if let Err(e) = f.set_len(size_in_bytes) {
+                            eprintln!("\n\nERROR: preallocation failed: {}\n", e);
+                            process::exit(1);
+                        }
                     }
                 }
                 Err(e) => {
-                    println!("\n\nERROR: failed to open file for preallocation. {}\n", e);
+                    eprintln!("\n\nERROR: failed to open file for preallocation: {}\n", e);
                     process::exit(1);
                 }
             }
         }
     } else {
-        use std::ffi::CString;
         use std::ptr::null_mut;
         use std::iter::once;
         use std::ffi::OsStr;
@@ -199,7 +214,6 @@ cfg_if! {
         use winapi::um::winnt::{LUID, TOKEN_ADJUST_PRIVILEGES,TOKEN_PRIVILEGES,LUID_AND_ATTRIBUTES,SE_PRIVILEGE_ENABLED,SE_MANAGE_VOLUME_NAME};
 
         const FILE_FLAG_NO_BUFFERING: u32 = 0x2000_0000;
-        const FILE_FLAG_SEQUENTIAL_SCAN: u32 = 0x0800_0000;
         const FILE_FLAG_RANDOM_ACCESS: u32 = 0x1000_0000;
         const FILE_FLAG_WRITE_THROUGH: u32 = 0x8000_0000;
 
@@ -213,7 +227,7 @@ cfg_if! {
         pub fn open_r<P: AsRef<Path>>(path: P) -> io::Result<File> {
             OpenOptions::new()
                 .read(true)
-                .custom_flags(FILE_FLAG_SEQUENTIAL_SCAN | FILE_FLAG_RANDOM_ACCESS)
+                .custom_flags(FILE_FLAG_RANDOM_ACCESS)
                 .open(path)
         }
 
@@ -236,37 +250,94 @@ cfg_if! {
                 .open(path)
         }
 
-        pub fn get_sector_size(path: &str) -> u64 {
-            let path_encoded = Path::new(path);
-            let parent_path = match path_encoded.parent().and_then(|p| p.to_str()) {
-                Some(p) => p,
-                None => return 4096, // Default sector size if path is invalid
-            };
-            let parent_path_encoded = match CString::new(parent_path) {
-                Ok(c) => c,
-                Err(_) => return 4096, // Default sector size if CString creation fails
-            };
-            let mut sectors_per_cluster  = 0u32;
-            let mut bytes_per_sector  = 0u32;
-            let mut number_of_free_cluster  = 0u32;
-            let mut total_number_of_cluster  = 0u32;
+        /// Resolves a file path to its volume root with trailing backslash.
+        fn get_volume_root(path: &str) -> Option<String> {
+            let path_encoded: Vec<u16> = OsStr::new(path)
+                .encode_wide()
+                .chain(once(0))
+                .collect();
+
+            const MAX_PATH: usize = 260;
+            let mut volume_buf: Vec<u16> = vec![0u16; MAX_PATH + 1];
+
             if unsafe {
-                winapi::um::fileapi::GetDiskFreeSpaceA(
-                    parent_path_encoded.as_ptr(),
+                winapi::um::fileapi::GetVolumePathNameW(
+                    path_encoded.as_ptr(),
+                    volume_buf.as_mut_ptr(),
+                    (MAX_PATH + 1) as u32,
+                )
+            } == 0 {
+                return None;
+            }
+
+            let result = String::from_utf16_lossy(&volume_buf);
+            let trimmed = result.trim_end_matches('\0');
+            let mut root = trimmed.to_string();
+            if !root.ends_with('\\') && !root.ends_with('/') {
+                root.push('\\');
+            }
+            Some(root)
+        }
+
+        /// Detects if a path is on a network share (UNC path or mapped network drive).
+        pub fn is_network_path(path: &str) -> bool {
+            // Check UNC path prefix
+            if path.starts_with("\\\\") || path.starts_with("//") {
+                return true;
+            }
+
+            // Check mapped drives via GetDriveTypeW
+            const DRIVE_REMOTE: u32 = 4;
+            if let Some(root) = get_volume_root(path) {
+                let root_encoded: Vec<u16> = OsStr::new(&root)
+                    .encode_wide()
+                    .chain(once(0))
+                    .collect();
+                let drive_type = unsafe {
+                    winapi::um::fileapi::GetDriveTypeW(root_encoded.as_ptr())
+                };
+                return drive_type == DRIVE_REMOTE;
+            }
+            false
+        }
+
+        pub fn get_sector_size(path: &str) -> u64 {
+            if is_network_path(path) {
+                return 4096;
+            }
+
+            let root = match get_volume_root(path) {
+                Some(r) => r,
+                None => return 4096,
+            };
+
+            let root_encoded: Vec<u16> = OsStr::new(&root)
+                .encode_wide()
+                .chain(once(0))
+                .collect();
+
+            let mut sectors_per_cluster: u32 = 0;
+            let mut bytes_per_sector: u32 = 0;
+            let mut number_of_free_clusters: u32 = 0;
+            let mut total_number_of_clusters: u32 = 0;
+
+            if unsafe {
+                winapi::um::fileapi::GetDiskFreeSpaceW(
+                    root_encoded.as_ptr(),
                     &mut sectors_per_cluster,
                     &mut bytes_per_sector,
-                    &mut number_of_free_cluster,
-                    &mut total_number_of_cluster
+                    &mut number_of_free_clusters,
+                    &mut total_number_of_clusters,
                 )
-            } == 0  {
-                return 4096; // Default sector size if Windows API call fails
-            };
+            } == 0 {
+                return 4096;
+            }
             u64::from(bytes_per_sector)
         }
 
         pub fn preallocate(file: &Path, size_in_bytes: u64, use_direct_io: bool) {
             let mut result = true;
-            result &= obtain_priviledge();
+            result &= obtain_privilege();
 
             let file = if use_direct_io {
                 open_rw_using_direct_io(file)
@@ -291,15 +362,13 @@ cfg_if! {
                 let handle = file.as_raw_handle();
                 unsafe {
                     if SetFileValidData(handle, size_in_bytes as i64) == 0 {
-                        // SetFileValidData failed, but this is not critical for file preallocation
-                        // The file length was already set successfully above
                         eprintln!("WARNING: SetFileValidData failed, but file preallocation completed");
                     }
                 }
             }
         }
 
-        pub fn obtain_priviledge() -> bool {
+        fn obtain_privilege() -> bool {
             let mut result = true;
 
             let privilege_encoded: Vec<u16> = OsStr::new(SE_MANAGE_VOLUME_NAME)
@@ -310,7 +379,6 @@ cfg_if! {
             let luid = LUID{
                 HighPart: 0i32,
                 LowPart: 0u32
-
             };
 
             unsafe {
@@ -324,7 +392,7 @@ cfg_if! {
                 };
 
                 let temp = OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, &mut htoken);
-                 result &= temp == 1;
+                result &= temp == 1;
 
                 let temp = LookupPrivilegeValueW(null_mut(), privilege_encoded.as_ptr(), &mut tp.Privileges[0].Luid);
                 result &= temp == 1;
@@ -348,13 +416,24 @@ mod test {
 
     #[test]
     fn test_get_sector_size() {
-        // this should be true for any platform where this test runs
-        // but it doesn't exercise all platform variants
         let cwd = env::current_dir().expect("Should be able to get current directory in test");
         let test_string = cwd
             .into_os_string()
             .into_string()
             .expect("Should be able to convert path to string in test");
-        assert_ne!(0, get_sector_size(&test_string));
+        let size = get_sector_size(&test_string);
+        assert_ne!(0, size);
+        assert_eq!(size & (size - 1), 0, "sector size must be power of 2");
+    }
+
+    #[test]
+    fn test_is_network_path_local() {
+        assert!(!is_network_path("."));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_is_network_path_unc() {
+        assert!(is_network_path("\\\\server\\share\\path"));
     }
 }
