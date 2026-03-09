@@ -19,13 +19,14 @@
 // SOFTWARE.
 
 use bytesize::ByteSize;
-use crossbeam_channel::bounded;
+use crossbeam_channel::{bounded, Receiver, Sender};
+use hex;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use pocx_plotfile::PoCXPlotFile;
 use std::path::Path;
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use sysinfo::System;
 
 use crate::buffer::PageAlignedByteBuffer;
@@ -54,7 +55,8 @@ pub struct PlotterTask {
     pub address_payload: [u8; 20],
     pub address: String,
     pub network_id: pocx_address::NetworkId,
-    pub seed: Option<[u8; 32]>,
+    /// Per-path initial seeds. `Some` = resume with this seed, `None` = generate random.
+    pub initial_seeds: Vec<Option<[u8; 32]>>,
     pub warps: Vec<u64>,
     pub number_of_plots: Vec<u64>,
     pub output_paths: Vec<String>,
@@ -69,6 +71,12 @@ pub struct PlotterTask {
     pub benchmark: bool,
     pub line_progress: bool,
     pub kws_override: usize,
+    /// Max concurrent disk writes. `None` = no limit (one per disk).
+    pub max_concurrent_writes: Option<usize>,
+    /// Messages collected during work queue building, printed after the banner.
+    pub startup_messages: Vec<String>,
+    /// Work queue summary line, printed after the slot table.
+    pub work_queue_summary: Option<String>,
 }
 
 impl Default for Plotter {
@@ -110,6 +118,9 @@ impl Plotter {
         if !task.quiet {
             println!("PoCX Plotter {}", env!("CARGO_PKG_VERSION"));
             println!("written by Proof of Capacity Consortium in Rust\n");
+            for msg in &task.startup_messages {
+                eprintln!("{}", msg);
+            }
         }
 
         if !task.quiet && task.benchmark {
@@ -156,24 +167,27 @@ impl Plotter {
             }
         }
 
-        // Check resume
-        let mut resume = 0;
-        if let Some(seed) = task.seed {
-            let optimized_plot_file = PoCXPlotFile::new(
-                &task.output_paths[0],
-                &task.address_payload,
-                &seed,
-                task.warps[0],
-                task.compress,
-                false,
-                false,
-            );
-            if let Ok(mut plot_file) = optimized_plot_file {
-                if let Ok(progress) = plot_file.read_resume_info() {
-                    resume = progress;
+        // Check resume per path
+        let mut resumes: Vec<u64> = vec![0; task.output_paths.len()];
+        for i in 0..task.output_paths.len() {
+            if let Some(seed) = task.initial_seeds.get(i).copied().flatten() {
+                let optimized_plot_file = PoCXPlotFile::new(
+                    &task.output_paths[i],
+                    &task.address_payload,
+                    &seed,
+                    task.warps[i],
+                    task.compress,
+                    false,
+                    false,
+                );
+                if let Ok(mut plot_file) = optimized_plot_file {
+                    if let Ok(progress) = plot_file.read_resume_info() {
+                        resumes[i] = progress;
+                    }
                 }
             }
         }
+        let total_resume: u64 = resumes.iter().sum();
 
         // Validate warps and disk space per path
         if task.benchmark {
@@ -222,8 +236,10 @@ impl Plotter {
                             PoCXPlotterError::Config("Disk space calculation overflow".to_string())
                         })?;
 
-                    // Only check disk space for first path if resuming
-                    if (i > 0 || resume == 0) && required_space >= space {
+                    // Skip disk space check for resume jobs (files already preallocated)
+                    if task.initial_seeds.get(i).and_then(|s| s.as_ref()).is_none()
+                        && required_space >= space
+                    {
                         return Err(PoCXPlotterError::Config(format!(
                             "Insufficient disk space, MiB_required={:.2}, MiB_available={:.2}, path={}",
                             required_space as f64 / 1024.0 / 1024.0,
@@ -261,9 +277,22 @@ impl Plotter {
             available_mem
         };
 
-        // 1 buffer per output path, +1 if double buffering enabled
-        let num_write_buffers =
-            task.output_paths.len() as u64 + if task.double_buffer { 1 } else { 0 };
+        // 1 buffer per unique physical disk path + 1 if double buffering enabled.
+        // Multiple job slots on the same disk share buffers.
+        // When -t limits writer threads, cap buffer count so only that many
+        // writes can be in-flight at once — the GPU pipeline blocks naturally.
+        let unique_disk_count = {
+            let mut unique = task.output_paths.clone();
+            unique.sort();
+            unique.dedup();
+            unique.len() as u64
+        };
+        let effective_writers = if let Some(c) = task.max_concurrent_writes {
+            (c as u64).min(unique_disk_count).max(1)
+        } else {
+            unique_disk_count
+        };
+        let num_write_buffers = effective_writers + if task.double_buffer { 1 } else { 0 };
 
         let total_host_mem = mem_write * num_write_buffers + mem_scatter;
         if max_mem_usage < total_host_mem {
@@ -284,14 +313,14 @@ impl Plotter {
             .zip(task.number_of_plots.iter())
             .map(|(w, n)| w * n)
             .sum();
-        let total_warps = total_planned_warps - resume;
+        let total_warps = total_planned_warps - total_resume;
 
         if task.line_progress {
             println!("#TOTAL:{}", total_warps);
         }
 
         if let Some(cb) = get_plotter_callback() {
-            cb.on_started(total_warps, resume);
+            cb.on_started(total_warps, total_resume);
         }
 
         if !task.quiet {
@@ -341,14 +370,110 @@ impl Plotter {
                 hex::encode_upper(task.address_payload)
             );
             println!(
-                "Compression    : {}(X{})",
+                "Compression   : {}(X{})",
                 1u64 << task.compress,
                 task.compress
             );
-            println!("Output path(s) : {:?}", task.output_paths);
-            println!("Files to plot  : {:?}", task.number_of_plots);
-            println!("Warps per file : {:?}", task.warps);
-            println!("Total warps    : {}\n", total_warps);
+            println!("Total warps   : {}\n", total_warps);
+
+            // Build the per-slot table: Path | Files | Warps | Resume | Seed
+            let n = task.output_paths.len();
+            let resume_strs: Vec<String> = resumes
+                .iter()
+                .map(|&r| {
+                    if r > 0 {
+                        r.to_string()
+                    } else {
+                        "-".to_string()
+                    }
+                })
+                .collect();
+            let seed_strs: Vec<String> = task
+                .initial_seeds
+                .iter()
+                .map(|s| match s {
+                    Some(seed) => {
+                        let full = hex::encode_upper(seed);
+                        format!("{}...", &full[..20])
+                    }
+                    None => "-".to_string(),
+                })
+                .collect();
+
+            let col_path = task
+                .output_paths
+                .iter()
+                .map(|s| s.len())
+                .max()
+                .unwrap_or(4)
+                .max(4);
+            let col_files = task
+                .number_of_plots
+                .iter()
+                .map(|v| v.to_string().len())
+                .max()
+                .unwrap_or(5)
+                .max(5);
+            let col_warps = task
+                .warps
+                .iter()
+                .map(|v| v.to_string().len())
+                .max()
+                .unwrap_or(5)
+                .max(5);
+            let col_res = resume_strs
+                .iter()
+                .map(|s| s.len())
+                .max()
+                .unwrap_or(6)
+                .max(6);
+            let col_seed = seed_strs.iter().map(|s| s.len()).max().unwrap_or(4).max(4);
+
+            println!(
+                "{:<col_path$}  {:>col_files$}  {:>col_warps$}  {:>col_res$}  {:<col_seed$}",
+                "Path",
+                "Files",
+                "Warps",
+                "Resume",
+                "Seed",
+                col_path = col_path,
+                col_files = col_files,
+                col_warps = col_warps,
+                col_res = col_res,
+                col_seed = col_seed
+            );
+            println!(
+                "{:-<col_path$}  {:->col_files$}  {:->col_warps$}  {:->col_res$}  {:-<col_seed$}",
+                "",
+                "",
+                "",
+                "",
+                "",
+                col_path = col_path,
+                col_files = col_files,
+                col_warps = col_warps,
+                col_res = col_res,
+                col_seed = col_seed
+            );
+            for i in 0..n {
+                println!(
+                    "{:<col_path$}  {:>col_files$}  {:>col_warps$}  {:>col_res$}  {:<col_seed$}",
+                    task.output_paths[i],
+                    task.number_of_plots[i],
+                    task.warps[i],
+                    resume_strs[i],
+                    seed_strs[i],
+                    col_path = col_path,
+                    col_files = col_files,
+                    col_warps = col_warps,
+                    col_res = col_res,
+                    col_seed = col_seed
+                );
+            }
+            println!();
+            if let Some(ref summary) = task.work_queue_summary {
+                println!("{}", summary);
+            }
 
             #[cfg(windows)]
             if !is_elevated() {
@@ -357,11 +482,7 @@ impl Plotter {
                 );
             }
 
-            if resume == 0 {
-                println!("Starting plotting...\n");
-            } else {
-                println!("Resuming plotting from warp offset {}...\n", resume);
-            }
+            println!("Start plotting...\n");
         }
 
         // Create shared empty-buffer pool
@@ -378,7 +499,6 @@ impl Plotter {
         // Progress bars (matching old plotter style)
         let multi_progress = if !task.quiet && !task.line_progress {
             let mp = MultiProgress::new();
-            mp.set_move_cursor(true);
             Some(Arc::new(mp))
         } else {
             None
@@ -392,7 +512,6 @@ impl Plotter {
                 ).unwrap()
                 .progress_chars("█░░")
             );
-            pb.enable_steady_tick(Duration::from_millis(100));
             Some(pb)
         } else {
             None
@@ -406,7 +525,6 @@ impl Plotter {
                 ).unwrap()
                 .progress_chars("█░░")
             );
-            pb.enable_steady_tick(Duration::from_millis(100));
             Some(Arc::new(pb))
         } else {
             None
@@ -415,23 +533,74 @@ impl Plotter {
         let start_time = Instant::now();
         let task = Arc::new(task);
 
-        // Create one writer thread per output path, each with a dedicated channel
+        // Build slot → unique-disk mapping so we create one writer per physical disk.
+        // Multiple job slots targeting the same disk share a single writer thread.
+        let mut disk_first_slot: Vec<usize> = Vec::new();
+        let mut slot_to_disk: Vec<usize> = Vec::new();
+        {
+            let mut seen: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+            for (slot, path) in task.output_paths.iter().enumerate() {
+                let disk_idx = *seen.entry(path.as_str()).or_insert_with(|| {
+                    let idx = disk_first_slot.len();
+                    disk_first_slot.push(slot);
+                    idx
+                });
+                slot_to_disk.push(disk_idx);
+            }
+        }
+
+        // Create one writer thread per unique disk.
+        // An I/O semaphore limits concurrent writer threads to avoid overwhelming SMB/NAS.
+        let num_disks = disk_first_slot.len();
+        let io_permit: Option<(Sender<()>, Receiver<()>)> =
+            if let Some(limit) = task.max_concurrent_writes {
+                let limit = limit.min(num_disks).max(1);
+                let (tx, rx) = bounded(limit);
+                for _ in 0..limit {
+                    tx.send(()).unwrap();
+                }
+                Some((tx, rx))
+            } else {
+                None
+            };
+
+        // Initialize GPU ring scheduler (only when not in CPU mode)
+        #[cfg(feature = "opencl")]
+        let gpu_ctx = if !cpu_mode {
+            Some(
+                gpu_ring_init(&task.gpu, task.kws_override)
+                    .map_err(|e| PoCXPlotterError::Hardware(format!("GPU init failed: {}", e)))?,
+            )
+        } else {
+            None
+        };
         let mut writers = Vec::new();
-        let mut tx_full_per_path = Vec::new();
-        for (i, _) in task.output_paths.iter().enumerate() {
+        let mut disk_senders = Vec::new();
+        for &first_slot in &disk_first_slot {
             let (tx_full, rx_full) = bounded(num_write_buffers as usize);
             let write_progress = write_pb.as_ref().cloned();
+            let permit: Option<(Receiver<()>, Sender<()>)> =
+                io_permit.as_ref().map(|(tx, rx)| (rx.clone(), tx.clone()));
             writers.push(thread::spawn({
                 create_writer_thread(
                     task.clone(),
                     write_progress,
                     rx_full,
                     tx_empty_write_buffers.clone(),
-                    i,
+                    first_slot,
+                    permit,
                 )
             }));
-            tx_full_per_path.push(tx_full);
+            disk_senders.push(tx_full);
         }
+
+        // Per-slot sender: each slot's sender is a clone of its disk's sender.
+        // The ring scheduler indexes by slot — this routes to the shared writer.
+        let tx_full_per_path: Vec<_> = slot_to_disk
+            .iter()
+            .map(|&disk_idx| disk_senders[disk_idx].clone())
+            .collect();
+        drop(disk_senders);
 
         if cpu_mode {
             // CPU mode: use CPU scheduler with rayon thread pool
@@ -442,27 +611,25 @@ impl Plotter {
                     hash_pb,
                     rx_empty_write_buffers,
                     tx_full_per_path,
-                    resume,
+                    total_resume,
                 )
             });
             hasher
                 .join()
                 .map_err(|_| PoCXPlotterError::Channel("CPU hasher thread panicked".to_string()))?;
         } else {
-            // GPU mode: initialize GPU and use ring scheduler
+            // GPU mode: ring buffer scheduler with per-slot resume and disk routing
             #[cfg(feature = "opencl")]
             {
-                let gpu_ctx = gpu_ring_init(&task.gpu, task.kws_override)
-                    .map_err(|e| PoCXPlotterError::Hardware(format!("GPU init failed: {}", e)))?;
-
                 let hasher = thread::spawn({
                     create_ring_scheduler_thread(
                         task.clone(),
-                        gpu_ctx,
+                        gpu_ctx.unwrap(),
                         hash_pb,
                         rx_empty_write_buffers,
                         tx_full_per_path,
-                        resume,
+                        resumes,
+                        slot_to_disk,
                     )
                 });
                 hasher.join().map_err(|_| {
@@ -500,6 +667,17 @@ impl Plotter {
                 session_nonces as f64 * 1000.0 / (elapsed as f64 + 1.0) / 4.0 / 2.0,
                 session_nonces as f64 * 1000.0 / (elapsed as f64 + 1.0) * 60.0 * 60.0 / 8192.0
             );
+
+            let dropped =
+                crate::disk_writer::WARPS_DROPPED.load(std::sync::atomic::Ordering::Relaxed);
+            if dropped > 0 {
+                eprintln!(
+                    "\nWARNING: {} warp(s) ({:.2} GiB) lost to write errors and need re-computation. \
+                     Re-run with the same parameters to resume.",
+                    dropped,
+                    dropped as f64 * WARP_SIZE as f64 / 1024.0 / 1024.0 / 1024.0
+                );
+            }
         }
 
         if let Some(cb) = get_plotter_callback() {

@@ -142,7 +142,7 @@ pub struct PlotterTaskBuilder {
     address: String,
     address_payload: [u8; 20],
     network_id: Option<pocx_address::NetworkId>,
-    seed: Option<[u8; 32]>,
+    initial_seeds: Vec<Option<[u8; 32]>>,
     warps: Vec<u64>,
     number_of_plots: Vec<u64>,
     output_paths: Vec<String>,
@@ -186,7 +186,11 @@ impl PlotterTaskBuilder {
     }
 
     pub fn seed(mut self, seed: [u8; 32]) -> Self {
-        self.seed = Some(seed);
+        if self.initial_seeds.is_empty() {
+            self.initial_seeds.push(Some(seed));
+        } else {
+            self.initial_seeds[0] = Some(seed);
+        }
         self
     }
 
@@ -194,6 +198,7 @@ impl PlotterTaskBuilder {
         self.output_paths.push(path);
         self.warps.push(warps);
         self.number_of_plots.push(plots);
+        self.initial_seeds.push(None);
         self
     }
 
@@ -280,7 +285,7 @@ impl PlotterTaskBuilder {
             address_payload: self.address_payload,
             address: self.address,
             network_id,
-            seed: self.seed,
+            initial_seeds: self.initial_seeds,
             compress: self.compress,
             warps: self.warps,
             number_of_plots: self.number_of_plots,
@@ -295,6 +300,9 @@ impl PlotterTaskBuilder {
             benchmark: self.benchmark,
             line_progress: self.line_progress,
             kws_override: self.kws_override,
+            max_concurrent_writes: None,
+            startup_messages: Vec::new(),
+            work_queue_summary: None,
         })
     }
 }

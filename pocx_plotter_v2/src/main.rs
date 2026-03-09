@@ -69,10 +69,133 @@ pub fn get_plotter_callback() -> Option<Arc<dyn PlotterCallback>> {
     PLOTTER_CALLBACK.get().cloned()
 }
 
-use crate::plotter::{Plotter, PlotterTask};
-use crate::utils::set_low_prio;
+use crate::plotter::{Plotter, PlotterTask, WARP_SIZE};
+use crate::utils::{free_disk_space, set_low_prio};
 use clap::{Arg, Command};
+use pocx_plotfile::PoCXPlotFile;
 use std::process;
+
+/// Represents an incomplete plot file found on disk.
+struct IncompletePlot {
+    path: String,
+    seed: [u8; 32],
+    /// Total warps in the file (from filename).
+    warps: u64,
+    /// Warps already written (resume offset read from the file header).
+    warps_done: u64,
+    compression: u8,
+}
+
+/// Scan a directory for `.tmp` files matching the given address payload and compression.
+fn find_incomplete_plots(
+    dir: &str,
+    address_payload: &[u8; 20],
+    compression: u8,
+) -> Vec<IncompletePlot> {
+    let addr_hex = hex::encode_upper(address_payload);
+    let suffix = format!("_X{}.tmp", compression);
+
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut results = Vec::new();
+    for entry in entries.flatten() {
+        let name = match entry.file_name().into_string() {
+            Ok(n) => n,
+            Err(_) => continue,
+        };
+
+        // Match: {ADDR_HEX}_{SEED_HEX}_{WARPS}_X{COMPRESSION}.tmp
+        if !name.starts_with(&addr_hex) || !name.ends_with(&suffix) {
+            continue;
+        }
+
+        // Delete 0-byte files left behind by failed preallocations
+        match entry.metadata() {
+            Ok(m) if m.len() == 0 => {
+                let path = entry.path();
+                if let Err(e) = std::fs::remove_file(&path) {
+                    eprintln!(
+                        "WARNING: Failed to delete empty .tmp file {}: {}",
+                        path.display(),
+                        e
+                    );
+                } else {
+                    eprintln!("Deleted empty .tmp file: {}/{}", dir, name);
+                }
+                continue;
+            }
+            Err(_) => continue,
+            _ => {}
+        }
+
+        let parts: Vec<&str> = name.split('_').collect();
+        if parts.len() != 4 {
+            continue;
+        }
+
+        let seed_hex = parts[1];
+        if seed_hex.len() != 64 || !seed_hex.chars().all(|c| c.is_ascii_hexdigit()) {
+            continue;
+        }
+
+        let warps = match parts[2].parse::<u64>() {
+            Ok(w) if w > 0 => w,
+            _ => continue,
+        };
+
+        let mut seed = [0u8; 32];
+        if hex::decode_to_slice(seed_hex, &mut seed).is_err() {
+            continue;
+        }
+
+        // Open the file to read how many warps were already committed.
+        // If we can open the file but find 0 warps written (preallocated but
+        // never started, or RESUME_MAGIC absent), delete it: the file holds no
+        // useful data and keeping it would shrink the fill-slot size on every
+        // restart, causing the resume queue to grow indefinitely.
+        let plot_file = PoCXPlotFile::new(
+            dir,
+            address_payload,
+            &seed,
+            warps,
+            compression,
+            false,
+            false,
+        );
+        let warps_done = match plot_file {
+            Err(_) => continue, // Can't open → leave it alone
+            Ok(mut pf) => match pf.read_resume_info() {
+                Ok(0) | Err(_) => {
+                    // 0 warps written or no resume marker — delete the empty skeleton
+                    let path = entry.path();
+                    if let Err(e) = std::fs::remove_file(&path) {
+                        eprintln!(
+                            "WARNING: Failed to delete unstarted .tmp file {}: {}",
+                            path.display(),
+                            e
+                        );
+                    } else {
+                        eprintln!("Deleted unstarted .tmp file: {}/{}", dir, name);
+                    }
+                    continue;
+                }
+                Ok(w) => w,
+            },
+        };
+
+        results.push(IncompletePlot {
+            path: dir.to_string(),
+            seed,
+            warps,
+            warps_done,
+            compression,
+        });
+    }
+    results
+}
 
 fn main() {
     if let Err(e) = run() {
@@ -140,7 +263,7 @@ fn run() -> Result<()> {
                     .short('w')
                     .long("warps")
                     .value_name("warps")
-                    .help("how many warps you want to plot (1 warp = 1 GiB, default: fill disk)"),
+                    .help("how many warps per file (1 warp = 1 GiB, 0: fill disk)"),
             )
             .arg(
                 Arg::new("number")
@@ -205,6 +328,21 @@ fn run() -> Result<()> {
                     .conflicts_with("gpu"),
             )
             .arg(
+                Arg::new("fill")
+                    .short('f')
+                    .long("fill")
+                    .help("After plotting, fill remaining disk space with one last file per path")
+                    .action(clap::ArgAction::SetTrue)
+                    .global(true),
+            )
+            .arg(
+                Arg::new("no-auto-resume")
+                    .long("no-auto-resume")
+                    .help("Disable automatic resumption of incomplete .tmp files")
+                    .action(clap::ArgAction::SetTrue)
+                    .global(true),
+            )
+            .arg(
                 Arg::new("ocl-devices")
                     .short('o')
                     .long("opencl")
@@ -218,6 +356,13 @@ fn run() -> Result<()> {
                     .long("kws-override")
                     .help("tweak: overrides default gpu kernel workgroup size")
                     .global(true),
+            )
+            .arg(
+                Arg::new("threads")
+                    .short('t')
+                    .long("threads")
+                    .value_name("N")
+                    .help("max concurrent writer threads (default: one per unique disk)"),
             );
 
     let matches = cmd.get_matches();
@@ -252,6 +397,8 @@ fn run() -> Result<()> {
     let (address_payload, network_id) = pocx_address::decode_address(&address)
         .map_err(|e| PoCXPlotterError::Crypto(format!("Invalid address: {}", e)))?;
 
+    let fill_last = matches.get_flag("fill");
+
     let warps = matches
         .get_one::<String>("warps")
         .map(|s| {
@@ -263,11 +410,13 @@ fn run() -> Result<()> {
                     "Warps value too large: maximum 1,000,000 allowed".to_string(),
                 ));
             }
-            Ok::<u64, PoCXPlotterError>(value)
+            Ok(value)
         })
         .transpose()?
         .unwrap_or(0);
 
+    // When fill_last and -n not specified, default to 0 (fill disk with full-sized files)
+    let number_of_plots_default = if fill_last { 0 } else { 1 };
     let number_of_plots = matches
         .get_one::<String>("number")
         .map(|s| {
@@ -275,7 +424,7 @@ fn run() -> Result<()> {
                 .map_err(|e| PoCXPlotterError::InvalidInput(format!("Invalid number value: {}", e)))
         })
         .transpose()?
-        .unwrap_or(1);
+        .unwrap_or(number_of_plots_default);
 
     let escalate = matches
         .get_one::<String>("escalate")
@@ -396,16 +545,184 @@ fn run() -> Result<()> {
         gpu_explicit.unwrap_or_else(|| "0:0:0".to_string())
     };
 
-    let num_paths = output_paths.len();
+    let auto_resume =
+        !matches.get_flag("no-auto-resume") && seed.is_none() && !matches.get_flag("benchmark");
+    let quiet = matches.get_flag("non-verbosity");
+    let benchmark = matches.get_flag("benchmark");
+
+    // Messages collected here, printed after the GPU banner in plotter.rs
+    let mut startup_messages: Vec<String> = Vec::new();
+
+    // Build unified work queue: resume + full plots + fill-last, all in one pass.
+    // Each entry is one "slot" in the PlotterTask (path, seed, warps, n).
+    // The ring scheduler round-robins across all slots, keeping all disks busy.
+    let mut q_paths: Vec<String> = Vec::new();
+    let mut q_seeds: Vec<Option<[u8; 32]>> = Vec::new();
+    let mut q_warps: Vec<u64> = Vec::new();
+    let mut q_plots: Vec<u64> = Vec::new();
+    // Remaining warps to write per slot — used to sort shortest-first.
+    let mut q_remaining: Vec<u64> = Vec::new();
+
+    if benchmark {
+        // Benchmark mode: simple 1:1 mapping, let plotter.rs handle defaults
+        if let Some(s) = seed {
+            q_paths.push(output_paths[0].clone());
+            q_seeds.push(Some(s));
+            q_warps.push(warps);
+            q_plots.push(number_of_plots);
+        } else {
+            for path in &output_paths {
+                q_paths.push(path.clone());
+                q_seeds.push(None);
+                q_warps.push(warps);
+                q_plots.push(number_of_plots);
+            }
+        }
+    } else {
+        // Phase 1: Collect resume jobs per path
+        if auto_resume {
+            for dir in &output_paths {
+                let incomplete = find_incomplete_plots(dir, &address_payload, compress);
+                for plot in incomplete {
+                    q_remaining.push(plot.warps.saturating_sub(plot.warps_done));
+                    q_paths.push(plot.path);
+                    q_seeds.push(Some(plot.seed));
+                    q_warps.push(plot.warps);
+                    q_plots.push(1);
+                }
+            }
+        }
+
+        // Count resume jobs already queued per path
+        let mut resume_count_per_path: std::collections::HashMap<String, u64> =
+            std::collections::HashMap::new();
+        for p in &q_paths {
+            *resume_count_per_path.entry(p.clone()).or_insert(0) += 1;
+        }
+
+        // Phase 2 + 3: Compute full-size plots and fill-last per path
+        for path in &output_paths {
+            let space = free_disk_space(path)?;
+            let already_resumed = *resume_count_per_path.get(path).unwrap_or(&0);
+
+            // Resolve warps/n using the same logic as plotter.rs
+            let (resolved_warps, resolved_n) = if warps == 0 && number_of_plots == 0 {
+                // Neither specified — this is an error unless -f supplies work
+                if !fill_last {
+                    return Err(PoCXPlotterError::InvalidInput(
+                        "Need to specify either number of plots or number of warps".to_string(),
+                    ));
+                }
+                (0u64, 0u64)
+            } else if warps == 0 {
+                // -n given, compute warps from space
+                let remaining_n = number_of_plots.saturating_sub(already_resumed);
+                let w = if remaining_n > 0 {
+                    space / WARP_SIZE / remaining_n
+                } else {
+                    0
+                };
+                if w == 0 && remaining_n > 0 && !fill_last {
+                    return Err(PoCXPlotterError::Config(format!(
+                        "Insufficient disk space for {} file(s), available={:.2} GiB, path={}",
+                        remaining_n,
+                        space as f64 / 1024.0 / 1024.0 / 1024.0,
+                        path
+                    )));
+                }
+                (w, if w > 0 { remaining_n } else { 0 })
+            } else if number_of_plots == 0 {
+                // -w given, -n 0: fill disk with full-size files
+                let n = space / WARP_SIZE / warps;
+                (warps, n)
+            } else {
+                // Both explicit — subtract resume jobs already covering this path
+                let remaining_n = number_of_plots.saturating_sub(already_resumed);
+                (warps, remaining_n)
+            };
+
+            // Add full-size plot entry (if any files to plot)
+            if resolved_n > 0 && resolved_warps > 0 {
+                // For manual seed mode, use the provided seed
+                let entry_seed = if seed.is_some() && output_paths.len() == 1 {
+                    seed
+                } else {
+                    None
+                };
+                q_remaining.push(resolved_warps * resolved_n);
+                q_paths.push(path.clone());
+                q_seeds.push(entry_seed);
+                q_warps.push(resolved_warps);
+                q_plots.push(resolved_n);
+            }
+
+            // Add fill-last entry only when no resume files are pending for this disk.
+            // If resumes exist, starting a fill file races with them: the fill (often
+            // the shortest slot due to rounding) gets scheduled first, gets killed, and
+            // becomes yet another resume on the next restart — causing unbounded queue
+            // growth. Skip it; the fill will be computed correctly once the disk is clean.
+            if fill_last && already_resumed == 0 {
+                let used_by_full = resolved_n * resolved_warps * WARP_SIZE;
+                let remaining = space.saturating_sub(used_by_full);
+                let fill_w = remaining / WARP_SIZE;
+                if fill_w > 0 {
+                    q_remaining.push(fill_w);
+                    q_paths.push(path.clone());
+                    q_seeds.push(None);
+                    q_warps.push(fill_w);
+                    q_plots.push(1);
+                }
+            }
+        }
+    }
+
+    if q_paths.is_empty() {
+        if !quiet {
+            eprintln!("Nothing to do: no resume jobs, no plots to create, no fill space.");
+        }
+        return Ok(());
+    }
+
+    // Sort all slots by remaining warps ascending: shortest work completes first,
+    // freeing GPU pressure sooner and balancing disk I/O across the run.
+    if !benchmark && q_paths.len() > 1 {
+        let mut order: Vec<usize> = (0..q_paths.len()).collect();
+        order.sort_unstable_by_key(|&i| q_remaining[i]);
+        let sorted_paths: Vec<String> = order.iter().map(|&i| q_paths[i].clone()).collect();
+        let sorted_seeds: Vec<Option<[u8; 32]>> = order.iter().map(|&i| q_seeds[i]).collect();
+        let sorted_warps: Vec<u64> = order.iter().map(|&i| q_warps[i]).collect();
+        let sorted_plots: Vec<u64> = order.iter().map(|&i| q_plots[i]).collect();
+        q_paths = sorted_paths;
+        q_seeds = sorted_seeds;
+        q_warps = sorted_warps;
+        q_plots = sorted_plots;
+    }
+
+    let work_queue_summary = if !quiet && !benchmark {
+        let resume_count = q_seeds.iter().filter(|s| s.is_some()).count();
+        let total_entries = q_paths.len();
+        let new_count = total_entries - resume_count;
+        let unique_paths = q_paths
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len();
+        Some(format!(
+            "Work queue: {} job(s) ({} resume, {} new) across {} unique path(s)",
+            total_entries, resume_count, new_count, unique_paths
+        ))
+    } else {
+        None
+    };
+
     let p = Plotter::new();
     p.run(PlotterTask {
         address_payload,
         address,
         network_id,
-        warps: vec![warps; num_paths],
-        number_of_plots: vec![number_of_plots; num_paths],
-        output_paths,
-        seed,
+        warps: q_warps,
+        number_of_plots: q_plots,
+        output_paths: q_paths,
+        initial_seeds: q_seeds,
         compress,
         mem,
         gpu,
@@ -413,10 +730,15 @@ fn run() -> Result<()> {
         direct_io: !matches.get_flag("disable-direct-io"),
         escalate,
         double_buffer: matches.get_flag("double-buffer"),
-        quiet: matches.get_flag("non-verbosity"),
-        benchmark: matches.get_flag("benchmark"),
+        quiet,
+        benchmark,
         line_progress: matches.get_flag("line-progress"),
         kws_override,
+        max_concurrent_writes: matches
+            .get_one::<String>("threads")
+            .map(|v| v.parse::<usize>().expect("threads must be a number")),
+        startup_messages,
+        work_queue_summary,
     })?;
 
     Ok(())

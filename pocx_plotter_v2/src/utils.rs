@@ -19,7 +19,6 @@
 // SOFTWARE.
 
 use crate::error::Result;
-use std::path::Path;
 
 // Wrapper around pocx_plotfile::get_sector_size to match plotter's Result type
 // pocx_plotfile always returns a valid u64 (with fallbacks), but plotter
@@ -42,6 +41,7 @@ cfg_if! {
         }
 
         pub fn free_disk_space(path: &str) -> Result<u64> {
+            use std::path::Path;
             // I don't like the following code, but I had to. It's difficult to estimate the space available for a new file on ext4 due to overhead.
             // Therefor I enforce a 2MB cushion assuming this is sufficient.
             Ok(fs2::available_space(Path::new(&path))?.saturating_sub(2097152))
@@ -93,7 +93,35 @@ cfg_if! {
             }
         }
         pub fn free_disk_space(path: &str) -> Result<u64> {
-            Ok(fs2::available_space(Path::new(&path))?)
+            use std::ffi::OsStr;
+            use std::os::windows::ffi::OsStrExt;
+            use winapi::um::fileapi::GetDiskFreeSpaceExW;
+
+            // Ensure UNC paths work: append trailing backslash if missing
+            let mut path_str = path.to_string();
+            if !path_str.ends_with('\\') && !path_str.ends_with('/') {
+                path_str.push('\\');
+            }
+
+            let wide: Vec<u16> = OsStr::new(&path_str)
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+
+            let mut free_bytes_available: u64 = 0;
+            let ret = unsafe {
+                GetDiskFreeSpaceExW(
+                    wide.as_ptr(),
+                    &mut free_bytes_available as *mut u64 as *mut _,
+                    null_mut(),
+                    null_mut(),
+                )
+            };
+            if ret == 0 {
+                Err(std::io::Error::last_os_error().into())
+            } else {
+                Ok(free_bytes_available)
+            }
         }
     }
 }
