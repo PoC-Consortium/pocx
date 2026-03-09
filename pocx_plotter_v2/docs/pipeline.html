@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PoCX Plotter v2 — Ring Buffer Pipeline</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --dim: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --orange: #d29922;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d353;
+    --pink: #f778ba;
+    --warpA: #58a6ff;
+    --warpB: #f0883e;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+    line-height: 1.6;
+    padding: 2rem;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  h1 { color: var(--accent); font-size: 1.6rem; margin-bottom: 0.3rem; }
+  h2 { color: var(--green); font-size: 1.2rem; margin: 2.5rem 0 0.8rem; border-bottom: 1px solid var(--border); padding-bottom: 0.4rem; }
+  .subtitle { color: var(--dim); margin-bottom: 2rem; font-size: 0.9rem; }
+  p { margin: 0.6rem 0; color: var(--dim); font-size: 0.9rem; }
+  strong { color: var(--text); }
+  code { background: var(--card); padding: 0.1rem 0.35rem; border-radius: 3px; color: var(--accent); font-size: 0.85em; }
+  em { color: var(--dim); }
+
+  .vis-container {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    position: relative;
+  }
+  .vis-title {
+    color: var(--accent);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.8rem;
+  }
+
+  canvas { display: block; margin: 0 auto; }
+
+  .controls {
+    display: flex;
+    gap: 0.8rem;
+    justify-content: center;
+    margin-top: 1rem;
+    flex-wrap: wrap;
+  }
+  .btn {
+    background: var(--card);
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    padding: 0.35rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 0.8rem;
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .btn:hover, .btn.active { background: var(--accent); color: var(--bg); }
+
+  .mode-controls {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+    margin-bottom: 1rem;
+  }
+  .mode-btn {
+    background: var(--bg);
+    color: var(--dim);
+    border: 1px solid var(--border);
+    padding: 0.3rem 0.9rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 0.75rem;
+    transition: all 0.15s;
+  }
+  .mode-btn.active { border-color: var(--accent); color: var(--accent); background: var(--card); }
+
+  .narration {
+    text-align: center;
+    font-size: 0.85rem;
+    color: var(--text);
+    min-height: 2.8em;
+    margin-top: 0.8rem;
+    line-height: 1.5;
+  }
+  .narration em { color: var(--dim); font-style: normal; }
+
+  .legend {
+    display: flex;
+    gap: 1.2rem;
+    justify-content: center;
+    margin-top: 0.8rem;
+    flex-wrap: wrap;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.7rem;
+    color: var(--dim);
+  }
+  .legend-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.8rem 0;
+  }
+  th, td {
+    padding: 0.4rem 0.8rem;
+    text-align: left;
+    border: 1px solid var(--border);
+    font-size: 0.8rem;
+  }
+  th { background: var(--card); color: var(--accent); }
+  td { color: var(--dim); }
+  .highlight { color: var(--green); }
+</style>
+</head>
+<body>
+
+<h1>PoCX Plotter v2: Ring Buffer Pipeline</h1>
+<p class="subtitle">Dev Diary #1 — Interactive visualization of the fused scatter+compress architecture<br>All numeric values shown are examples for an <strong>RTX 2000 Ada</strong>. Your GPU will auto-tune these at startup.</p>
+
+<h2>The Pipeline</h2>
+<p>The GPU <strong>ring buffer</strong> holds hashed nonces as a continuous fill — not aligned to warp boundaries. The hash kernel adds <strong>~1.4 warps</strong> per dispatch, while compress drains <strong>2 warps</strong> at a time. The ring capacity (<strong>~3.25 warps</strong>) is just enough that the two kernels never collide.</p>
+<p>Compress pulls a pair (A + B), transposes B, and XORs them into the <strong>GPU scatter buffer</strong> (1 GiB). For X2/X4, multiple pairs are XOR-accumulated before the result transfers to the host write buffer. The host never sees raw nonce data — no plot buffer needed.</p>
+
+<div class="vis-container">
+  <div class="vis-title">Ring Buffer Pipeline</div>
+
+  <div class="mode-controls">
+    <button class="mode-btn active" onclick="setMode(1)">X1</button>
+    <button class="mode-btn" onclick="setMode(2)">X2</button>
+    <button class="mode-btn" onclick="setMode(4)">X4</button>
+  </div>
+
+  <canvas id="cv" width="1040" height="520"></canvas>
+
+  <div class="narration" id="narration">Select a compression mode and hit <strong>Play</strong>.</div>
+
+  <div class="controls">
+    <button class="btn" onclick="stepBack()">&#9664; Prev</button>
+    <button class="btn" id="btn-play" onclick="togglePlay()">&#9654; Play</button>
+    <button class="btn" onclick="stepForward()">Next &#9654;</button>
+    <button class="btn" onclick="restart()">Reset</button>
+    <span style="color:var(--dim);font-size:0.75rem;margin-left:0.5rem">Speed:</span>
+    <button class="mode-btn" onclick="setSpeed(1)">1x</button>
+    <button class="mode-btn active" onclick="setSpeed(2)">2x</button>
+    <button class="mode-btn" onclick="setSpeed(4)">4x</button>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-swatch" style="background:#30363d"></div>Empty</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--green)"></div>Ring fill</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--warpA)"></div>Warp A (plain)</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--warpB)"></div>Warp B (transpose)</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--purple)"></div>XOR result</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--cyan)"></div>Writing</div>
+  </div>
+</div>
+
+<h2>Memory Comparison</h2>
+<p><em>v2 GPU memory depends on your card's compute units and kernel workgroup size — the plotter auto-tunes at startup.</em></p>
+
+<div id="mem-controls" style="display:flex;gap:1.2rem;flex-wrap:wrap;margin:0.8rem 0;align-items:center;">
+  <label style="color:var(--dim);font-size:0.75rem;">Scale (-x):
+    <span id="mc-scale" style="display:inline-flex;gap:3px;margin-left:0.2rem;">
+      <button class="mode-btn" onclick="setMemBtn('scale',1,this)">X1</button>
+      <button class="mode-btn active" onclick="setMemBtn('scale',2,this)">X2</button>
+      <button class="mode-btn" onclick="setMemBtn('scale',4,this)">X4</button>
+      <button class="mode-btn" onclick="setMemBtn('scale',6,this)">X6</button>
+    </span>
+  </label>
+  <label style="color:var(--dim);font-size:0.75rem;">Escalate (-e):
+    <input id="mc-esc" type="number" min="1" max="16" value="1" style="width:3rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:0.2rem 0.3rem;font-family:inherit;font-size:0.8rem;" onchange="memEsc=Math.max(1,Math.min(16,parseInt(this.value)||1));updateMemTable()">
+  </label>
+  <label style="color:var(--dim);font-size:0.75rem;">Disks:
+    <input id="mc-disks" type="number" min="1" max="16" value="1" style="width:3rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:0.2rem 0.3rem;font-family:inherit;font-size:0.8rem;" onchange="memDisks=Math.max(1,Math.min(16,parseInt(this.value)||1));updateMemTable()">
+  </label>
+  <label style="color:var(--dim);font-size:0.75rem;">v2 mode:
+    <span id="mc-mode" style="display:inline-flex;gap:3px;margin-left:0.2rem;">
+      <button class="mode-btn active" onclick="setMemBtn('v2mode','gpu',this)">GPU</button>
+      <button class="mode-btn" onclick="setMemBtn('v2mode','cpu',this)">CPU</button>
+    </span>
+  </label>
+  <label style="color:var(--dim);font-size:0.75rem;">
+    <input id="mc-db" type="checkbox" onchange="memDB=this.checked;updateMemTable()"> Double buffer (v2 only)
+  </label>
+</div>
+<div id="gpu-params" style="display:flex;gap:1rem;flex-wrap:wrap;margin:0 0 0.8rem 0;align-items:center;">
+  <label style="color:var(--dim);font-size:0.75rem;">GPU cores:
+    <input id="mc-cores" type="number" min="1" max="256" value="22" style="width:3.5rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:0.2rem 0.3rem;font-family:inherit;font-size:0.8rem;" onchange="memCores=Math.max(1,parseInt(this.value)||22);updateMemTable()">
+  </label>
+  <label style="color:var(--dim);font-size:0.75rem;">KWS:
+    <input id="mc-kws" type="number" min="32" max="1024" value="256" step="32" style="width:3.5rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:0.2rem 0.3rem;font-family:inherit;font-size:0.8rem;" onchange="memKws=Math.max(32,parseInt(this.value)||256);updateMemTable()">
+  </label>
+  <span style="color:var(--dim);font-size:0.7rem;font-style:italic;" id="gpu-formula"></span>
+</div>
+
+<table id="mem-table">
+  <tr><th></th><th id="th-v1">Plotter v1</th><th id="th-v2">Plotter v2</th></tr>
+  <tr><td>Host plot buffer</td><td id="v1-plot"></td><td id="v2-plot"></td></tr>
+  <tr><td>Host write buffer</td><td id="v1-write"></td><td id="v2-write"></td></tr>
+  <tr><td>Host GPU buffer</td><td id="v1-hostgpu"></td><td id="v2-hostgpu"></td></tr>
+  <tr><td>Total host memory</td><td id="v1-total"></td><td id="v2-total"></td></tr>
+  <tr><td>GPU memory</td><td id="v1-gpu"></td><td id="v2-gpu"></td></tr>
+</table>
+<p id="mem-note"></p>
+
+<script>
+let memScale = 2, memEsc = 1, memV2Mode = 'gpu', memDisks = 1, memDB = false;
+let memCores = 22, memKws = 256; // RTX 2000 Ada defaults
+
+function setMemBtn(key, val, btn) {
+  if (key === 'scale') memScale = val;
+  if (key === 'v2mode') memV2Mode = val;
+  btn.parentElement.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (key === 'v2mode') {
+    document.getElementById('gpu-params').style.display = val === 'gpu' ? 'flex' : 'none';
+  }
+  updateMemTable();
+}
+
+function gcd(a, b) { while (b) { [a, b] = [b, a % b]; } return a; }
+
+function fmtGiB(gib) {
+  if (gib >= 1) return gib.toFixed(2) + ' GiB';
+  if (gib > 0) return (gib * 1024).toFixed(0) + ' MiB';
+  return '0';
+}
+
+function updateMemTable() {
+  const s = memScale, e = memEsc, d = memDisks;
+  const mult = Math.pow(2, s); // 2^scale
+  const v1WriteBufs = d;
+  const v2WriteBufs = d + (memDB ? 1 : 0);
+  const NONCE_SIZE = 262144; // 4096 * 64 = 256 KiB
+  const COMPRESS_BATCH = 8192;
+  const GiB = 1024 * 1024 * 1024;
+  const isGpu = memV2Mode === 'gpu';
+
+  // ── v1 memory layout ──
+  // Host plot buffer: 2^compress × 1 GiB × escalate (Cache(Plotter))
+  const v1Plot = mult * e;
+  // Host write buffer: 1 GiB × escalate × num_write_buffers (Cache(HDD))
+  const v1Write = 1 * e * v1WriteBufs;
+  // GPU buffer: 2 × cores × kws × NONCE_SIZE (Cache(GPU))
+  // This is independent of compression — it's the workgroup buffer
+  const v1GpuBytes = 2 * memCores * memKws * NONCE_SIZE;
+  const v1Gpu = v1GpuBytes / GiB;
+  // Host GPU buffer: pinned host memory mirroring GPU buffers (same as GPU mem)
+  const v1HostGpu = isGpu ? v1Gpu : 0;
+  const v1Total = v1Plot + v1Write + v1HostGpu;
+
+  document.getElementById('th-v1').textContent = 'Plotter v1 (X' + s + ', e=' + e + ')';
+  document.getElementById('v1-plot').textContent = '2^' + s + ' x ' + e + ' GiB = ' + fmtGiB(v1Plot);
+  document.getElementById('v1-write').textContent = fmtGiB(1 * e) + ' x ' + v1WriteBufs + ' buf = ' + fmtGiB(v1Write);
+  document.getElementById('v1-hostgpu').textContent = isGpu
+    ? fmtGiB(v1HostGpu) + ' (pinned)'
+    : 'N/A (CPU)';
+  document.getElementById('v1-total').textContent = fmtGiB(v1Total);
+  document.getElementById('v1-gpu').textContent = isGpu
+    ? fmtGiB(v1Gpu) + ' (constant)'
+    : 'N/A (CPU)';
+
+  // ── v2 memory layout ──
+  let v2Gpu = 0;
+  if (isGpu) {
+    const worksize = memCores * memKws;
+    const ringSize = worksize + COMPRESS_BATCH - gcd(worksize, COMPRESS_BATCH);
+    const ringGiB = (ringSize * NONCE_SIZE) / GiB;
+    v2Gpu = ringGiB + 1; // ring + 1 GiB scatter buffer
+    document.getElementById('gpu-formula').textContent =
+      'W=' + worksize + ', R=' + ringSize + ' nonces, ring=' + ringGiB.toFixed(2) + ' GiB + 1 GiB scatter';
+  }
+
+  const v2Plot = isGpu ? 0 : 2;              // GPU: 0, CPU: 2 GiB scatter
+  const v2Write = 1 * e * v2WriteBufs;       // 1 GiB × e × buffers
+  const v2Total = v2Plot + v2Write;
+
+  const modeLabel = isGpu ? 'GPU' : 'CPU';
+  document.getElementById('th-v2').textContent = 'Plotter v2 ' + modeLabel + ' (X' + s + ', e=' + e + ')';
+  document.getElementById('v2-plot').innerHTML = isGpu
+    ? '<span class="highlight">0 (eliminated)</span>'
+    : '2 GiB (scatter buffer)';
+  document.getElementById('v2-write').textContent = fmtGiB(1 * e) + ' x ' + v2WriteBufs + ' buf = ' + fmtGiB(v2Write);
+  document.getElementById('v2-hostgpu').innerHTML = '<span class="highlight">0 (no mirror needed)</span>';
+  document.getElementById('v2-total').innerHTML = '<span class="highlight">' + fmtGiB(v2Total) + '</span>';
+  document.getElementById('v2-gpu').textContent = isGpu
+    ? fmtGiB(v2Gpu) + ' (constant)'
+    : '0 (CPU mode)';
+  document.getElementById('gpu-params').style.display = isGpu ? 'flex' : 'none';
+
+  // Savings note
+  const savedHost = v1Total - v2Total;
+  const savedGpu = v1Gpu - v2Gpu;
+  let note = 'v2 saves <strong>' + fmtGiB(savedHost) + '</strong> host memory';
+  if (isGpu && savedGpu > 0) note += ' and <strong>' + fmtGiB(savedGpu) + '</strong> GPU memory';
+  note += ' compared to v1.';
+  const v1PlotGiB = mult * 1;
+  if (v1PlotGiB > 16) note += ' <em>(v1 plot buffer alone needs ' + fmtGiB(v1PlotGiB) + ' — exceeds most systems!)</em>';
+  document.getElementById('mem-note').innerHTML = note;
+}
+
+updateMemTable();
+</script>
+
+<script>
+// ── Canvas setup ──
+const C = document.getElementById('cv');
+const ctx = C.getContext('2d');
+const DPR = window.devicePixelRatio || 1;
+C.width = 1040 * DPR;
+C.height = 520 * DPR;
+C.style.width = '1040px';
+C.style.height = '520px';
+ctx.scale(DPR, DPR);
+
+// ── Layout ──
+const RING_CX = 150, RING_CY = 250, RING_R = 105;
+const SCAT_X = 400, SCAT_Y = 205, SCAT_W = 110, SCAT_H = 90;
+const WB_X = 650, WB_Y = 155, WB_W = 100, WB_H = 55, WB_GAP = 12;
+const DISK_X = 890, DISK_CY = 250;
+const ESCALATE = 3;
+
+// ── Ring parameters (RTX 2000 Ada example) ──
+const RING_CAP = 3.25;       // warps (not integer!)
+const HASH_CHUNK = 1.375;    // warps per hash dispatch (~5632 nonces / 4096)
+const COMPRESS_DRAIN = 2.0;  // warps consumed per compress
+
+const COL = {
+  empty: '#30363d', hashing: '#d29922', warpA: '#58a6ff', warpB: '#f0883e',
+  xor: '#bc8cff', done: '#3fb950', writing: '#39d353',
+  bg: '#0d1117', card: '#161b22', border: '#30363d',
+  text: '#c9d1d9', dim: '#8b949e', accent: '#58a6ff',
+};
+
+// ── State ──
+let mode = 1;
+let step = 0;
+let maxStep = 0;
+let playing = false;
+let playTimer = null;
+let playSpeed = 2;  // 1x, 2x, 4x
+
+let ringHead = 0;       // cumulative warps written (float)
+let ringTail = 0;       // cumulative warps consumed (float)
+let scatterState = 'empty';
+let scatterPass = 0;
+let writeSlots = [];
+let showPairA = false;
+let showPairB = false;
+let pairPhase = ''; // 'extract' | 'xor' | ''
+let transferAnim = false;
+let ringHighlight = false; // highlight 2 warps at tail in A/B colors
+
+function ringLevel() { return ringHead - ringTail; }
+
+function initState() {
+  ringHead = 0;
+  ringTail = 0;
+  scatterState = 'empty';
+  scatterPass = 0;
+  writeSlots = Array(ESCALATE).fill('empty');
+  showPairA = false;
+  showPairB = false;
+  pairPhase = '';
+  transferAnim = false;
+  ringHighlight = false;
+  step = 0;
+}
+
+// Hash one dispatch into ring, capped at capacity.
+function hashRefill() {
+  const room = RING_CAP - ringLevel();
+  const add = Math.min(HASH_CHUNK, room);
+  if (add > 0.01) ringHead += add;
+}
+
+// ── Step builder ──
+// Waterfall: hash until ring >= 2 → compress → repeat for Xn → transfer → repeat for escalate → flush
+function buildSteps() {
+  const steps = [];
+
+  // Idle
+  steps.push(() => {
+    initState();
+    return 'Idle. Ring buffer empty on GPU. Write buffer waiting on host.';
+  });
+
+  for (let slot = 0; slot < ESCALATE; slot++) {
+    for (let pass = 0; pass < mode; pass++) {
+      const isFirst = (pass === 0);
+      const passLabel = mode > 1 ? ` (pass ${pass + 1}/${mode})` : '';
+
+      // Hash until ring has >= 2 warps
+      steps.push(() => {
+        showPairA = false;
+        showPairB = false;
+        pairPhase = '';
+        ringHighlight = false;
+        while (ringLevel() < COMPRESS_DRAIN - 0.01) hashRefill();
+        return `GPU hashes into ring until fill >= 2 warps. Ring: ${fmt(ringLevel())}.`;
+      });
+
+      // Highlight the 2 warps at tail: A (blue) and B (orange)
+      steps.push(() => {
+        ringHighlight = true;
+        return `Next 2 warps at tail selected: Warp A (plain) and Warp B (will be transposed).${passLabel}`;
+      });
+
+      // Drain 2 warps from ring → show pair in transit
+      steps.push(() => {
+        ringHighlight = false;
+        ringTail += COMPRESS_DRAIN;
+        showPairA = true;
+        showPairB = true;
+        pairPhase = 'extract';
+        return `Pull A + B from ring tail${passLabel}. Ring: ${fmt(ringLevel())}.`;
+      });
+
+      // XOR into scatter buffer
+      steps.push(() => {
+        pairPhase = 'xor';
+        scatterPass = pass + 1;
+        scatterState = (scatterPass >= mode) ? 'done' : 'partial';
+        const verb = isFirst ? 'A XOR T(B) -> WRITE' : 'A XOR T(B) -> XOR-accumulate';
+        const status = scatterState === 'done'
+          ? ' Scatter complete!'
+          : ` Scatter: ${scatterPass}/${mode}.`;
+        showPairA = false;
+        showPairB = false;
+        return `${verb} to scatter buffer.${passLabel}${status}`;
+      });
+    }
+
+    // Transfer scatter → write buffer slot
+    steps.push(() => {
+      pairPhase = '';
+      transferAnim = false;
+      writeSlots[slot] = 'filled';
+      scatterState = 'empty';
+      scatterPass = 0;
+      const filled = writeSlots.filter(s => s === 'filled').length;
+      if (filled < ESCALATE) {
+        return `PCIe transfer -> slot ${slot}. (${filled}/${ESCALATE}) ${ESCALATE - filled} more to go.`;
+      }
+      return `PCIe transfer -> slot ${slot}. All ${ESCALATE} slots filled. Ready to flush.`;
+    });
+  }
+
+  // Flush to disk
+  steps.push(() => {
+    writeSlots = writeSlots.map(() => 'writing');
+    return `Flushing ${ESCALATE} GiB to disk writer thread...`;
+  });
+
+  // Done
+  steps.push(() => {
+    writeSlots = writeSlots.map(() => 'empty');
+    return 'Written to plotfile (.pocx). Buffer returned to pool. Repeat for next batch.';
+  });
+
+  return steps;
+}
+
+let stepFns = buildSteps();
+
+function fmt(v) { return v.toFixed(2); }
+
+// ── Drawing ──
+function draw() {
+  ctx.clearRect(0, 0, 1040, 520);
+  drawRing();
+  drawArrow(RING_CX + RING_R + 22, RING_CY, SCAT_X - 20, RING_CY, 'XOR');
+  drawPair();
+  drawScatter();
+  drawTransferArrow();
+  drawWriteBuffer();
+  drawDiskArrow();
+  drawDisk();
+  drawBadges();
+}
+
+function warpToAngle(pos) {
+  // Map a cumulative warp position to an angle on the ring circle.
+  // Position wraps around the ring capacity.
+  return -Math.PI / 2 + ((pos % RING_CAP) / RING_CAP) * Math.PI * 2;
+}
+
+function drawRing() {
+  ctx.save();
+
+  // Background ring (thick arc) — full circle = capacity
+  ctx.beginPath();
+  ctx.arc(RING_CX, RING_CY, RING_R, 0, Math.PI * 2);
+  ctx.strokeStyle = COL.border;
+  ctx.lineWidth = 22;
+  ctx.stroke();
+
+  // Filled arc from TAIL to HEAD (tail chases head around the circle)
+  const fill = ringLevel();
+  if (fill > 0.01) {
+    const tailAng = warpToAngle(ringTail);
+    const headAng = warpToAngle(ringHead);
+
+    if (ringHighlight && fill >= 2.0 - 0.01) {
+      // Draw 3 segments: warp A (blue), warp B (orange), rest (green)
+      const midAng = warpToAngle(ringTail + 1); // boundary between A and B
+      const endBang = warpToAngle(ringTail + 2); // boundary between B and rest
+
+      // Warp A (first warp at tail) — blue
+      ctx.beginPath();
+      ctx.arc(RING_CX, RING_CY, RING_R, tailAng, midAng);
+      ctx.strokeStyle = COL.warpA;
+      ctx.lineWidth = 20;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+      ctx.lineCap = 'butt';
+
+      // Warp B (second warp at tail) — orange
+      ctx.beginPath();
+      ctx.arc(RING_CX, RING_CY, RING_R, midAng, endBang);
+      ctx.strokeStyle = COL.warpB;
+      ctx.lineWidth = 20;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+      ctx.lineCap = 'butt';
+
+      // Rest (if any beyond 2 warps) — green
+      if (fill > 2.01) {
+        ctx.beginPath();
+        ctx.arc(RING_CX, RING_CY, RING_R, endBang, headAng);
+        ctx.strokeStyle = COL.done;
+        ctx.lineWidth = 20;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+        ctx.lineCap = 'butt';
+      }
+    } else {
+      // Normal: single green arc
+      ctx.beginPath();
+      if (fill >= RING_CAP - 0.01) {
+        ctx.arc(RING_CX, RING_CY, RING_R, 0, Math.PI * 2);
+      } else {
+        ctx.arc(RING_CX, RING_CY, RING_R, tailAng, headAng);
+      }
+      ctx.strokeStyle = COL.done;
+      ctx.lineWidth = 20;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+      ctx.lineCap = 'butt';
+    }
+
+    // Head marker (small triangle pointing outward)
+    const hx = RING_CX + Math.cos(headAng) * RING_R;
+    const hy = RING_CY + Math.sin(headAng) * RING_R;
+    ctx.fillStyle = COL.hashing;
+    ctx.beginPath();
+    const hOutX = RING_CX + Math.cos(headAng) * (RING_R + 18);
+    const hOutY = RING_CY + Math.sin(headAng) * (RING_R + 18);
+    const hPerp = headAng + Math.PI / 2;
+    ctx.moveTo(hOutX, hOutY);
+    ctx.lineTo(hOutX + Math.cos(hPerp) * 5, hOutY + Math.sin(hPerp) * 5);
+    ctx.lineTo(hOutX - Math.cos(hPerp) * 5, hOutY - Math.sin(hPerp) * 5);
+    ctx.fill();
+
+    // Tail marker (small triangle pointing inward)
+    const tx = RING_CX + Math.cos(tailAng) * RING_R;
+    const ty = RING_CY + Math.sin(tailAng) * RING_R;
+    ctx.fillStyle = COL.accent;
+    ctx.beginPath();
+    const tOutX = RING_CX + Math.cos(tailAng) * (RING_R + 18);
+    const tOutY = RING_CY + Math.sin(tailAng) * (RING_R + 18);
+    const tPerp = tailAng + Math.PI / 2;
+    ctx.moveTo(tOutX, tOutY);
+    ctx.lineTo(tOutX + Math.cos(tPerp) * 5, tOutY + Math.sin(tPerp) * 5);
+    ctx.lineTo(tOutX - Math.cos(tPerp) * 5, tOutY - Math.sin(tPerp) * 5);
+    ctx.fill();
+  }
+
+  // Head / Tail labels (only when there's content)
+  if (fill > 0.01) {
+    const headAng = warpToAngle(ringHead);
+    const tailAng = warpToAngle(ringTail);
+    ctx.font = '8px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    const hlx = RING_CX + Math.cos(headAng) * (RING_R + 30);
+    const hly = RING_CY + Math.sin(headAng) * (RING_R + 30);
+    ctx.fillStyle = COL.hashing;
+    ctx.fillText('HEAD', hlx, hly);
+
+    const tlx = RING_CX + Math.cos(tailAng) * (RING_R + 30);
+    const tly = RING_CY + Math.sin(tailAng) * (RING_R + 30);
+    ctx.fillStyle = COL.accent;
+    ctx.fillText('TAIL', tlx, tly);
+  }
+
+  // Label above
+  ctx.fillStyle = COL.accent;
+  ctx.font = '11px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('GPU RING BUFFER', RING_CX, RING_CY - RING_R - 30);
+  ctx.fillStyle = COL.dim;
+  ctx.font = '9px monospace';
+  ctx.fillText('~3.25 warps capacity', RING_CX, RING_CY - RING_R - 17);
+
+  // Center: fill level
+  ctx.fillStyle = COL.text;
+  ctx.font = 'bold 16px monospace';
+  ctx.fillText(fmt(fill), RING_CX, RING_CY - 5);
+  ctx.fillStyle = COL.dim;
+  ctx.font = '10px monospace';
+  ctx.fillText('warps', RING_CX, RING_CY + 10);
+
+  // Bottom annotation
+  ctx.fillStyle = COL.dim;
+  ctx.font = '9px monospace';
+  ctx.fillText('hash: +1.375 warps (HEAD)', RING_CX, RING_CY + RING_R + 45);
+  ctx.fillText('compress: -2.0 warps (TAIL)', RING_CX, RING_CY + RING_R + 58);
+
+  ctx.restore();
+}
+
+function drawScatter() {
+  ctx.save();
+
+  // Label
+  ctx.fillStyle = COL.accent;
+  ctx.font = '11px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('GPU SCATTER', SCAT_X + SCAT_W / 2, SCAT_Y - 25);
+  ctx.fillStyle = COL.dim;
+  ctx.font = '10px monospace';
+  ctx.fillText('BUFFER (1 GiB)', SCAT_X + SCAT_W / 2, SCAT_Y - 12);
+
+  // Box fill color
+  let col = COL.empty;
+  let txt = 'empty';
+  if (scatterState === 'partial') {
+    col = COL.xor;
+    txt = scatterPass + '/' + mode;
+  } else if (scatterState === 'done') {
+    col = COL.done;
+    txt = '1 warp';
+  }
+
+  // Box
+  ctx.fillStyle = col;
+  roundRect(ctx, SCAT_X, SCAT_Y, SCAT_W, SCAT_H, 6);
+  ctx.fill();
+
+  // Border (accent to make it stand out)
+  ctx.strokeStyle = scatterState === 'empty' ? COL.border : COL.accent;
+  ctx.lineWidth = scatterState === 'empty' ? 1 : 2;
+  roundRect(ctx, SCAT_X, SCAT_Y, SCAT_W, SCAT_H, 6);
+  ctx.stroke();
+
+  // Glow when active
+  if (scatterState === 'partial' || scatterState === 'done') {
+    ctx.globalAlpha = 0.15;
+    ctx.fillStyle = scatterState === 'partial' ? COL.xor : COL.done;
+    roundRect(ctx, SCAT_X - 6, SCAT_Y - 6, SCAT_W + 12, SCAT_H + 12, 10);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // Text inside
+  ctx.fillStyle = col === COL.empty ? COL.dim : '#000';
+  ctx.font = 'bold 12px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(txt, SCAT_X + SCAT_W / 2, SCAT_Y + SCAT_H / 2);
+
+  ctx.restore();
+}
+
+function drawPair() {
+  if (!showPairA && !showPairB) return;
+  ctx.save();
+
+  const midX = (RING_CX + RING_R + 30 + SCAT_X) / 2;
+  const midY = RING_CY;
+
+  if (pairPhase === 'extract') {
+    // Show warps being pulled out, between ring and scatter
+    if (showPairA) {
+      ctx.fillStyle = COL.warpA;
+      roundRect(ctx, midX - 50, midY - 50, 44, 22, 4);
+      ctx.fill();
+      ctx.fillStyle = '#000';
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('A', midX - 28, midY - 39);
+    }
+    if (showPairB) {
+      ctx.fillStyle = COL.warpB;
+      roundRect(ctx, midX - 50, midY + 28, 44, 22, 4);
+      ctx.fill();
+      ctx.fillStyle = '#000';
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('B', midX - 28, midY + 39);
+    }
+  } else if (pairPhase === 'xor') {
+    // Show XOR operation near the scatter buffer
+    const xorX = SCAT_X - 65;
+    if (showPairA) {
+      ctx.fillStyle = COL.warpA;
+      roundRect(ctx, xorX, midY - 50, 40, 20, 4);
+      ctx.fill();
+      ctx.fillStyle = '#000';
+      ctx.font = 'bold 9px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('A', xorX + 20, midY - 40);
+    }
+
+    // XOR symbol
+    ctx.fillStyle = COL.xor;
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('XOR', xorX + 20, midY);
+
+    if (showPairB) {
+      ctx.fillStyle = COL.warpB;
+      roundRect(ctx, xorX, midY + 30, 40, 20, 4);
+      ctx.fill();
+      ctx.fillStyle = '#000';
+      ctx.font = 'bold 9px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('T(B)', xorX + 20, midY + 40);
+    }
+
+    // Arrow into scatter
+    ctx.strokeStyle = COL.xor;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(xorX + 44, midY);
+    ctx.lineTo(SCAT_X - 4, midY);
+    ctx.stroke();
+    ctx.fillStyle = COL.xor;
+    ctx.beginPath();
+    ctx.moveTo(SCAT_X - 4, midY);
+    ctx.lineTo(SCAT_X - 12, midY - 5);
+    ctx.lineTo(SCAT_X - 12, midY + 5);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function drawTransferArrow() {
+  ctx.save();
+  const x1 = SCAT_X + SCAT_W + 15;
+  const x2 = WB_X - 15;
+  const y = RING_CY;
+
+  ctx.strokeStyle = transferAnim ? COL.accent : COL.dim;
+  ctx.lineWidth = transferAnim ? 2.5 : 1.5;
+  ctx.setLineDash(transferAnim ? [] : [4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(x1, y);
+  ctx.lineTo(x2, y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Arrowhead
+  ctx.fillStyle = transferAnim ? COL.accent : COL.dim;
+  ctx.beginPath();
+  ctx.moveTo(x2, y);
+  ctx.lineTo(x2 - 8, y - 5);
+  ctx.lineTo(x2 - 8, y + 5);
+  ctx.fill();
+
+  // Label
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('PCIe', (x1 + x2) / 2, y - 14);
+  ctx.fillText('transfer', (x1 + x2) / 2, y - 3);
+  ctx.restore();
+}
+
+function drawWriteBuffer() {
+  ctx.save();
+
+  // Label
+  ctx.fillStyle = COL.accent;
+  ctx.font = '11px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('HOST WRITE BUFFER', WB_X + WB_W / 2, WB_Y - 25);
+  ctx.fillStyle = COL.dim;
+  ctx.font = '10px monospace';
+  ctx.fillText('escalate = ' + ESCALATE, WB_X + WB_W / 2, WB_Y - 12);
+
+  for (let i = 0; i < ESCALATE; i++) {
+    const sy = WB_Y + i * (WB_H + WB_GAP);
+    let col = COL.empty;
+    let txt = 'slot ' + i;
+    if (writeSlots[i] === 'filled') {
+      col = COL.done;
+      txt = '1 warp';
+    } else if (writeSlots[i] === 'writing') {
+      col = COL.writing;
+      txt = 'FLUSH';
+    }
+
+    ctx.fillStyle = col;
+    roundRect(ctx, WB_X, sy, WB_W, WB_H, 6);
+    ctx.fill();
+
+    ctx.strokeStyle = COL.border;
+    ctx.lineWidth = 1;
+    roundRect(ctx, WB_X, sy, WB_W, WB_H, 6);
+    ctx.stroke();
+
+    ctx.fillStyle = col === COL.empty ? COL.dim : '#000';
+    ctx.font = 'bold 11px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(txt, WB_X + WB_W / 2, sy + WB_H / 2);
+  }
+
+  ctx.restore();
+}
+
+function drawDiskArrow() {
+  ctx.save();
+  const x1 = WB_X + WB_W + 15;
+  const x2 = DISK_X - 58;
+  const y = RING_CY;
+  const isWriting = writeSlots.some(s => s === 'writing');
+
+  ctx.strokeStyle = isWriting ? COL.writing : COL.dim;
+  ctx.lineWidth = isWriting ? 2.5 : 1.5;
+  ctx.setLineDash(isWriting ? [] : [4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(x1, y);
+  ctx.lineTo(x2, y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = isWriting ? COL.writing : COL.dim;
+  ctx.beginPath();
+  ctx.moveTo(x2, y);
+  ctx.lineTo(x2 - 8, y - 5);
+  ctx.lineTo(x2 - 8, y + 5);
+  ctx.fill();
+
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('write', (x1 + x2) / 2, y - 8);
+  ctx.restore();
+}
+
+function drawDisk() {
+  ctx.save();
+  const isWriting = writeSlots.some(s => s === 'writing');
+
+  // Platter
+  ctx.beginPath();
+  ctx.arc(DISK_X, DISK_CY, 45, 0, Math.PI * 2);
+  ctx.strokeStyle = isWriting ? COL.writing : COL.dim;
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(DISK_X, DISK_CY, 14, 0, Math.PI * 2);
+  ctx.strokeStyle = isWriting ? COL.writing : COL.dim;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(DISK_X, DISK_CY, 3, 0, Math.PI * 2);
+  ctx.fillStyle = isWriting ? COL.writing : COL.dim;
+  ctx.fill();
+
+  ctx.fillStyle = COL.dim;
+  ctx.font = '11px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('PLOTFILE', DISK_X, DISK_CY + 62);
+  ctx.fillStyle = COL.accent;
+  ctx.font = '10px monospace';
+  ctx.fillText('.pocx', DISK_X, DISK_CY + 75);
+  ctx.restore();
+}
+
+function drawBadges() {
+  ctx.save();
+
+  // Compression badge
+  ctx.fillStyle = COL.card;
+  roundRect(ctx, 15, 475, 120, 28, 4);
+  ctx.fill();
+  ctx.strokeStyle = COL.border;
+  ctx.lineWidth = 1;
+  roundRect(ctx, 15, 475, 120, 28, 4);
+  ctx.stroke();
+  ctx.fillStyle = COL.accent;
+  ctx.font = 'bold 12px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('X' + mode + ' compression', 75, 489);
+
+  // Passes badge
+  const passes = mode;
+  ctx.fillStyle = COL.card;
+  roundRect(ctx, 145, 475, 170, 28, 4);
+  ctx.fill();
+  ctx.strokeStyle = COL.border;
+  ctx.lineWidth = 1;
+  roundRect(ctx, 145, 475, 170, 28, 4);
+  ctx.stroke();
+  ctx.fillStyle = COL.dim;
+  ctx.font = '11px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(passes + ' pass' + (passes > 1 ? 'es' : '') + ' per warp', 230, 489);
+
+  // Step counter (right-aligned within canvas)
+  const stepW = 160, stepX = 1040 - stepW - 15;
+  ctx.fillStyle = COL.card;
+  roundRect(ctx, stepX, 475, stepW, 28, 4);
+  ctx.fill();
+  ctx.strokeStyle = COL.border;
+  ctx.lineWidth = 1;
+  roundRect(ctx, stepX, 475, stepW, 28, 4);
+  ctx.stroke();
+  ctx.fillStyle = COL.dim;
+  ctx.font = '11px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('step ' + step + ' / ' + maxStep, stepX + stepW / 2, 489);
+
+  ctx.restore();
+}
+
+function drawArrow(x1, y, x2, y2, label) {
+  ctx.save();
+  ctx.strokeStyle = COL.dim;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(x1, y);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = COL.dim;
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - 8, y2 - 5);
+  ctx.lineTo(x2 - 8, y2 + 5);
+  ctx.fill();
+
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(label, (x1 + x2) / 2, y - 8);
+  ctx.restore();
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+// ── Controls ──
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll('.vis-container > .mode-controls .mode-btn').forEach((b, i) => {
+    b.classList.toggle('active', [1, 2, 4][i] === m);
+  });
+  restart();
+}
+
+function restart() {
+  stopPlay();
+  initState();
+  stepFns = buildSteps();
+  maxStep = stepFns.length - 1;
+  stepFns[0]();
+  draw();
+  document.getElementById('narration').innerHTML = 'Select a compression mode and hit <strong>Play</strong>.';
+}
+
+function stepForward() {
+  if (step < maxStep) {
+    step++;
+  } else {
+    // Loop: skip idle (step 0), continue from step 1
+    step = 1;
+  }
+  const msg = stepFns[step]();
+  document.getElementById('narration').innerHTML = msg;
+  draw();
+}
+
+function stepBack() {
+  if (step > 0) {
+    const target = step - 1;
+    initState();
+    stepFns = buildSteps();
+    let msg = '';
+    for (let i = 0; i <= target; i++) {
+      msg = stepFns[i]();
+    }
+    step = target;
+    document.getElementById('narration').innerHTML = msg;
+    draw();
+  }
+}
+
+function playInterval() { return 1500 / playSpeed; }
+
+function setSpeed(s) {
+  playSpeed = s;
+  document.querySelectorAll('.controls .mode-btn').forEach(b => {
+    b.classList.toggle('active', b.textContent === s + 'x');
+  });
+  if (playing) {
+    clearInterval(playTimer);
+    playTimer = setInterval(() => { stepForward(); }, playInterval());
+  }
+}
+
+function togglePlay() {
+  if (playing) {
+    stopPlay();
+  } else {
+    playing = true;
+    document.getElementById('btn-play').classList.add('active');
+    document.getElementById('btn-play').innerHTML = '&#9646;&#9646; Pause';
+    playTimer = setInterval(() => {
+      stepForward();
+    }, playInterval());
+  }
+}
+
+function stopPlay() {
+  playing = false;
+  clearInterval(playTimer);
+  document.getElementById('btn-play').classList.remove('active');
+  document.getElementById('btn-play').innerHTML = '&#9654; Play';
+}
+
+// ── Init ──
+initState();
+stepFns = buildSteps();
+maxStep = stepFns.length - 1;
+stepFns[0]();
+draw();
+</script>
+
+</body>
+</html>
