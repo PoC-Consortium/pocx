@@ -90,6 +90,7 @@ mod utils;
 
 // Re-export utility functions for use by other crates
 pub use utils::get_sector_size;
+pub use utils::is_network_path;
 
 use filetime::FileTime;
 use std::cmp::min;
@@ -406,6 +407,15 @@ impl PoCXPlotFile {
             direct_io = false;
         }
 
+        // auto-disable direct I/O on network/virtual filesystems
+        if direct_io && crate::is_network_path(&plotfile.to_string_lossy()) {
+            eprintln!(
+                "Info: Direct I/O disabled for network/virtual filesystem: {}",
+                plotfile.display()
+            );
+            direct_io = false;
+        }
+
         let file_handle = if direct_io {
             Some(open_rw_using_direct_io(&plotfile)?)
         } else {
@@ -551,6 +561,15 @@ impl PoCXPlotFile {
 
         // fallback for rare cases where reads and sector size are not aligned
         if direct_io && (sector_size & (sector_size - 1)) != 0 {
+            direct_io = false;
+        }
+
+        // auto-disable direct I/O on network/virtual filesystems
+        if direct_io && crate::is_network_path(&plotfile.to_string_lossy()) {
+            eprintln!(
+                "Info: Direct I/O disabled for network/virtual filesystem: {}",
+                plotfile.display()
+            );
             direct_io = false;
         }
 

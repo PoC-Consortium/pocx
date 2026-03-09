@@ -145,6 +145,14 @@ impl Plotter {
 
         // Check direct I/O capabilities
         for path in &task.output_paths {
+            if task.direct_io && pocx_plotfile::is_network_path(path) {
+                eprintln!(
+                    "Info: Network path detected for {}, disabling direct I/O",
+                    path
+                );
+                task.direct_io = false;
+            }
+
             let sector_size = get_sector_size(path)?;
             let is_power_of_2 = (sector_size & (sector_size - 1)) == 0;
             if task.direct_io && (!is_power_of_2 || sector_size > (1 << 18)) {

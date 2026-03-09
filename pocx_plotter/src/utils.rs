@@ -60,23 +60,21 @@ cfg_if! {
         const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
 
         pub fn is_elevated() -> bool {
-
             let mut handle: HANDLE = null_mut();
             unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut handle) };
 
-            let elevation = unsafe { libc::malloc(mem::size_of::<TOKEN_ELEVATION>()) as *mut c_void };
-            let size = std::mem::size_of::<TOKEN_ELEVATION>() as u32;
+            let mut elevation = TOKEN_ELEVATION { TokenIsElevated: 0 };
+            let size = mem::size_of::<TOKEN_ELEVATION>() as u32;
             let mut ret_size = size;
             unsafe {
                 GetTokenInformation(
                     handle,
                     TokenElevation,
-                    elevation,
+                    &mut elevation as *mut _ as *mut c_void,
                     size,
                     &mut ret_size,
                 )
             };
-            let elevation_struct: TOKEN_ELEVATION = unsafe{ *(elevation as *mut TOKEN_ELEVATION)};
 
             if !handle.is_null() {
                 unsafe {
@@ -84,7 +82,7 @@ cfg_if! {
                 }
             }
 
-            elevation_struct.TokenIsElevated == 1
+            elevation.TokenIsElevated == 1
         }
 
         pub fn set_thread_ideal_processor(id: usize){

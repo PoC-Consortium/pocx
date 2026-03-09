@@ -152,8 +152,15 @@ impl Plotter {
         // as long as sector size is power 2 and smaller than 256 KiB direct IO will be
         // fine
         for path in &task.output_paths {
-            let sector_size = get_sector_size(path)?;
+            if task.direct_io && pocx_plotfile::is_network_path(path) {
+                eprintln!(
+                    "Info: Network path detected for {}, disabling direct I/O",
+                    path
+                );
+                task.direct_io = false;
+            }
 
+            let sector_size = get_sector_size(path)?;
             let is_power_of_2 = (sector_size & (sector_size - 1)) == 0;
             if task.direct_io && (!is_power_of_2 || sector_size > (1 << 18)) {
                 eprintln!(
