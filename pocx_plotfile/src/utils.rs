@@ -99,6 +99,7 @@ cfg_if! {
             }
             let stat = unsafe { stat.assume_init() };
 
+            #[allow(clippy::unnecessary_cast)]
             let block_size = if stat.f_frsize > 0 {
                 stat.f_frsize as u64
             } else if stat.f_bsize > 0 {
@@ -148,18 +149,20 @@ cfg_if! {
                     return false;
                 }
                 let stat = unsafe { stat.assume_init() };
-                // Linux filesystem magic numbers from statfs(2)
-                const NFS_MAGIC: i64 = 0x6969;
-                const SMB_MAGIC: i64 = 0x517B;
-                const SMB2_MAGIC: i64 = 0xFE534D42u32 as i64;
-                const CIFS_MAGIC: i64 = 0xFF534D42u32 as i64;
-                const V9FS_MAGIC: i64 = 0x01021997;
-                const FUSE_MAGIC: i64 = 0x65735546;
-                const AFS_MAGIC: i64 = 0x5346414F;
-                const CEPH_MAGIC: i64 = 0x00C36400;
+                // Linux filesystem magic numbers from statfs(2).
+                // Allow cast: __fsword_t is i64 on x86_64 but i32 on 32-bit.
+                #[allow(clippy::unnecessary_cast)]
                 let ftype = stat.f_type as i64;
-                matches!(ftype, NFS_MAGIC | SMB_MAGIC | SMB2_MAGIC | CIFS_MAGIC
-                    | V9FS_MAGIC | FUSE_MAGIC | AFS_MAGIC | CEPH_MAGIC)
+                matches!(
+                    ftype,
+                    0x6969        // NFS
+                    | 0x517B      // SMB
+                    | 0x01021997  // 9p/virtio
+                    | 0x65735546  // FUSE
+                    | 0x5346414F  // AFS
+                    | 0x00C36400  // Ceph
+                ) || ftype as u32 == 0xFE534D42  // SMB2
+                  || ftype as u32 == 0xFF534D42   // CIFS
             }
         }
 
@@ -176,7 +179,7 @@ cfg_if! {
             };
             match file_handle {
                 Ok(f) => {
-                    if let Err(_) = f.allocate(size_in_bytes) {
+                    if f.allocate(size_in_bytes).is_err() {
                         // fallocate unsupported (network/virtual FS) — fallback to ftruncate
                         eprintln!(
                             "WARNING: fallocate unsupported, using ftruncate. \
