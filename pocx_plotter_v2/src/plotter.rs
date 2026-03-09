@@ -611,7 +611,7 @@ impl Plotter {
                     hash_pb,
                     rx_empty_write_buffers,
                     tx_full_per_path,
-                    total_resume,
+                    resumes,
                 )
             });
             hasher
