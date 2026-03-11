@@ -204,9 +204,6 @@ pub fn create_ring_scheduler_thread(
                     if let Some(pb) = &pb {
                         pb.inc(WARP_SIZE);
                     }
-                    if task.line_progress {
-                        println!("#HASH_DELTA:1");
-                    }
                     if let Some(cb) = get_plotter_callback() {
                         cb.on_hashing_progress(1);
                     }

@@ -506,9 +506,17 @@ pub fn gpu_get_info(gpu: &str, quiet: bool, kws_override: usize) -> (u64, u64, u
     };
 
     let parts: Vec<&str> = gpu.split(':').collect();
+    if parts.len() < 2 {
+        eprintln!("Error: Invalid GPU format '{}'. Expected platform:device or platform:device:cores (e.g. 0:0 or 0:0:0)", gpu);
+        process::exit(1);
+    }
     let platform_id = parts[0].parse::<usize>().unwrap();
     let gpu_id = parts[1].parse::<usize>().unwrap();
-    let gpu_cores = parts[2].parse::<usize>().unwrap();
+    let gpu_cores = if parts.len() > 2 {
+        parts[2].parse::<usize>().unwrap()
+    } else {
+        0
+    };
 
     if platform_id >= platforms.len() {
         println!("Error: Selected OpenCL platform doesn't exist.");
@@ -585,9 +593,9 @@ pub fn gpu_ring_init(gpu: &str, kws_override: usize) -> Result<GpuRingContext, S
     };
 
     let parts: Vec<&str> = gpu.split(':').collect();
-    if parts.len() < 3 {
+    if parts.len() < 2 {
         return Err(format!(
-            "Invalid GPU ID format: {}. Expected platform:device:cores",
+            "Invalid GPU format: '{}'. Expected platform:device or platform:device:cores (e.g. 0:0 or 0:0:0)",
             gpu
         ));
     }
@@ -597,9 +605,13 @@ pub fn gpu_ring_init(gpu: &str, kws_override: usize) -> Result<GpuRingContext, S
     let gpu_id = parts[1]
         .parse::<usize>()
         .map_err(|_| format!("Invalid device ID in GPU: {}", gpu))?;
-    let gpu_cores = parts[2]
-        .parse::<usize>()
-        .map_err(|_| format!("Invalid cores in GPU: {}", gpu))?;
+    let gpu_cores = if parts.len() > 2 {
+        parts[2]
+            .parse::<usize>()
+            .map_err(|_| format!("Invalid cores in GPU: {}", gpu))?
+    } else {
+        0
+    };
 
     if platform_id >= platforms.len() {
         return Err(format!(

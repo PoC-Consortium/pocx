@@ -65,7 +65,6 @@ pub struct PlotterTask {
     pub async_write: bool,
     pub quiet: bool,
     pub benchmark: bool,
-    pub line_progress: bool,
     pub kws_override: usize,
 }
 
@@ -253,10 +252,6 @@ impl Plotter {
             .sum();
         let total_warps = total_planned_warps - total_resume;
 
-        if task.line_progress {
-            println!("#TOTAL:{}", total_warps);
-        }
-
         if let Some(cb) = get_plotter_callback() {
             cb.on_started(total_warps, total_resume);
         }
@@ -292,6 +287,7 @@ impl Plotter {
                 );
             }
 
+            println!();
             match &task.network_id {
                 pocx_address::NetworkId::Base58(version) => {
                     println!(
@@ -349,7 +345,7 @@ impl Plotter {
         }
 
         // Progress bars (matching old plotter style)
-        let multi_progress = if !task.quiet && !task.line_progress {
+        let multi_progress = if !task.quiet {
             let mp = MultiProgress::new();
             mp.set_move_cursor(true);
             Some(Arc::new(mp))

@@ -1718,7 +1718,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_address"
-version = "1.0.0-rc.10"
+version = "1.0.0-rc.11"
 dependencies = [
  "bech32",
  "bs58",
@@ -1727,7 +1727,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_aggregator"
-version = "1.0.0-rc.10"
+version = "1.0.0-rc.11"
 dependencies = [
  "async-trait",
  "axum",
@@ -1763,7 +1763,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_hashlib"
-version = "1.0.0-rc.10"
+version = "1.0.0-rc.11"
 dependencies = [
  "arbitrary",
  "criterion",
@@ -1778,7 +1778,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_miner"
-version = "1.0.0-rc.10"
+version = "1.0.0-rc.11"
 dependencies = [
  "anyhow",
  "bytesize",
@@ -1817,7 +1817,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_mockchain"
-version = "1.0.0-rc.10"
+version = "1.0.0-rc.11"
 dependencies = [
  "async-trait",
  "axum",
@@ -1846,7 +1846,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_plotfile"
-version = "1.0.0-rc.10"
+version = "1.0.0-rc.11"
 dependencies = [
  "arbitrary",
  "cfg-if",
@@ -1867,7 +1867,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_plotter"
-version = "1.0.0-rc.10"
+version = "1.0.0-rc.11"
 dependencies = [
  "bytesize",
  "cfg-if",
@@ -1896,7 +1896,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_plotter_v2"
-version = "1.0.0-rc.10"
+version = "1.0.0-rc.11"
 dependencies = [
  "cfg-if",
  "clap",
@@ -1923,7 +1923,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_protocol"
-version = "1.0.0-rc.10"
+version = "1.0.0-rc.11"
 dependencies = [
  "async-trait",
  "base64",
@@ -1943,7 +1943,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_verifier"
-version = "1.0.0-rc.10"
+version = "1.0.0-rc.11"
 dependencies = [
  "clap",
  "hex",
@@ -2082,9 +2082,9 @@ dependencies = [
 
 [[package]]
 name = "quinn-proto"
-version = "0.11.13"
+version = "0.11.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1906b49b0c3bc04b5fe5d86a77925ae6524a19b816ae38ce1e426255f1d8a31"
+checksum = "434b42fec591c96ef50e21e886936e66d3cc3f737104fdb9b737c40ffb94c098"
 dependencies = [
  "bytes",
  "getrandom 0.3.4",

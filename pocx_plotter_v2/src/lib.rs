@@ -153,7 +153,6 @@ pub struct PlotterTaskBuilder {
     async_write: bool,
     quiet: bool,
     benchmark: bool,
-    line_progress: bool,
     #[cfg(feature = "opencl")]
     kws_override: usize,
 }
@@ -165,7 +164,6 @@ impl PlotterTaskBuilder {
             direct_io: true,
             escalate: 1,
             quiet: true,
-            line_progress: true,
             #[cfg(feature = "opencl")]
             kws_override: 0,
             ..Default::default()
@@ -232,11 +230,6 @@ impl PlotterTaskBuilder {
         self
     }
 
-    pub fn line_progress(mut self, enabled: bool) -> Self {
-        self.line_progress = enabled;
-        self
-    }
-
     pub fn benchmark(mut self, enabled: bool) -> Self {
         self.benchmark = enabled;
         self
@@ -297,7 +290,6 @@ impl PlotterTaskBuilder {
             async_write: self.async_write,
             quiet: self.quiet,
             benchmark: self.benchmark,
-            line_progress: self.line_progress,
             kws_override: self.kws_override,
         })
     }
