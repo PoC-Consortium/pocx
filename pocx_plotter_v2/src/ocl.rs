@@ -338,7 +338,7 @@ pub fn gpu_mem_needed(_worksize: u64, ring_size: u64) -> u64 {
 }
 
 pub fn platform_info() {
-    println!("PoCX GPU Plotter {}", env!("CARGO_PKG_VERSION"));
+    println!("PoCX Plotter v2 {}", env!("CARGO_PKG_VERSION"));
     println!("written by Proof of Capacity Consortium in Rust\n");
     println!("*OpenCL Information*\n");
 
@@ -753,9 +753,15 @@ mod tests {
         }
 
         let gpu_hash = sha256_hex(&gpu_linear);
-        assert_eq!(HASH_REF_SHA256, gpu_hash, "GPU hash doesn't match reference");
+        assert_eq!(
+            HASH_REF_SHA256, gpu_hash,
+            "GPU hash doesn't match reference"
+        );
 
-        println!("GPU hash test: SHA256={} ({} nonces)", gpu_hash, HASH_TEST_NONCES);
+        println!(
+            "GPU hash test: SHA256={} ({} nonces)",
+            gpu_hash, HASH_TEST_NONCES
+        );
     }
 
     /// Verify fused scatter+compress kernel produces correct helix-compressed output.
@@ -795,7 +801,10 @@ mod tests {
         gpu_ring_transfer(&ctx, &mut gpu_compressed, 0, 1, true);
 
         let gpu_hash = sha256_hex(&gpu_compressed);
-        assert_eq!(COMPRESS_REF_SHA256, gpu_hash, "GPU compress doesn't match reference");
+        assert_eq!(
+            COMPRESS_REF_SHA256, gpu_hash,
+            "GPU compress doesn't match reference"
+        );
 
         println!("GPU compress test: SHA256={} (1 warp)", gpu_hash);
     }

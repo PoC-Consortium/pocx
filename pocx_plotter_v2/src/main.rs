@@ -83,9 +83,9 @@ fn main() {
 
 fn run() -> Result<()> {
     let cmd =
-        Command::new("PoCX GPU Plotter")
+        Command::new("PoCX Plotter v2")
             .version(env!("CARGO_PKG_VERSION"))
-            .about("PoCX GPU Plotter — ring buffer design with fused scatter+compress")
+            .about("PoCX Plotter v2")
             .arg_required_else_help(true)
             .next_display_order(None)
             .arg(
@@ -140,7 +140,7 @@ fn run() -> Result<()> {
                     .short('w')
                     .long("warps")
                     .value_name("warps")
-                    .help("how many warps you want to plot (1 warp = 1 GiB, default: fill disk)"),
+                    .help("how many warps you want to plot (1 warp = 1 GiB, required)"),
             )
             .arg(
                 Arg::new("number")
@@ -171,20 +171,13 @@ fn run() -> Result<()> {
                     .help("specify seed(s) to resume unfinished plot(s), one per -p path")
                     .action(clap::ArgAction::Append),
             )
-            .arg(
-                Arg::new("memory")
-                    .short('m')
-                    .long("mem")
-                    .value_name("memory")
-                    .help("limit host memory usage (optional)"),
-            )
             .arg(Arg::new("escalate").short('e').long("escalate").help(
                 "write buffer size multiplier in warps (default: 1, e.g. -e 5 = 5 GiB buffer)",
             ))
             .arg(
-                Arg::new("double-buffer")
-                    .short('D')
-                    .long("double-buffer")
+                Arg::new("async-write")
+                    .short('a')
+                    .long("async-write")
                     .help("allocate an extra write buffer for GPU/disk overlap")
                     .action(clap::ArgAction::SetTrue)
                     .global(true),
@@ -267,7 +260,7 @@ fn run() -> Result<()> {
             Ok::<u64, PoCXPlotterError>(value)
         })
         .transpose()?
-        .unwrap_or(0);
+        .ok_or_else(|| PoCXPlotterError::InvalidInput("Warps (-w) is required".to_string()))?;
 
     let number_of_plots = matches
         .get_one::<String>("number")
@@ -373,11 +366,6 @@ fn run() -> Result<()> {
         vec![None; output_paths.len()]
     };
 
-    let mem = matches
-        .get_one::<String>("memory")
-        .cloned()
-        .unwrap_or_else(|| "0B".to_owned());
-
     let gpu_explicit = matches.get_one::<String>("gpu").cloned();
 
     let cpu_threads = matches
@@ -415,12 +403,11 @@ fn run() -> Result<()> {
         output_paths,
         seeds,
         compress,
-        mem,
         gpu,
         cpu_threads,
         direct_io: !matches.get_flag("disable-direct-io"),
         escalate,
-        double_buffer: matches.get_flag("double-buffer"),
+        async_write: matches.get_flag("async-write"),
         quiet: matches.get_flag("non-verbosity"),
         benchmark: matches.get_flag("benchmark"),
         line_progress: matches.get_flag("line-progress"),

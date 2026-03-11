@@ -1898,7 +1898,6 @@ dependencies = [
 name = "pocx_plotter_v2"
 version = "1.0.0-rc.10"
 dependencies = [
- "bytesize",
  "cfg-if",
  "clap",
  "crossbeam-channel",

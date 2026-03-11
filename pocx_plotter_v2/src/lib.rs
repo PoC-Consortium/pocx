@@ -21,10 +21,9 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-//! PoCX GPU Plotter Library
+//! PoCX Plotter v2
 //!
-//! GPU-fused Proof-of-Capacity plotter with ring buffer design.
-//! Minimal host memory (1 GiB) with on-GPU scatter, shuffle, and helix compression.
+//! High-performance Proof-of-Capacity plotter with GPU-fused ring buffer architecture.
 
 #[macro_use]
 extern crate cfg_if;
@@ -146,13 +145,12 @@ pub struct PlotterTaskBuilder {
     warps: Vec<u64>,
     number_of_plots: Vec<u64>,
     output_paths: Vec<String>,
-    mem: String,
     gpu: String,
     cpu_threads: u8,
     compress: u8,
     direct_io: bool,
     escalate: u64,
-    double_buffer: bool,
+    async_write: bool,
     quiet: bool,
     benchmark: bool,
     line_progress: bool,
@@ -163,7 +161,6 @@ pub struct PlotterTaskBuilder {
 impl PlotterTaskBuilder {
     pub fn new() -> Self {
         Self {
-            mem: "0B".to_string(),
             compress: 1,
             direct_io: true,
             escalate: 1,
@@ -200,11 +197,6 @@ impl PlotterTaskBuilder {
         self
     }
 
-    pub fn memory(mut self, mem: String) -> Self {
-        self.mem = mem;
-        self
-    }
-
     pub fn gpu(mut self, gpu: String) -> Self {
         self.gpu = gpu;
         self
@@ -230,8 +222,8 @@ impl PlotterTaskBuilder {
         self
     }
 
-    pub fn double_buffer(mut self, enabled: bool) -> Self {
-        self.double_buffer = enabled;
+    pub fn async_write(mut self, enabled: bool) -> Self {
+        self.async_write = enabled;
         self
     }
 
@@ -275,6 +267,12 @@ impl PlotterTaskBuilder {
             ));
         }
 
+        if self.warps.contains(&0) {
+            return Err(PoCXPlotterError::InvalidInput(
+                "Warps must be greater than 0 for all output paths".to_string(),
+            ));
+        }
+
         let network_id = self
             .network_id
             .ok_or_else(|| PoCXPlotterError::InvalidInput("Network ID not set".to_string()))?;
@@ -292,12 +290,11 @@ impl PlotterTaskBuilder {
             warps: self.warps,
             number_of_plots: self.number_of_plots,
             output_paths: self.output_paths,
-            mem: self.mem,
             gpu: self.gpu,
             cpu_threads: self.cpu_threads as usize,
             direct_io: self.direct_io,
             escalate: self.escalate,
-            double_buffer: self.double_buffer,
+            async_write: self.async_write,
             quiet: self.quiet,
             benchmark: self.benchmark,
             line_progress: self.line_progress,

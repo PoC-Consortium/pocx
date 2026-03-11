@@ -6,8 +6,7 @@ authors = [
     "Proof of Capacity Consortium",
 ]
 description = """
-GPU-fused Proof-of-Capacity plotter with ring buffer design.
-Minimal host memory (1 GiB) with on-GPU scatter, shuffle, and helix compression.
+PoCX Plotter v2 — high-performance Proof-of-Capacity plotter with GPU-fused ring buffer architecture.
 """
 homepage = "https://bitcoin-pocx.org/"
 repository = "https://github.com/PoC-Consortium/pocx"
@@ -42,7 +41,6 @@ sysinfo = "0.32"
 num_cpus = { workspace = true }
 cfg-if = { workspace = true }
 indicatif = { workspace = true }
-bytesize = "2.0.1"
 libc = { workspace = true }
 fs2 = "0.4"
 page_size = { workspace = true }

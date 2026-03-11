@@ -18,7 +18,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use bytesize::ByteSize;
 use crossbeam_channel::bounded;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use pocx_plotfile::PoCXPlotFile;
@@ -58,13 +57,12 @@ pub struct PlotterTask {
     pub warps: Vec<u64>,
     pub number_of_plots: Vec<u64>,
     pub output_paths: Vec<String>,
-    pub mem: String,
     pub gpu: String,
     pub cpu_threads: usize,
     pub compress: u8,
     pub direct_io: bool,
     pub escalate: u64,
-    pub double_buffer: bool,
+    pub async_write: bool,
     pub quiet: bool,
     pub benchmark: bool,
     pub line_progress: bool,
@@ -186,17 +184,8 @@ impl Plotter {
         }
         let total_resume: u64 = resumes.iter().sum();
 
-        // Validate warps and disk space per path
-        if task.benchmark {
-            for i in 0..task.output_paths.len() {
-                if task.warps[i] == 0 {
-                    task.warps[i] = 1;
-                }
-                if task.number_of_plots[i] == 0 {
-                    task.number_of_plots[i] = 1;
-                }
-            }
-        } else {
+        // Validate paths and disk space (skip for benchmarks)
+        if !task.benchmark {
             #[allow(clippy::needless_range_loop)]
             for i in 0..task.output_paths.len() {
                 let path = Path::new(&task.output_paths[i]);
@@ -207,26 +196,9 @@ impl Plotter {
                     )));
                 }
 
-                let space = free_disk_space(&task.output_paths[i])?;
-
-                if task.warps[i] == 0 {
-                    if task.number_of_plots[i] == 0 {
-                        return Err(PoCXPlotterError::InvalidInput(
-                            "Need to specify either number of plots or number of warps".to_string(),
-                        ));
-                    }
-                    task.warps[i] = space / WARP_SIZE / task.number_of_plots[i];
-                    if task.warps[i] == 0 {
-                        return Err(PoCXPlotterError::Config(format!(
-                            "Insufficient disk space, MiB_required={:.2}, MiB_available={:.2}, path={}",
-                            (task.number_of_plots[i] * WARP_SIZE) as f64 / 1024.0 / 1024.0,
-                            space as f64 / 1024.0 / 1024.0,
-                            &task.output_paths[i]
-                        )));
-                    }
-                } else if task.number_of_plots[i] == 0 {
-                    task.number_of_plots[i] = space / WARP_SIZE / task.warps[i];
-                } else {
+                // Check disk space (skip for resuming paths)
+                if resumes[i] == 0 {
+                    let space = free_disk_space(&task.output_paths[i])?;
                     let required_space = task.warps[i]
                         .checked_mul(task.number_of_plots[i])
                         .and_then(|v| v.checked_mul(WARP_SIZE))
@@ -234,8 +206,7 @@ impl Plotter {
                             PoCXPlotterError::Config("Disk space calculation overflow".to_string())
                         })?;
 
-                    // Skip disk space check for paths that are resuming
-                    if resumes[i] == 0 && required_space >= space {
+                    if required_space >= space {
                         return Err(PoCXPlotterError::Config(format!(
                             "Insufficient disk space, MiB_required={:.2}, MiB_available={:.2}, path={}",
                             required_space as f64 / 1024.0 / 1024.0,
@@ -255,30 +226,14 @@ impl Plotter {
             0
         };
 
-        let mem_limit = task
-            .mem
-            .parse::<ByteSize>()
-            .map_err(|_| {
-                PoCXPlotterError::InvalidInput(format!(
-                    "Can't parse memory limit parameter: {}. Example: --mem 10GiB",
-                    task.mem
-                ))
-            })?
-            .as_u64();
-
         let available_mem = sys.available_memory();
-        let max_mem_usage = if mem_limit > 0 {
-            std::cmp::min(mem_limit, available_mem)
-        } else {
-            available_mem
-        };
 
-        // 1 buffer per output path, +1 if double buffering enabled
+        // 1 buffer per output path, +1 if async write enabled
         let num_write_buffers =
-            task.output_paths.len() as u64 + if task.double_buffer { 1 } else { 0 };
+            task.output_paths.len() as u64 + if task.async_write { 1 } else { 0 };
 
         let total_host_mem = mem_write * num_write_buffers + mem_scatter;
-        if max_mem_usage < total_host_mem {
+        if available_mem < total_host_mem {
             return Err(PoCXPlotterError::Memory(format!(
                 "Insufficient host memory!\nRAM: Available={:.2} GiB, Need={:.2} GiB ({} x {:.2} GiB write buffers{})\nGPU-RAM: {:.2} GiB",
                 available_mem as f64 / 1024.0 / 1024.0 / 1024.0,
@@ -319,8 +274,8 @@ impl Plotter {
                     WARP_SIZE as f64 / 1024.0 / 1024.0 / 1024.0,
                     task.escalate,
                     num_write_buffers,
-                    if task.double_buffer {
-                        ", double-buffered"
+                    if task.async_write {
+                        ", async-write"
                     } else {
                         ""
                     },
@@ -332,7 +287,7 @@ impl Plotter {
                     WARP_SIZE as f64 / 1024.0 / 1024.0 / 1024.0,
                     task.escalate,
                     num_write_buffers,
-                    if task.double_buffer { ", double-buffered" } else { "" },
+                    if task.async_write { ", async-write" } else { "" },
                     mem_gpu as f64 / 1024.0 / 1024.0 / 1024.0,
                 );
             }
