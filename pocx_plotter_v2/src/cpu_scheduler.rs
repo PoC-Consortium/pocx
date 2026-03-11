@@ -46,7 +46,7 @@ pub fn create_cpu_scheduler_thread(
     pb: Option<indicatif::ProgressBar>,
     rx_empty_write_buffers: Receiver<PageAlignedByteBuffer>,
     tx_full_per_path: Vec<Sender<WriterTask>>,
-    resume: u64,
+    resumes: Vec<u64>,
 ) -> impl FnOnce() {
     move || {
         let escalate = task.escalate;
@@ -67,29 +67,27 @@ pub fn create_cpu_scheduler_thread(
         let mut warp_offsets: Vec<u64> = vec![0; num_paths];
         let mut files_done: Vec<u64> = vec![0; num_paths];
 
-        // First path: manual seed or random, with resume support
-        if let Some(s) = task.seed {
-            seeds.push(s);
-            warp_offsets[0] = resume;
-        } else {
-            let mut s = [0u8; 32];
-            rand::rng().fill(&mut s);
-            seeds.push(s);
-        }
-
-        // Remaining paths: random seeds
-        for _ in 1..num_paths {
-            let mut s = [0u8; 32];
-            rand::rng().fill(&mut s);
-            seeds.push(s);
+        // Per-path seed and resume init
+        for i in 0..num_paths {
+            if let Some(s) = task.seeds.get(i).and_then(|s| *s) {
+                seeds.push(s);
+                warp_offsets[i] = resumes[i];
+            } else {
+                let mut s = [0u8; 32];
+                rand::rng().fill(&mut s);
+                seeds.push(s);
+            }
         }
 
         let mut global_nonces: Vec<u64> = vec![0; num_paths];
         let mut pass_in_warp: u64 = 0;
         let mut path_pointer: usize = 0;
 
-        if resume > 0 {
-            global_nonces[0] = resume * passes_per_warp * COMPRESS_BATCH;
+        // Init nonce counters for resumed paths
+        for i in 0..num_paths {
+            if resumes[i] > 0 {
+                global_nonces[i] = resumes[i] * passes_per_warp * COMPRESS_BATCH;
+            }
         }
 
         let mut write_buffer: Option<PageAlignedByteBuffer> = None;

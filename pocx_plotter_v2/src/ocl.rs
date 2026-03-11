@@ -663,6 +663,12 @@ mod tests {
     const TEST_ADDR_HEX: &str = "99BC78BA577A95A11F1A344D4D2AE55F2F857B98";
     const TEST_START_NONCE: u64 = 1337;
 
+    // Pre-computed reference SHA256 digests (addr=TEST_ADDR, seed=TEST_SEED, start=1337)
+    const HASH_REF_SHA256: &str =
+        "7806d17671576c9053794799817baeb294034e76013e94550fcd25f1d092d4a2";
+    const COMPRESS_REF_SHA256: &str =
+        "ae9e739c88cc55f38db4c71e44f69975a493802c3009cbed7493ea5d80dd58b9";
+
     fn test_params() -> ([u8; 20], [u8; 32]) {
         let addr: [u8; 20] = hex::decode(TEST_ADDR_HEX).unwrap().try_into().unwrap();
         let seed: [u8; 32] = hex::decode(TEST_SEED_HEX).unwrap().try_into().unwrap();
@@ -695,7 +701,14 @@ mod tests {
         out
     }
 
-    /// Verify GPU nonce hashing matches CPU reference.
+    fn sha256_hex(data: &[u8]) -> String {
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(data))
+    }
+
+    const HASH_TEST_NONCES: u64 = 256;
+
+    /// Verify GPU nonce hashing matches CPU reference via full-buffer SHA256.
     #[test]
     fn test_gpu_nonce_hash_correctness() {
         let mut ctx = match try_create_gpu_context() {
@@ -710,52 +723,39 @@ mod tests {
         gpu_upload_base58(&mut ctx, &addr);
         gpu_upload_seed(&mut ctx, &seed);
 
+        // Hash fixed number of nonces, dispatched in worksize chunks
         let ws = ctx.worksize;
-        gpu_ring_hash(&ctx, TEST_START_NONCE, ws, 0);
+        let mut ring_head: u64 = 0;
+        let mut hashed: u64 = 0;
+        let mut current_nonce = TEST_START_NONCE;
+        while hashed < HASH_TEST_NONCES {
+            let batch = std::cmp::min(ws, HASH_TEST_NONCES - hashed);
+            gpu_ring_hash(&ctx, current_nonce, batch, ring_head);
+            ring_head = (ring_head + ws) % ctx.ring_size;
+            hashed += batch;
+            current_nonce += batch;
+        }
 
-        // Read back raw ring buffer
+        // Read back raw ring buffer and re-linearize into scoop-major layout
         let ring_bytes = ctx.ring_size as usize * NONCE_SIZE as usize;
-        let mut gpu_buf = vec![0u8; ring_bytes];
-        gpu_ring_transfer_raw(&ctx, &mut gpu_buf);
+        let mut gpu_raw = vec![0u8; ring_bytes];
+        gpu_ring_transfer_raw(&ctx, &mut gpu_raw);
 
-        // Generate same nonces on CPU (scoop-major layout)
+        let n = HASH_TEST_NONCES as usize;
         let nonce_size = NONCE_SIZE as usize;
-        let mut cpu_buf = vec![0u8; ws as usize * nonce_size];
-        pocx_hashlib::generate_nonces(&mut cpu_buf, 0, &addr, &seed, TEST_START_NONCE, ws).unwrap();
-
-        // Compare scoops for selected nonces and scoop indices
-        let test_nonces: Vec<usize> = [0, 1, 15, 16]
-            .iter()
-            .copied()
-            .chain(if ws as usize > 17 {
-                vec![ws as usize - 1]
-            } else {
-                vec![]
-            })
-            .collect();
-        let test_scoops = [0, 1, 100, 2048, 4095];
-
-        for &ni in &test_nonces {
-            for &sc in &test_scoops {
-                let gpu_scoop = gpu_ring_extract_scoop(&gpu_buf, ni, sc);
-
-                let cpu_off = sc * 64 * ws as usize + ni * 64;
-                let cpu_scoop = &cpu_buf[cpu_off..cpu_off + 64];
-
-                assert_eq!(
-                    cpu_scoop,
-                    &gpu_scoop[..],
-                    "Hash mismatch: nonce_idx={}, scoop={}",
-                    ni,
-                    sc
-                );
+        let mut gpu_linear = vec![0u8; n * nonce_size];
+        for ni in 0..n {
+            for sc in 0..DIM as usize {
+                let scoop = gpu_ring_extract_scoop(&gpu_raw, ni, sc);
+                let off = sc * 64 * n + ni * 64;
+                gpu_linear[off..off + 64].copy_from_slice(&scoop);
             }
         }
-        println!(
-            "GPU hash correctness verified for {} nonces × {} scoops",
-            test_nonces.len(),
-            test_scoops.len()
-        );
+
+        let gpu_hash = sha256_hex(&gpu_linear);
+        assert_eq!(HASH_REF_SHA256, gpu_hash, "GPU hash doesn't match reference");
+
+        println!("GPU hash test: SHA256={} ({} nonces)", gpu_hash, HASH_TEST_NONCES);
     }
 
     /// Verify fused scatter+compress kernel produces correct helix-compressed output.
@@ -789,70 +789,14 @@ mod tests {
         // Run compress starting at ring offset 0
         gpu_ring_compress(&ctx, 0, false);
 
-        // Read compressed output (4096 * 4096 * 64 = 1 GiB)
+        // Read compressed output (1 warp = 1 GiB)
         let compressed_size = (DIM * DIM * DOUBLE_HASH_SIZE) as usize;
         let mut gpu_compressed = vec![0u8; compressed_size];
         gpu_ring_transfer(&ctx, &mut gpu_compressed, 0, 1, true);
 
-        // Generate 8192 nonces on CPU for reference
-        let nonce_size = NONCE_SIZE as usize;
-        let mut cpu_buf = vec![0u8; COMPRESS_BATCH as usize * nonce_size];
-        pocx_hashlib::generate_nonces(
-            &mut cpu_buf,
-            0,
-            &addr,
-            &seed,
-            TEST_START_NONCE,
-            COMPRESS_BATCH,
-        )
-        .unwrap();
+        let gpu_hash = sha256_hex(&gpu_compressed);
+        assert_eq!(COMPRESS_REF_SHA256, gpu_hash, "GPU compress doesn't match reference");
 
-        // Verify helix compress for selected (scoop_y, nonce_x) pairs
-        // Helix: output[y][x] = source[scoop_y from nonce_x] XOR source[scoop_x from nonce_{4096+y}]
-        let test_pairs: Vec<(usize, usize)> = vec![
-            (0, 0),
-            (0, 1),
-            (0, 4095),
-            (1, 0),
-            (100, 200),
-            (2048, 2048),
-            (4095, 0),
-            (4095, 4095),
-        ];
-        let num_nonces = COMPRESS_BATCH as usize; // 8192
-
-        for &(scoop_y, nonce_x) in &test_pairs {
-            // CPU reference: XOR two scoops
-            // source[scoop_y, nonce_x] = cpu_buf[scoop_y * 64 * 8192 + nonce_x * 64 .. +64]
-            let off_a = scoop_y * 64 * num_nonces + nonce_x * 64;
-            let scoop_a = &cpu_buf[off_a..off_a + 64];
-
-            // source[scoop_x=nonce_x, nonce_{4096+scoop_y}]
-            let off_b = nonce_x * 64 * num_nonces + (4096 + scoop_y) * 64;
-            let scoop_b = &cpu_buf[off_b..off_b + 64];
-
-            let mut expected = [0u8; 64];
-            for i in 0..64 {
-                expected[i] = scoop_a[i] ^ scoop_b[i];
-            }
-
-            // GPU compressed output: scoop-major layout
-            // out_idx (u32) = scoop_y * 4096 * 16 + nonce_x * 16
-            // byte offset = out_idx * 4 = scoop_y * 4096 * 64 + nonce_x * 64
-            let gpu_off = scoop_y * 4096 * 64 + nonce_x * 64;
-            let gpu_scoop = &gpu_compressed[gpu_off..gpu_off + 64];
-
-            assert_eq!(
-                &expected[..],
-                gpu_scoop,
-                "Compress mismatch: scoop_y={}, nonce_x={}",
-                scoop_y,
-                nonce_x
-            );
-        }
-        println!(
-            "GPU fused compress correctness verified for {} test pairs",
-            test_pairs.len()
-        );
+        println!("GPU compress test: SHA256={} (1 warp)", gpu_hash);
     }
 }

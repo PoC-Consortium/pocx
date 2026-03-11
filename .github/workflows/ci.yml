@@ -86,7 +86,7 @@ jobs:
           key: ${{ runner.os }}-target-test-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run tests
-        run: cargo test --workspace
+        run: cargo test --release --workspace
         timeout-minutes: 30
 
   # Multi-platform builds - single binary per platform (OpenCL dynamically loaded)

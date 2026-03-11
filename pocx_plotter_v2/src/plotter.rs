@@ -54,7 +54,7 @@ pub struct PlotterTask {
     pub address_payload: [u8; 20],
     pub address: String,
     pub network_id: pocx_address::NetworkId,
-    pub seed: Option<[u8; 32]>,
+    pub seeds: Vec<Option<[u8; 32]>>,
     pub warps: Vec<u64>,
     pub number_of_plots: Vec<u64>,
     pub output_paths: Vec<String>,
@@ -164,24 +164,27 @@ impl Plotter {
             }
         }
 
-        // Check resume
-        let mut resume = 0;
-        if let Some(seed) = task.seed {
-            let optimized_plot_file = PoCXPlotFile::new(
-                &task.output_paths[0],
-                &task.address_payload,
-                &seed,
-                task.warps[0],
-                task.compress,
-                false,
-                false,
-            );
-            if let Ok(mut plot_file) = optimized_plot_file {
-                if let Ok(progress) = plot_file.read_resume_info() {
-                    resume = progress;
+        // Check resume per path
+        let mut resumes: Vec<u64> = vec![0; task.output_paths.len()];
+        for (i, seed_opt) in task.seeds.iter().enumerate() {
+            if let Some(seed) = seed_opt {
+                let plot_file = PoCXPlotFile::new(
+                    &task.output_paths[i],
+                    &task.address_payload,
+                    seed,
+                    task.warps[i],
+                    task.compress,
+                    false,
+                    false,
+                );
+                if let Ok(mut pf) = plot_file {
+                    if let Ok(progress) = pf.read_resume_info() {
+                        resumes[i] = progress;
+                    }
                 }
             }
         }
+        let total_resume: u64 = resumes.iter().sum();
 
         // Validate warps and disk space per path
         if task.benchmark {
@@ -194,6 +197,7 @@ impl Plotter {
                 }
             }
         } else {
+            #[allow(clippy::needless_range_loop)]
             for i in 0..task.output_paths.len() {
                 let path = Path::new(&task.output_paths[i]);
                 if !path.exists() {
@@ -230,8 +234,8 @@ impl Plotter {
                             PoCXPlotterError::Config("Disk space calculation overflow".to_string())
                         })?;
 
-                    // Only check disk space for first path if resuming
-                    if (i > 0 || resume == 0) && required_space >= space {
+                    // Skip disk space check for paths that are resuming
+                    if resumes[i] == 0 && required_space >= space {
                         return Err(PoCXPlotterError::Config(format!(
                             "Insufficient disk space, MiB_required={:.2}, MiB_available={:.2}, path={}",
                             required_space as f64 / 1024.0 / 1024.0,
@@ -292,14 +296,14 @@ impl Plotter {
             .zip(task.number_of_plots.iter())
             .map(|(w, n)| w * n)
             .sum();
-        let total_warps = total_planned_warps - resume;
+        let total_warps = total_planned_warps - total_resume;
 
         if task.line_progress {
             println!("#TOTAL:{}", total_warps);
         }
 
         if let Some(cb) = get_plotter_callback() {
-            cb.on_started(total_warps, resume);
+            cb.on_started(total_warps, total_resume);
         }
 
         if !task.quiet {
@@ -365,10 +369,16 @@ impl Plotter {
                 );
             }
 
-            if resume == 0 {
+            if total_resume == 0 {
                 println!("Starting plotting...\n");
             } else {
-                println!("Resuming plotting from warp offset {}...\n", resume);
+                let resume_info: Vec<String> = resumes
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, &r)| r > 0)
+                    .map(|(i, r)| format!("path[{}]={}", i, r))
+                    .collect();
+                println!("Resuming plotting ({})...\n", resume_info.join(", "));
             }
         }
 
@@ -450,7 +460,7 @@ impl Plotter {
                     hash_pb,
                     rx_empty_write_buffers,
                     tx_full_per_path,
-                    resume,
+                    resumes.clone(),
                 )
             });
             hasher
@@ -470,7 +480,7 @@ impl Plotter {
                         hash_pb,
                         rx_empty_write_buffers,
                         tx_full_per_path,
-                        resume,
+                        resumes,
                     )
                 });
                 hasher.join().map_err(|_| {

@@ -142,7 +142,7 @@ pub struct PlotterTaskBuilder {
     address: String,
     address_payload: [u8; 20],
     network_id: Option<pocx_address::NetworkId>,
-    seed: Option<[u8; 32]>,
+    seeds: Vec<Option<[u8; 32]>>,
     warps: Vec<u64>,
     number_of_plots: Vec<u64>,
     output_paths: Vec<String>,
@@ -185,8 +185,11 @@ impl PlotterTaskBuilder {
         Ok(self)
     }
 
-    pub fn seed(mut self, seed: [u8; 32]) -> Self {
-        self.seed = Some(seed);
+    pub fn seed(mut self, index: usize, seed: [u8; 32]) -> Self {
+        if self.seeds.len() <= index {
+            self.seeds.resize(index + 1, None);
+        }
+        self.seeds[index] = Some(seed);
         self
     }
 
@@ -280,7 +283,11 @@ impl PlotterTaskBuilder {
             address_payload: self.address_payload,
             address: self.address,
             network_id,
-            seed: self.seed,
+            seeds: {
+                let mut s = self.seeds;
+                s.resize(self.output_paths.len(), None);
+                s
+            },
             compress: self.compress,
             warps: self.warps,
             number_of_plots: self.number_of_plots,

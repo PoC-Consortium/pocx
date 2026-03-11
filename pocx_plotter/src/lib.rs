@@ -58,7 +58,6 @@ pub mod error;
 pub mod gpu_hasher;
 #[cfg(feature = "opencl")]
 pub mod ocl;
-pub mod perf_monitor;
 pub mod plotter;
 pub mod utils;
 pub mod xpu_scheduler;

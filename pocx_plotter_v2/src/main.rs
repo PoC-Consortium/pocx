@@ -168,7 +168,8 @@ fn run() -> Result<()> {
                     .short('s')
                     .long("seed")
                     .value_name("seed")
-                    .help("specify seed to resume an unfinished plot (optional, needs n=1)"),
+                    .help("specify seed(s) to resume unfinished plot(s), one per -p path")
+                    .action(clap::ArgAction::Append),
             )
             .arg(
                 Arg::new("memory")
@@ -331,38 +332,45 @@ fn run() -> Result<()> {
                 .unwrap_or_else(|_| ".".to_string())]
         });
 
-    let seed = if let Some(seed_str) = matches.get_one::<String>("seed") {
-        if number_of_plots != 1 {
-            return Err(PoCXPlotterError::InvalidInput(
-                "When specifying a seed, n (number of plots) must be 1".to_string(),
-            ));
-        }
-        if output_paths.len() != 1 {
-            return Err(PoCXPlotterError::InvalidInput(
-                "When specifying a seed, there can only be one output path".to_string(),
-            ));
-        }
+    let seeds: Vec<Option<[u8; 32]>> = if let Some(seed_strs) = matches.get_many::<String>("seed") {
+        let seed_strs: Vec<&String> = seed_strs.collect();
 
-        if seed_str.len() != 64 {
-            return Err(PoCXPlotterError::Crypto(format!(
-                "Invalid seed length: expected 64 hex characters, got {}",
-                seed_str.len()
+        if seed_strs.len() != output_paths.len() {
+            return Err(PoCXPlotterError::InvalidInput(format!(
+                "Number of seeds ({}) must match number of paths ({})",
+                seed_strs.len(),
+                output_paths.len()
             )));
         }
 
-        if !seed_str.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(PoCXPlotterError::Crypto(
-                "Seed contains invalid characters: only hexadecimal allowed".to_string(),
+        if number_of_plots != 1 {
+            return Err(PoCXPlotterError::InvalidInput(
+                "When specifying seeds, n (number of plots) must be 1".to_string(),
             ));
         }
 
-        let mut seed = [0; 32];
-        let decoded_seed = hex::decode(seed_str)
-            .map_err(|e| PoCXPlotterError::Crypto(format!("Invalid seed hex: {}", e)))?;
-        seed[..].clone_from_slice(&decoded_seed);
-        Some(seed)
+        let mut seeds = Vec::with_capacity(seed_strs.len());
+        for seed_str in &seed_strs {
+            if seed_str.len() != 64 {
+                return Err(PoCXPlotterError::Crypto(format!(
+                    "Invalid seed length: expected 64 hex characters, got {}",
+                    seed_str.len()
+                )));
+            }
+            if !seed_str.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err(PoCXPlotterError::Crypto(
+                    "Seed contains invalid characters: only hexadecimal allowed".to_string(),
+                ));
+            }
+            let mut seed = [0u8; 32];
+            let decoded = hex::decode(seed_str.as_str())
+                .map_err(|e| PoCXPlotterError::Crypto(format!("Invalid seed hex: {}", e)))?;
+            seed[..].clone_from_slice(&decoded);
+            seeds.push(Some(seed));
+        }
+        seeds
     } else {
-        None
+        vec![None; output_paths.len()]
     };
 
     let mem = matches
@@ -405,7 +413,7 @@ fn run() -> Result<()> {
         warps: vec![warps; num_paths],
         number_of_plots: vec![number_of_plots; num_paths],
         output_paths,
-        seed,
+        seeds,
         compress,
         mem,
         gpu,
