@@ -7,6 +7,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   # Quick checks on Linux
@@ -14,7 +15,7 @@ jobs:
     name: Checks (Format, Lint, Security)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -27,21 +28,21 @@ jobs:
       # Re-enable once the bug is fixed
       - name: Cache cargo registry
         if: runner.os != 'macOS'
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
         if: runner.os != 'macOS'
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache target directory
         if: runner.os != 'macOS'
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: target
           key: ${{ runner.os }}-target-checks-${{ hashFiles('**/Cargo.lock') }}
@@ -62,25 +63,25 @@ jobs:
     name: Test Suite
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo registry
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache target directory
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: target
           key: ${{ runner.os }}-target-test-${{ hashFiles('**/Cargo.lock') }}
@@ -123,7 +124,7 @@ jobs:
             cross: false
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -136,21 +137,21 @@ jobs:
       # Re-enable once the bug is fixed
       - name: Cache cargo registry
         if: runner.os != 'macOS'
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
         if: runner.os != 'macOS'
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache target directory
         if: runner.os != 'macOS'
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: target
           key: ${{ runner.os }}-${{ matrix.target }}-target-build-${{ hashFiles('**/Cargo.lock') }}
@@ -203,7 +204,7 @@ jobs:
         shell: bash
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v4
         with:
           name: binaries-${{ matrix.target }}
           path: artifacts/*

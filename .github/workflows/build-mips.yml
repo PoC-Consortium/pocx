@@ -18,6 +18,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   ZIG_VERSION: "0.15.2"
   TARGET: mipsel-unknown-linux-musl
 
@@ -26,7 +27,7 @@ jobs:
     name: Build - mipsel-unknown-linux-musl
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
       - name: Install Rust nightly with rust-src
         uses: dtolnay/rust-toolchain@nightly
@@ -72,13 +73,13 @@ jobs:
           EOF
 
       - name: Cache cargo registry
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: ~/.cargo/registry
           key: mips-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache target directory
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: target
           key: mips-target-release-${{ hashFiles('**/Cargo.lock') }}
@@ -107,7 +108,7 @@ jobs:
           ls -lh artifacts/
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v4
         with:
           name: pocx-mipsel-linux-musl
           path: artifacts/*
