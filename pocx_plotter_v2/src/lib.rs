@@ -21,10 +21,9 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-//! PoCX GPU Plotter Library
+//! PoCX Plotter v2
 //!
-//! GPU-fused Proof-of-Capacity plotter with ring buffer design.
-//! Minimal host memory (1 GiB) with on-GPU scatter, shuffle, and helix compression.
+//! High-performance Proof-of-Capacity plotter with GPU-fused ring buffer architecture.
 
 #[macro_use]
 extern crate cfg_if;
@@ -142,20 +141,18 @@ pub struct PlotterTaskBuilder {
     address: String,
     address_payload: [u8; 20],
     network_id: Option<pocx_address::NetworkId>,
-    seed: Option<[u8; 32]>,
+    seeds: Vec<Option<[u8; 32]>>,
     warps: Vec<u64>,
     number_of_plots: Vec<u64>,
     output_paths: Vec<String>,
-    mem: String,
     gpu: String,
     cpu_threads: u8,
     compress: u8,
     direct_io: bool,
     escalate: u64,
-    double_buffer: bool,
+    async_write: bool,
     quiet: bool,
     benchmark: bool,
-    line_progress: bool,
     #[cfg(feature = "opencl")]
     kws_override: usize,
 }
@@ -163,12 +160,10 @@ pub struct PlotterTaskBuilder {
 impl PlotterTaskBuilder {
     pub fn new() -> Self {
         Self {
-            mem: "0B".to_string(),
             compress: 1,
             direct_io: true,
             escalate: 1,
             quiet: true,
-            line_progress: true,
             #[cfg(feature = "opencl")]
             kws_override: 0,
             ..Default::default()
@@ -185,8 +180,11 @@ impl PlotterTaskBuilder {
         Ok(self)
     }
 
-    pub fn seed(mut self, seed: [u8; 32]) -> Self {
-        self.seed = Some(seed);
+    pub fn seed(mut self, index: usize, seed: [u8; 32]) -> Self {
+        if self.seeds.len() <= index {
+            self.seeds.resize(index + 1, None);
+        }
+        self.seeds[index] = Some(seed);
         self
     }
 
@@ -194,11 +192,6 @@ impl PlotterTaskBuilder {
         self.output_paths.push(path);
         self.warps.push(warps);
         self.number_of_plots.push(plots);
-        self
-    }
-
-    pub fn memory(mut self, mem: String) -> Self {
-        self.mem = mem;
         self
     }
 
@@ -227,18 +220,13 @@ impl PlotterTaskBuilder {
         self
     }
 
-    pub fn double_buffer(mut self, enabled: bool) -> Self {
-        self.double_buffer = enabled;
+    pub fn async_write(mut self, enabled: bool) -> Self {
+        self.async_write = enabled;
         self
     }
 
     pub fn quiet(mut self, quiet: bool) -> Self {
         self.quiet = quiet;
-        self
-    }
-
-    pub fn line_progress(mut self, enabled: bool) -> Self {
-        self.line_progress = enabled;
         self
     }
 
@@ -272,6 +260,12 @@ impl PlotterTaskBuilder {
             ));
         }
 
+        if self.warps.contains(&0) {
+            return Err(PoCXPlotterError::InvalidInput(
+                "Warps must be greater than 0 for all output paths".to_string(),
+            ));
+        }
+
         let network_id = self
             .network_id
             .ok_or_else(|| PoCXPlotterError::InvalidInput("Network ID not set".to_string()))?;
@@ -280,20 +274,22 @@ impl PlotterTaskBuilder {
             address_payload: self.address_payload,
             address: self.address,
             network_id,
-            seed: self.seed,
+            seeds: {
+                let mut s = self.seeds;
+                s.resize(self.output_paths.len(), None);
+                s
+            },
             compress: self.compress,
             warps: self.warps,
             number_of_plots: self.number_of_plots,
             output_paths: self.output_paths,
-            mem: self.mem,
             gpu: self.gpu,
             cpu_threads: self.cpu_threads as usize,
             direct_io: self.direct_io,
             escalate: self.escalate,
-            double_buffer: self.double_buffer,
+            async_write: self.async_write,
             quiet: self.quiet,
             benchmark: self.benchmark,
-            line_progress: self.line_progress,
             kws_override: self.kws_override,
         })
     }

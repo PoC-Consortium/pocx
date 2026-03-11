@@ -18,7 +18,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use bytesize::ByteSize;
 use crossbeam_channel::bounded;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use pocx_plotfile::PoCXPlotFile;
@@ -54,20 +53,18 @@ pub struct PlotterTask {
     pub address_payload: [u8; 20],
     pub address: String,
     pub network_id: pocx_address::NetworkId,
-    pub seed: Option<[u8; 32]>,
+    pub seeds: Vec<Option<[u8; 32]>>,
     pub warps: Vec<u64>,
     pub number_of_plots: Vec<u64>,
     pub output_paths: Vec<String>,
-    pub mem: String,
     pub gpu: String,
     pub cpu_threads: usize,
     pub compress: u8,
     pub direct_io: bool,
     pub escalate: u64,
-    pub double_buffer: bool,
+    pub async_write: bool,
     pub quiet: bool,
     pub benchmark: bool,
-    pub line_progress: bool,
     pub kws_override: usize,
 }
 
@@ -164,36 +161,31 @@ impl Plotter {
             }
         }
 
-        // Check resume
-        let mut resume = 0;
-        if let Some(seed) = task.seed {
-            let optimized_plot_file = PoCXPlotFile::new(
-                &task.output_paths[0],
-                &task.address_payload,
-                &seed,
-                task.warps[0],
-                task.compress,
-                false,
-                false,
-            );
-            if let Ok(mut plot_file) = optimized_plot_file {
-                if let Ok(progress) = plot_file.read_resume_info() {
-                    resume = progress;
+        // Check resume per path
+        let mut resumes: Vec<u64> = vec![0; task.output_paths.len()];
+        for (i, seed_opt) in task.seeds.iter().enumerate() {
+            if let Some(seed) = seed_opt {
+                let plot_file = PoCXPlotFile::new(
+                    &task.output_paths[i],
+                    &task.address_payload,
+                    seed,
+                    task.warps[i],
+                    task.compress,
+                    false,
+                    false,
+                );
+                if let Ok(mut pf) = plot_file {
+                    if let Ok(progress) = pf.read_resume_info() {
+                        resumes[i] = progress;
+                    }
                 }
             }
         }
+        let total_resume: u64 = resumes.iter().sum();
 
-        // Validate warps and disk space per path
-        if task.benchmark {
-            for i in 0..task.output_paths.len() {
-                if task.warps[i] == 0 {
-                    task.warps[i] = 1;
-                }
-                if task.number_of_plots[i] == 0 {
-                    task.number_of_plots[i] = 1;
-                }
-            }
-        } else {
+        // Validate paths and disk space (skip for benchmarks)
+        if !task.benchmark {
+            #[allow(clippy::needless_range_loop)]
             for i in 0..task.output_paths.len() {
                 let path = Path::new(&task.output_paths[i]);
                 if !path.exists() {
@@ -203,26 +195,9 @@ impl Plotter {
                     )));
                 }
 
-                let space = free_disk_space(&task.output_paths[i])?;
-
-                if task.warps[i] == 0 {
-                    if task.number_of_plots[i] == 0 {
-                        return Err(PoCXPlotterError::InvalidInput(
-                            "Need to specify either number of plots or number of warps".to_string(),
-                        ));
-                    }
-                    task.warps[i] = space / WARP_SIZE / task.number_of_plots[i];
-                    if task.warps[i] == 0 {
-                        return Err(PoCXPlotterError::Config(format!(
-                            "Insufficient disk space, MiB_required={:.2}, MiB_available={:.2}, path={}",
-                            (task.number_of_plots[i] * WARP_SIZE) as f64 / 1024.0 / 1024.0,
-                            space as f64 / 1024.0 / 1024.0,
-                            &task.output_paths[i]
-                        )));
-                    }
-                } else if task.number_of_plots[i] == 0 {
-                    task.number_of_plots[i] = space / WARP_SIZE / task.warps[i];
-                } else {
+                // Check disk space (skip for resuming paths)
+                if resumes[i] == 0 {
+                    let space = free_disk_space(&task.output_paths[i])?;
                     let required_space = task.warps[i]
                         .checked_mul(task.number_of_plots[i])
                         .and_then(|v| v.checked_mul(WARP_SIZE))
@@ -230,8 +205,7 @@ impl Plotter {
                             PoCXPlotterError::Config("Disk space calculation overflow".to_string())
                         })?;
 
-                    // Only check disk space for first path if resuming
-                    if (i > 0 || resume == 0) && required_space >= space {
+                    if required_space >= space {
                         return Err(PoCXPlotterError::Config(format!(
                             "Insufficient disk space, MiB_required={:.2}, MiB_available={:.2}, path={}",
                             required_space as f64 / 1024.0 / 1024.0,
@@ -251,30 +225,14 @@ impl Plotter {
             0
         };
 
-        let mem_limit = task
-            .mem
-            .parse::<ByteSize>()
-            .map_err(|_| {
-                PoCXPlotterError::InvalidInput(format!(
-                    "Can't parse memory limit parameter: {}. Example: --mem 10GiB",
-                    task.mem
-                ))
-            })?
-            .as_u64();
-
         let available_mem = sys.available_memory();
-        let max_mem_usage = if mem_limit > 0 {
-            std::cmp::min(mem_limit, available_mem)
-        } else {
-            available_mem
-        };
 
-        // 1 buffer per output path, +1 if double buffering enabled
+        // 1 buffer per output path, +1 if async write enabled
         let num_write_buffers =
-            task.output_paths.len() as u64 + if task.double_buffer { 1 } else { 0 };
+            task.output_paths.len() as u64 + if task.async_write { 1 } else { 0 };
 
         let total_host_mem = mem_write * num_write_buffers + mem_scatter;
-        if max_mem_usage < total_host_mem {
+        if available_mem < total_host_mem {
             return Err(PoCXPlotterError::Memory(format!(
                 "Insufficient host memory!\nRAM: Available={:.2} GiB, Need={:.2} GiB ({} x {:.2} GiB write buffers{})\nGPU-RAM: {:.2} GiB",
                 available_mem as f64 / 1024.0 / 1024.0 / 1024.0,
@@ -292,14 +250,10 @@ impl Plotter {
             .zip(task.number_of_plots.iter())
             .map(|(w, n)| w * n)
             .sum();
-        let total_warps = total_planned_warps - resume;
-
-        if task.line_progress {
-            println!("#TOTAL:{}", total_warps);
-        }
+        let total_warps = total_planned_warps - total_resume;
 
         if let Some(cb) = get_plotter_callback() {
-            cb.on_started(total_warps, resume);
+            cb.on_started(total_warps, total_resume);
         }
 
         if !task.quiet {
@@ -315,8 +269,8 @@ impl Plotter {
                     WARP_SIZE as f64 / 1024.0 / 1024.0 / 1024.0,
                     task.escalate,
                     num_write_buffers,
-                    if task.double_buffer {
-                        ", double-buffered"
+                    if task.async_write {
+                        ", async-write"
                     } else {
                         ""
                     },
@@ -328,11 +282,12 @@ impl Plotter {
                     WARP_SIZE as f64 / 1024.0 / 1024.0 / 1024.0,
                     task.escalate,
                     num_write_buffers,
-                    if task.double_buffer { ", double-buffered" } else { "" },
+                    if task.async_write { ", async-write" } else { "" },
                     mem_gpu as f64 / 1024.0 / 1024.0 / 1024.0,
                 );
             }
 
+            println!();
             match &task.network_id {
                 pocx_address::NetworkId::Base58(version) => {
                     println!(
@@ -365,10 +320,16 @@ impl Plotter {
                 );
             }
 
-            if resume == 0 {
+            if total_resume == 0 {
                 println!("Starting plotting...\n");
             } else {
-                println!("Resuming plotting from warp offset {}...\n", resume);
+                let resume_info: Vec<String> = resumes
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, &r)| r > 0)
+                    .map(|(i, r)| format!("path[{}]={}", i, r))
+                    .collect();
+                println!("Resuming plotting ({})...\n", resume_info.join(", "));
             }
         }
 
@@ -384,7 +345,7 @@ impl Plotter {
         }
 
         // Progress bars (matching old plotter style)
-        let multi_progress = if !task.quiet && !task.line_progress {
+        let multi_progress = if !task.quiet {
             let mp = MultiProgress::new();
             mp.set_move_cursor(true);
             Some(Arc::new(mp))
@@ -450,7 +411,7 @@ impl Plotter {
                     hash_pb,
                     rx_empty_write_buffers,
                     tx_full_per_path,
-                    resume,
+                    resumes.clone(),
                 )
             });
             hasher
@@ -470,7 +431,7 @@ impl Plotter {
                         hash_pb,
                         rx_empty_write_buffers,
                         tx_full_per_path,
-                        resume,
+                        resumes,
                     )
                 });
                 hasher.join().map_err(|_| {

@@ -82,143 +82,144 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-    let cmd =
-        Command::new("PoCX GPU Plotter")
-            .version(env!("CARGO_PKG_VERSION"))
-            .about("PoCX GPU Plotter — ring buffer design with fused scatter+compress")
-            .arg_required_else_help(true)
-            .next_display_order(None)
-            .arg(
-                Arg::new("disable-direct-io")
-                    .short('d')
-                    .long("ddio")
-                    .help("Disables direct i/o")
-                    .action(clap::ArgAction::SetTrue)
-                    .global(true),
-            )
-            .arg(
-                Arg::new("low-priority")
-                    .short('l')
-                    .long("prio")
-                    .help("Runs plotter with low priority")
-                    .action(clap::ArgAction::SetTrue)
-                    .global(true),
-            )
-            .arg(
-                Arg::new("non-verbosity")
-                    .short('q')
-                    .long("quiet")
-                    .help("Runs plotter in non-verbose mode")
-                    .action(clap::ArgAction::SetTrue)
-                    .global(true),
-            )
-            .arg(
-                Arg::new("benchmark")
-                    .short('b')
-                    .long("bench")
-                    .help("Runs plotter in GPU benchmark mode")
-                    .action(clap::ArgAction::SetTrue)
-                    .global(true),
-            )
-            .arg(
-                Arg::new("line-progress")
-                    .long("line-progress")
-                    .help("Output machine-readable progress lines")
-                    .action(clap::ArgAction::SetTrue)
-                    .hide(true)
-                    .global(true),
-            )
-            .arg(
-                Arg::new("address")
-                    .short('i')
-                    .long("id")
-                    .value_name("address")
-                    .help("your PoC mining address (any PoC coin)"),
-            )
-            .arg(
-                Arg::new("warps")
-                    .short('w')
-                    .long("warps")
-                    .value_name("warps")
-                    .help("how many warps you want to plot (1 warp = 1 GiB, default: fill disk)"),
-            )
-            .arg(
-                Arg::new("number")
-                    .short('n')
-                    .long("num")
-                    .value_name("number")
-                    .help("number of files to plot (default: 1, 0 = fill disk)"),
-            )
-            .arg(
-                Arg::new("compression")
-                    .short('x')
-                    .long("compression")
-                    .help("compression level 1-6 (default: 1, higher = more PoW per plot)"),
-            )
-            .arg(
-                Arg::new("path")
-                    .short('p')
-                    .long("path")
-                    .value_name("path")
-                    .help("target disk path(s) for plotfile(s) (default: current path)")
-                    .action(clap::ArgAction::Append),
-            )
-            .arg(
-                Arg::new("seed")
-                    .short('s')
-                    .long("seed")
-                    .value_name("seed")
-                    .help("specify seed to resume an unfinished plot (optional, needs n=1)"),
-            )
-            .arg(
-                Arg::new("memory")
-                    .short('m')
-                    .long("mem")
-                    .value_name("memory")
-                    .help("limit host memory usage (optional)"),
-            )
-            .arg(Arg::new("escalate").short('e').long("escalate").help(
-                "write buffer size multiplier in warps (default: 1, e.g. -e 5 = 5 GiB buffer)",
-            ))
-            .arg(
-                Arg::new("double-buffer")
-                    .short('D')
-                    .long("double-buffer")
-                    .help("allocate an extra write buffer for GPU/disk overlap")
-                    .action(clap::ArgAction::SetTrue)
-                    .global(true),
-            )
-            .arg(
-                Arg::new("gpu")
-                    .short('g')
-                    .long("gpu")
-                    .value_name("platform_id:device_id:cores")
-                    .help("GPU to use for plotting (default: 0:0:0 = first GPU, all CUs)")
-                    .conflicts_with("cpu"),
-            )
-            .arg(
-                Arg::new("cpu")
-                    .short('c')
-                    .long("cpu")
-                    .value_name("threads")
-                    .help("CPU-only plotting with N threads (0 = auto-detect)")
-                    .conflicts_with("gpu"),
-            )
-            .arg(
-                Arg::new("ocl-devices")
-                    .short('o')
-                    .long("opencl")
-                    .help("Display OpenCL platforms and devices")
-                    .action(clap::ArgAction::SetTrue)
-                    .global(true),
-            )
-            .arg(
-                Arg::new("kws")
-                    .short('k')
-                    .long("kws-override")
-                    .help("tweak: overrides default gpu kernel workgroup size")
-                    .global(true),
-            );
+    let cmd = Command::new("PoCX Plotter v2")
+        .version(env!("CARGO_PKG_VERSION"))
+        .about("PoCX Plotter v2")
+        .arg_required_else_help(true)
+        // Required
+        .arg(
+            Arg::new("address")
+                .short('i')
+                .long("id")
+                .value_name("address")
+                .help("PoCX mining address (required)")
+                .display_order(0),
+        )
+        .arg(
+            Arg::new("warps")
+                .short('w')
+                .long("warps")
+                .value_name("warps")
+                .help("warps to plot (1 warp = 1 GiB, required)")
+                .display_order(1),
+        )
+        .arg(
+            Arg::new("path")
+                .short('p')
+                .long("path")
+                .value_name("path")
+                .help("target disk path, repeatable (e.g. -p /disk1 -p /disk2)")
+                .action(clap::ArgAction::Append)
+                .display_order(2),
+        )
+        // Plotting options
+        .arg(
+            Arg::new("number")
+                .short('n')
+                .long("num")
+                .value_name("number")
+                .help("number of files to plot (default: 1)")
+                .display_order(10),
+        )
+        .arg(
+            Arg::new("compression")
+                .short('x')
+                .long("compression")
+                .help("compression level 1-6 (default: 1, higher = more PoW per plot)")
+                .display_order(11),
+        )
+        .arg(
+            Arg::new("seed")
+                .short('s')
+                .long("seed")
+                .value_name("seed")
+                .help("seed to resume unfinished plot, one per -p path (e.g. -s abc.. -s def..)")
+                .action(clap::ArgAction::Append)
+                .display_order(12),
+        )
+        // Compute
+        .arg(
+            Arg::new("gpu")
+                .short('g')
+                .long("gpu")
+                .value_name("platform_id:device_id:cores")
+                .help("GPU for plotting (e.g. 0:0 or 0:0:1024, default: first GPU, all CUs)")
+                .conflicts_with("cpu")
+                .display_order(20),
+        )
+        .arg(
+            Arg::new("cpu")
+                .short('c')
+                .long("cpu")
+                .value_name("threads")
+                .help("CPU-only mode with N threads (0 = auto-detect)")
+                .conflicts_with("gpu")
+                .display_order(21),
+        )
+        // Tuning
+        .arg(
+            Arg::new("escalate")
+                .short('e')
+                .long("escalate")
+                .help("write buffer size multiplier (default: 1 = 1 GiB buffer, e.g. -e 5 = 5 GiB)")
+                .display_order(30),
+        )
+        .arg(
+            Arg::new("async-write")
+                .short('a')
+                .long("async-write")
+                .help("extra write buffer for hashing/writing overlap")
+                .action(clap::ArgAction::SetTrue)
+                .display_order(31),
+        )
+        .arg(
+            Arg::new("disable-direct-io")
+                .short('d')
+                .long("ddio")
+                .help("disable direct I/O")
+                .action(clap::ArgAction::SetTrue)
+                .display_order(32),
+        )
+        // Modes
+        .arg(
+            Arg::new("benchmark")
+                .short('b')
+                .long("bench")
+                .help("benchmark mode (no disk writes)")
+                .action(clap::ArgAction::SetTrue)
+                .display_order(40),
+        )
+        .arg(
+            Arg::new("ocl-devices")
+                .short('o')
+                .long("opencl")
+                .help("display OpenCL platforms and devices")
+                .action(clap::ArgAction::SetTrue)
+                .display_order(41),
+        )
+        .arg(
+            Arg::new("non-verbosity")
+                .short('q')
+                .long("quiet")
+                .help("suppress verbose output")
+                .action(clap::ArgAction::SetTrue)
+                .display_order(42),
+        )
+        .arg(
+            Arg::new("low-priority")
+                .short('l')
+                .long("lowprio")
+                .help("run with low process priority")
+                .action(clap::ArgAction::SetTrue)
+                .display_order(43),
+        )
+        .arg(
+            Arg::new("kws")
+                .short('k')
+                .long("kws-override")
+                .help("override GPU kernel workgroup size (advanced)")
+                .display_order(50),
+        );
 
     let matches = cmd.get_matches();
 
@@ -266,7 +267,7 @@ fn run() -> Result<()> {
             Ok::<u64, PoCXPlotterError>(value)
         })
         .transpose()?
-        .unwrap_or(0);
+        .ok_or_else(|| PoCXPlotterError::InvalidInput("Warps (-w) is required".to_string()))?;
 
     let number_of_plots = matches
         .get_one::<String>("number")
@@ -331,44 +332,46 @@ fn run() -> Result<()> {
                 .unwrap_or_else(|_| ".".to_string())]
         });
 
-    let seed = if let Some(seed_str) = matches.get_one::<String>("seed") {
-        if number_of_plots != 1 {
-            return Err(PoCXPlotterError::InvalidInput(
-                "When specifying a seed, n (number of plots) must be 1".to_string(),
-            ));
-        }
-        if output_paths.len() != 1 {
-            return Err(PoCXPlotterError::InvalidInput(
-                "When specifying a seed, there can only be one output path".to_string(),
-            ));
-        }
+    let seeds: Vec<Option<[u8; 32]>> = if let Some(seed_strs) = matches.get_many::<String>("seed") {
+        let seed_strs: Vec<&String> = seed_strs.collect();
 
-        if seed_str.len() != 64 {
-            return Err(PoCXPlotterError::Crypto(format!(
-                "Invalid seed length: expected 64 hex characters, got {}",
-                seed_str.len()
+        if seed_strs.len() != output_paths.len() {
+            return Err(PoCXPlotterError::InvalidInput(format!(
+                "Number of seeds ({}) must match number of paths ({})",
+                seed_strs.len(),
+                output_paths.len()
             )));
         }
 
-        if !seed_str.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(PoCXPlotterError::Crypto(
-                "Seed contains invalid characters: only hexadecimal allowed".to_string(),
+        if number_of_plots != 1 {
+            return Err(PoCXPlotterError::InvalidInput(
+                "When specifying seeds, n (number of plots) must be 1".to_string(),
             ));
         }
 
-        let mut seed = [0; 32];
-        let decoded_seed = hex::decode(seed_str)
-            .map_err(|e| PoCXPlotterError::Crypto(format!("Invalid seed hex: {}", e)))?;
-        seed[..].clone_from_slice(&decoded_seed);
-        Some(seed)
+        let mut seeds = Vec::with_capacity(seed_strs.len());
+        for seed_str in &seed_strs {
+            if seed_str.len() != 64 {
+                return Err(PoCXPlotterError::Crypto(format!(
+                    "Invalid seed length: expected 64 hex characters, got {}",
+                    seed_str.len()
+                )));
+            }
+            if !seed_str.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err(PoCXPlotterError::Crypto(
+                    "Seed contains invalid characters: only hexadecimal allowed".to_string(),
+                ));
+            }
+            let mut seed = [0u8; 32];
+            let decoded = hex::decode(seed_str.as_str())
+                .map_err(|e| PoCXPlotterError::Crypto(format!("Invalid seed hex: {}", e)))?;
+            seed[..].clone_from_slice(&decoded);
+            seeds.push(Some(seed));
+        }
+        seeds
     } else {
-        None
+        vec![None; output_paths.len()]
     };
-
-    let mem = matches
-        .get_one::<String>("memory")
-        .cloned()
-        .unwrap_or_else(|| "0B".to_owned());
 
     let gpu_explicit = matches.get_one::<String>("gpu").cloned();
 
@@ -405,17 +408,15 @@ fn run() -> Result<()> {
         warps: vec![warps; num_paths],
         number_of_plots: vec![number_of_plots; num_paths],
         output_paths,
-        seed,
+        seeds,
         compress,
-        mem,
         gpu,
         cpu_threads,
         direct_io: !matches.get_flag("disable-direct-io"),
         escalate,
-        double_buffer: matches.get_flag("double-buffer"),
+        async_write: matches.get_flag("async-write"),
         quiet: matches.get_flag("non-verbosity"),
         benchmark: matches.get_flag("benchmark"),
-        line_progress: matches.get_flag("line-progress"),
         kws_override,
     })?;
 

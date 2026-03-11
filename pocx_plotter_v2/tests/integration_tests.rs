@@ -79,7 +79,17 @@ fn test_seed_validation_integration() {
 
     let binary = get_plotter_binary();
     let output = Command::new(&binary)
-        .args(["--id", &test_id, "--seed", "invalid_seed", "--bench"])
+        .args([
+            "--id",
+            &test_id,
+            "-w",
+            "1",
+            "-p",
+            ".",
+            "--seed",
+            "invalid_seed",
+            "--bench",
+        ])
         .output()
         .expect("Failed to execute with invalid seed");
 

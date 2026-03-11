@@ -97,10 +97,6 @@ pub fn create_writer_thread(
                         pbr.inc(delta);
                     }
 
-                    if task.line_progress {
-                        println!("#WRITE_DELTA:{}", warps_to_write);
-                    }
-
                     // Notify callback of writing progress
                     if let Some(cb) = get_plotter_callback() {
                         cb.on_writing_progress(warps_to_write);
