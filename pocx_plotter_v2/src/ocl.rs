@@ -114,7 +114,10 @@ impl GpuRingContext {
         let compress_kernel = Kernel::create(&program, "fused_scatter_compress")
             .map_err(|e| format!("Failed to create compress kernel: {:?}", e))?;
 
-        let kernel_workgroup_size = get_kernel_work_group_size(&hash_kernel, &device, kws_override);
+        let device_kws = get_kernel_work_group_size(&hash_kernel, &device, kws_override);
+        let max_alloc = device.max_mem_alloc_size().unwrap_or(u64::MAX);
+        let (kernel_workgroup_size, _) =
+            fit_kws_to_max_alloc(device_kws, cores, max_alloc, kws_override);
         let worksize = (kernel_workgroup_size * cores) as u64;
         let ring_size = compute_ring_size(worksize);
 
@@ -385,26 +388,36 @@ pub fn platform_info() {
                 Err(_) => continue,
             };
 
-            let cores = device.max_compute_units().unwrap_or(0);
-            let kernel_workgroup_size = get_kernel_work_group_size(&kernel, &device, 0);
+            let cores = device.max_compute_units().unwrap_or(0) as usize;
+            let device_kws = get_kernel_work_group_size(&kernel, &device, 0);
             let vendor = device.vendor().unwrap_or_else(|_| "Unknown".to_string());
             let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
             let mem = device.global_mem_size().unwrap_or(0);
+            let max_alloc = device.max_mem_alloc_size().unwrap_or(0);
 
-            let worksize = (cores as u64) * (kernel_workgroup_size as u64);
+            let (effective_kws, kws_reduced) =
+                fit_kws_to_max_alloc(device_kws, cores, max_alloc, 0);
+            let worksize = (cores as u64) * (effective_kws as u64);
             let ring_size = compute_ring_size(worksize);
             let mem_needed = gpu_mem_needed(worksize, ring_size);
 
+            let kws_info = if kws_reduced {
+                format!("{} (auto-reduced from {})", effective_kws, device_kws)
+            } else {
+                format!("{}", effective_kws)
+            };
+
             println!(
-                "- device {}, {} - {}, cores={}, kws={}, ring={} nonces, GPU-RAM={:.2}/{:.2} GiB",
+                "- device {}, {} - {}, cores={}, kws={}, ring={} nonces, GPU-RAM={:.2}/{:.2} GiB, max-alloc={:.2} GiB",
                 j,
                 vendor,
                 name,
                 cores,
-                kernel_workgroup_size,
+                kws_info,
                 ring_size,
                 mem_needed as f64 / 1024.0 / 1024.0 / 1024.0,
                 mem as f64 / 1024.0 / 1024.0 / 1024.0,
+                max_alloc as f64 / 1024.0 / 1024.0 / 1024.0,
             );
         }
     }
@@ -415,6 +428,30 @@ fn get_kernel_work_group_size(kernel: &Kernel, device: &Device, kws_override: us
         return kws_override;
     }
     kernel.get_work_group_size(device.id()).unwrap_or(256)
+}
+
+/// Auto-reduce kws by halving until ring buffer fits in max_mem_alloc_size.
+/// Returns (effective_kws, was_reduced). Skips reduction if kws_override is set.
+fn fit_kws_to_max_alloc(
+    device_kws: usize,
+    cores: usize,
+    max_alloc: u64,
+    kws_override: usize,
+) -> (usize, bool) {
+    if kws_override != 0 {
+        return (kws_override, false);
+    }
+    let mut kws = device_kws;
+    loop {
+        let worksize = (kws * cores) as u64;
+        let ring_size = compute_ring_size(worksize);
+        let ring_bytes = ring_size * NONCE_SIZE;
+        if ring_bytes <= max_alloc || kws <= 1 {
+            break;
+        }
+        kws /= 2;
+    }
+    (kws, kws < device_kws)
 }
 
 /// GPU device information with kernel workgroup size
@@ -545,7 +582,8 @@ pub fn gpu_get_info(gpu: &str, quiet: bool, kws_override: usize) -> (u64, u64, u
     let program =
         Program::create_and_build_from_source(&context, SRC, "").expect("Failed to build program");
     let kernel = Kernel::create(&program, "calculate_nonces").expect("Failed to create kernel");
-    let kernel_workgroup_size = get_kernel_work_group_size(&kernel, &device, kws_override);
+    let device_kws = get_kernel_work_group_size(&kernel, &device, kws_override);
+    let max_alloc = device.max_mem_alloc_size().unwrap_or(u64::MAX);
 
     let gpu_cores = if gpu_cores == 0 {
         max_compute_units
@@ -553,6 +591,8 @@ pub fn gpu_get_info(gpu: &str, quiet: bool, kws_override: usize) -> (u64, u64, u
         min(gpu_cores, max_compute_units)
     };
 
+    let (kernel_workgroup_size, kws_reduced) =
+        fit_kws_to_max_alloc(device_kws, gpu_cores, max_alloc, kws_override);
     let worksize = (gpu_cores * kernel_workgroup_size) as u64;
     let ring_size = compute_ring_size(worksize);
     let mem_needed = gpu_mem_needed(worksize, ring_size);
@@ -570,9 +610,19 @@ pub fn gpu_get_info(gpu: &str, quiet: bool, kws_override: usize) -> (u64, u64, u
     if !quiet {
         let vendor = device.vendor().unwrap_or_else(|_| "Unknown".to_string());
         let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
+        let cu_info = if gpu_cores < max_compute_units {
+            format!("{} of {}", gpu_cores, max_compute_units)
+        } else {
+            format!("{}", gpu_cores)
+        };
+        let kws_info = if kws_reduced {
+            format!("{} of {}", kernel_workgroup_size, device_kws)
+        } else {
+            format!("{}", kernel_workgroup_size)
+        };
         println!(
-            "GPU: {} - {} [using {} of {} CUs, kws={}]",
-            vendor, name, gpu_cores, max_compute_units, kernel_workgroup_size
+            "GPU: {} - {} [{} CUs, {} kws]",
+            vendor, name, cu_info, kws_info
         );
         println!(
             "     worksize={}, ring={} nonces, GPU-RAM: {:.2}/{:.2} GiB",
