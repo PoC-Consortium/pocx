@@ -41,7 +41,7 @@ use opencl3::types::{CL_BLOCKING, CL_NON_BLOCKING};
 use rayon::prelude::*;
 use std::cell::RefCell;
 use std::cmp::min;
-use std::process;
+
 use std::ptr;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
 use std::sync::{Arc, Mutex};
@@ -412,12 +412,12 @@ pub fn get_gpu_device_info() -> Vec<GpuDeviceInfo> {
     devices
 }
 
-pub fn gpu_get_info(gpus: &[String], quiet: bool, kws_override: usize) -> u64 {
+pub fn gpu_get_info(gpus: &[String], quiet: bool, kws_override: usize) -> Result<u64, String> {
     let mut total_mem_needed = 0u64;
 
     let platforms = match get_platforms() {
         Ok(p) => p,
-        Err(_) => return 0,
+        Err(_) => return Ok(0),
     };
 
     for gpu in gpus.iter() {
@@ -427,25 +427,19 @@ pub fn gpu_get_info(gpus: &[String], quiet: bool, kws_override: usize) -> u64 {
         let gpu_cores = parts[2].parse::<usize>().unwrap();
 
         if platform_id >= platforms.len() {
-            println!("Error: Selected OpenCL platform doesn't exist.");
-            println!("Shutting down...");
-            process::exit(0);
+            return Err("Selected OpenCL platform doesn't exist".to_string());
         }
 
         let platform = &platforms[platform_id];
         let devices = match platform.get_devices(CL_DEVICE_TYPE_GPU) {
             Ok(d) => d,
             Err(_) => {
-                println!("Error: Failed to get GPU devices");
-                println!("Shutting down...");
-                process::exit(0);
+                return Err("Failed to get GPU devices".to_string());
             }
         };
 
         if gpu_id >= devices.len() {
-            println!("Error: Selected OpenCL device doesn't exist");
-            println!("Shutting down...");
-            process::exit(0);
+            return Err("Selected OpenCL device doesn't exist".to_string());
         }
 
         let device = Device::new(devices[gpu_id]);
@@ -467,9 +461,7 @@ pub fn gpu_get_info(gpus: &[String], quiet: bool, kws_override: usize) -> u64 {
         let mem_needed = 2 * gpu_cores * kernel_workgroup_size * 256 * 1024;
 
         if mem_needed as u64 > mem {
-            println!("Error: Not enough GPU-memory. Please reduce number of cores.");
-            println!("Shutting down...");
-            process::exit(0);
+            return Err("Not enough GPU-memory. Please reduce number of cores.".to_string());
         }
 
         if !quiet {
@@ -487,7 +479,7 @@ pub fn gpu_get_info(gpus: &[String], quiet: bool, kws_override: usize) -> u64 {
         }
         total_mem_needed += mem_needed as u64;
     }
-    total_mem_needed
+    Ok(total_mem_needed)
 }
 
 pub fn gpu_init(

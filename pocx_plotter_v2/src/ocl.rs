@@ -35,7 +35,6 @@ use opencl3::platform::get_platforms;
 use opencl3::program::Program;
 use opencl3::types::{CL_BLOCKING, CL_NON_BLOCKING};
 use std::cmp::min;
-use std::process;
 use std::ptr;
 
 static SRC: &str = include_str!("ocl/kernel.cl");
@@ -536,16 +535,18 @@ pub fn get_gpu_device_info() -> Vec<GpuDeviceInfo> {
     devices
 }
 
-pub fn gpu_get_info(gpu: &str, quiet: bool, kws_override: usize) -> (u64, u64, u64) {
+pub fn gpu_get_info(gpu: &str, quiet: bool, kws_override: usize) -> Result<(u64, u64, u64), String> {
     let platforms = match get_platforms() {
         Ok(p) => p,
-        Err(_) => return (0, 0, 0),
+        Err(_) => return Ok((0, 0, 0)),
     };
 
     let parts: Vec<&str> = gpu.split(':').collect();
     if parts.len() < 2 {
-        eprintln!("Error: Invalid GPU format '{}'. Expected platform:device or platform:device:cores (e.g. 0:0 or 0:0:0)", gpu);
-        process::exit(1);
+        return Err(format!(
+            "Invalid GPU format '{}'. Expected platform:device or platform:device:cores (e.g. 0:0 or 0:0:0)",
+            gpu
+        ));
     }
     let platform_id = parts[0].parse::<usize>().unwrap();
     let gpu_id = parts[1].parse::<usize>().unwrap();
@@ -556,22 +557,19 @@ pub fn gpu_get_info(gpu: &str, quiet: bool, kws_override: usize) -> (u64, u64, u
     };
 
     if platform_id >= platforms.len() {
-        println!("Error: Selected OpenCL platform doesn't exist.");
-        process::exit(1);
+        return Err("Selected OpenCL platform doesn't exist".to_string());
     }
 
     let platform = &platforms[platform_id];
     let devices = match platform.get_devices(CL_DEVICE_TYPE_GPU) {
         Ok(d) => d,
         Err(_) => {
-            println!("Error: Failed to get GPU devices");
-            process::exit(1);
+            return Err("Failed to get GPU devices".to_string());
         }
     };
 
     if gpu_id >= devices.len() {
-        println!("Error: Selected OpenCL device doesn't exist");
-        process::exit(1);
+        return Err("Selected OpenCL device doesn't exist".to_string());
     }
 
     let device = Device::new(devices[gpu_id]);
@@ -598,13 +596,11 @@ pub fn gpu_get_info(gpu: &str, quiet: bool, kws_override: usize) -> (u64, u64, u
     let mem_needed = gpu_mem_needed(worksize, ring_size);
 
     if mem_needed > mem {
-        println!(
-            "Error: Not enough GPU-memory ({:.2} GiB needed, {:.2} GiB available).",
+        return Err(format!(
+            "Not enough GPU-memory ({:.2} GiB needed, {:.2} GiB available). Please reduce number of cores.",
             mem_needed as f64 / 1024.0 / 1024.0 / 1024.0,
             mem as f64 / 1024.0 / 1024.0 / 1024.0
-        );
-        println!("Please reduce number of cores.");
-        process::exit(1);
+        ));
     }
 
     if !quiet {
@@ -633,7 +629,7 @@ pub fn gpu_get_info(gpu: &str, quiet: bool, kws_override: usize) -> (u64, u64, u
         );
     }
 
-    (worksize, ring_size, mem_needed)
+    Ok((worksize, ring_size, mem_needed))
 }
 
 pub fn gpu_ring_init(gpu: &str, kws_override: usize) -> Result<GpuRingContext, String> {

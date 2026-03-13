@@ -26,7 +26,6 @@ cfg_if! {
     if #[cfg(unix)] {
         use std::ffi::CString;
         use std::mem::MaybeUninit;
-        use std::process;
         use std::os::unix::fs::OpenOptionsExt;
         use fs2::FileExt;
 
@@ -171,31 +170,23 @@ cfg_if! {
         /// Attempts fallocate() first for instant contiguous preallocation, then
         /// falls back to ftruncate (set_len) for filesystems that don't support
         /// fallocate (e.g., 9p/virtio, NFS, FUSE).
-        pub fn preallocate(file: &Path, size_in_bytes: u64, use_direct_io: bool) {
-            let file_handle = if use_direct_io {
+        pub fn preallocate(file: &Path, size_in_bytes: u64, use_direct_io: bool) -> io::Result<()> {
+            let f = if use_direct_io {
                 open_rw_using_direct_io(file)
             } else {
                 open_rw(file)
-            };
-            match file_handle {
-                Ok(f) => {
-                    if f.allocate(size_in_bytes).is_err() {
-                        // fallocate unsupported (network/virtual FS) — fallback to ftruncate
-                        eprintln!(
-                            "WARNING: fallocate unsupported, using ftruncate. \
-                             Disk space is NOT reserved — ensure sufficient free space."
-                        );
-                        if let Err(e) = f.set_len(size_in_bytes) {
-                            eprintln!("\n\nERROR: preallocation failed: {}\n", e);
-                            process::exit(1);
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("\n\nERROR: failed to open file for preallocation: {}\n", e);
-                    process::exit(1);
-                }
+            }?;
+
+            if f.allocate(size_in_bytes).is_err() {
+                // fallocate unsupported (network/virtual FS) — fallback to ftruncate
+                eprintln!(
+                    "WARNING: fallocate unsupported, using ftruncate. \
+                     Disk space is NOT reserved — ensure sufficient free space."
+                );
+                f.set_len(size_in_bytes)?;
             }
+
+            Ok(())
         }
     } else {
         use std::ptr::null_mut;
@@ -335,7 +326,7 @@ cfg_if! {
             u64::from(bytes_per_sector)
         }
 
-        pub fn preallocate(file: &Path, size_in_bytes: u64, use_direct_io: bool) {
+        pub fn preallocate(file: &Path, size_in_bytes: u64, use_direct_io: bool) -> io::Result<()> {
             let mut result = true;
             result &= obtain_privilege();
 
@@ -343,20 +334,9 @@ cfg_if! {
                 open_rw_using_direct_io(file)
             } else {
                 open_rw(file)
-            };
+            }?;
 
-            let file = match file {
-                Ok(f) => f,
-                Err(e) => {
-                    eprintln!("ERROR: failed to open file for preallocation: {}", e);
-                    return;
-                }
-            };
-
-            if let Err(e) = file.set_len(size_in_bytes) {
-                eprintln!("ERROR: failed to set file length during preallocation: {}", e);
-                return;
-            }
+            file.set_len(size_in_bytes)?;
 
             if result {
                 let handle = file.as_raw_handle();
@@ -366,6 +346,8 @@ cfg_if! {
                     }
                 }
             }
+
+            Ok(())
         }
 
         fn obtain_privilege() -> bool {

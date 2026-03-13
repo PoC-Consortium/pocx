@@ -73,32 +73,34 @@ impl RpcAuth {
         }
     }
 
-    /// Get the authentication token or exit the process on failure.
+    /// Get the authentication token, returning an error on failure.
     /// Use this when authentication is required and failure is fatal.
-    pub fn get_token_or_exit(&self, context: &str) -> Option<String> {
+    pub fn get_token_or_exit(&self, context: &str) -> Result<Option<String>, String> {
         match self {
             RpcAuth::None => {
                 info!("[{}] Auth: none", context);
-                None
+                Ok(None)
             }
             RpcAuth::UserPass { username, password } => {
                 info!("[{}] Auth: user_pass (user={})", context, username);
-                Some(format!("{}:{}", username, password))
+                Ok(Some(format!("{}:{}", username, password)))
             }
             RpcAuth::Cookie { cookie_path } => {
                 if let Some(path) = cookie_path {
                     match std::fs::read_to_string(path) {
                         Ok(content) => {
                             info!("[{}] Auth: cookie loaded from '{}'", context, path);
-                            Some(content.trim().to_string())
+                            Ok(Some(content.trim().to_string()))
                         }
                         Err(e) => {
                             error!(
                                 "[{}] Auth: cookie FAILED - cannot read '{}': {}",
                                 context, path, e
                             );
-                            error!("Cannot start without valid authentication. Exiting.");
-                            std::process::exit(1);
+                            Err(format!(
+                                "[{}] Auth: cookie FAILED - cannot read '{}': {}",
+                                context, path, e
+                            ))
                         }
                     }
                 } else {
@@ -106,8 +108,10 @@ impl RpcAuth {
                         "[{}] Auth: cookie type requires cookie_path to be specified",
                         context
                     );
-                    error!("Cannot start without valid authentication. Exiting.");
-                    std::process::exit(1);
+                    Err(format!(
+                        "[{}] Auth: cookie type requires cookie_path to be specified",
+                        context
+                    ))
                 }
             }
         }

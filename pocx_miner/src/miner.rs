@@ -150,7 +150,7 @@ impl Chain {
         Ok(())
     }
 
-    pub fn get_auth_token_or_exit(&self) -> Option<String> {
+    pub fn get_auth_token_or_exit(&self) -> Result<Option<String>, String> {
         self.rpc_auth.get_token_or_exit(&self.name)
     }
 }
@@ -352,7 +352,7 @@ fn validate_compression_setup(cfg: &Cfg) -> Result<u32, String> {
 }
 
 impl Miner {
-    pub fn new(cfg: Cfg) -> Miner {
+    pub fn new(cfg: Cfg) -> Result<Miner, String> {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         let cpu_name = {
             let cpuid = raw_cpuid::CpuId::new();
@@ -413,15 +413,15 @@ impl Miner {
         for (i, chain) in cfg.chains.iter().enumerate() {
             // Validate chain configuration
             if let Err(e) = chain.validate() {
-                error!("Chain configuration error: {}", e);
-                std::process::exit(1);
+                return Err(format!("Chain configuration error: {}", e));
             }
 
             let endpoint_str = chain.endpoint();
             info!("Priority {} : ({}) {}", i + 1, chain.name, endpoint_str);
 
             // Validate and get auth token - exit if cookie auth fails
-            let auth_token = chain.get_auth_token_or_exit();
+            let auth_token = chain.get_auth_token_or_exit()
+                .map_err(|e| format!("{}", e))?;
 
             chain_states.push(Arc::new(Mutex::new(ChainState::default())));
 
@@ -456,10 +456,8 @@ impl Miner {
         }
         let known_account_payloads: Vec<String> = known_account_payloads.into_iter().collect();
 
-        let max_compression_steps = validate_compression_setup(&cfg).unwrap_or_else(|e| {
-            error!("Configuration error: {}", e);
-            std::process::exit(1);
-        });
+        let max_compression_steps = validate_compression_setup(&cfg)
+            .map_err(|e| format!("Configuration error: {}", e))?;
 
         let reader_thread_pool =
             Arc::new(new_thread_pool(plots.disks.len(), cfg.cpu_thread_pinning));
@@ -484,7 +482,7 @@ impl Miner {
             tx_nonce_data,
         };
 
-        Miner {
+        Ok(Miner {
             miner_state: Arc::new(Mutex::new(MinerState::new())),
             channels,
             get_mining_info_interval: cfg.get_mining_info_interval,
@@ -502,7 +500,7 @@ impl Miner {
             cfg,
             rx_nonce_data: Some(rx_nonce_data),
             shutdown_token,
-        }
+        })
     }
 
     async fn get_inital_mining_infos(&self) {

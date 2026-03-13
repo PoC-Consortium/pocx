@@ -394,7 +394,7 @@ impl PoCXPlotFile {
 
         // fast prealloc
         let write_resume_info = if create && !plotfile.exists() {
-            preallocate(&plotfile, number_of_warps * WARP_SIZE, direct_io);
+            preallocate(&plotfile, number_of_warps * WARP_SIZE, direct_io)?;
             true
         } else {
             false

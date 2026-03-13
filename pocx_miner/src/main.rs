@@ -76,7 +76,10 @@ async fn main() {
     let matches = arg.get_matches();
     let config = matches.get_one::<String>("config").unwrap();
     let line_progress = matches.get_flag("line-progress");
-    let mut cfg_loaded = load_cfg(config);
+    let mut cfg_loaded = load_cfg(config).unwrap_or_else(|e| {
+        eprintln!("{}", e);
+        std::process::exit(1);
+    });
 
     // CLI flag overrides config file
     if line_progress {
@@ -89,6 +92,9 @@ async fn main() {
     info!("PoCX Miner {}", env!("CARGO_PKG_VERSION"));
     info!("{}", crate_description!());
 
-    let m = Miner::new(cfg_loaded);
+    let m = Miner::new(cfg_loaded).unwrap_or_else(|e| {
+        eprintln!("{}", e);
+        std::process::exit(1);
+    });
     m.run().await;
 }

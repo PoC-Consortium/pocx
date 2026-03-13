@@ -168,13 +168,12 @@ fn default_enable_on_the_fly_compression() -> bool {
     true
 }
 
-pub fn load_cfg(config: &str) -> Cfg {
-    let cfg_str = fs::read_to_string(config).unwrap_or_else(|e| {
-        eprintln!("Failed to open config file '{}': {}", config, e);
-        std::process::exit(1);
-    });
-    let cfg: Cfg = serde_yaml::from_str(&cfg_str).expect("failed to parse config");
-    validate_cfg(cfg)
+pub fn load_cfg(config: &str) -> Result<Cfg, String> {
+    let cfg_str = fs::read_to_string(config)
+        .map_err(|e| format!("Failed to open config file '{}': {}", config, e))?;
+    let cfg: Cfg = serde_yaml::from_str(&cfg_str)
+        .map_err(|e| format!("Failed to parse config file '{}': {}", config, e))?;
+    Ok(validate_cfg(cfg))
 }
 
 pub fn validate_cfg(mut cfg: Cfg) -> Cfg {
