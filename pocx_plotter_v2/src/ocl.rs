@@ -115,9 +115,9 @@ impl GpuRingContext {
 
         let device_kws = get_kernel_work_group_size(&hash_kernel, &device, kws_override);
         let max_alloc = device.max_mem_alloc_size().unwrap_or(u64::MAX);
-        let (kernel_workgroup_size, _) =
+        let (kernel_workgroup_size, effective_cores, _) =
             fit_kws_to_max_alloc(device_kws, cores, max_alloc, kws_override);
-        let worksize = (kernel_workgroup_size * cores) as u64;
+        let worksize = (kernel_workgroup_size * effective_cores) as u64;
         let ring_size = compute_ring_size(worksize);
 
         let gdim1 = [worksize as usize, 1, 1];
@@ -394,13 +394,18 @@ pub fn platform_info() {
             let mem = device.global_mem_size().unwrap_or(0);
             let max_alloc = device.max_mem_alloc_size().unwrap_or(0);
 
-            let (effective_kws, kws_reduced) =
+            let (effective_kws, effective_cores, was_reduced) =
                 fit_kws_to_max_alloc(device_kws, cores, max_alloc, 0);
-            let worksize = (cores as u64) * (effective_kws as u64);
+            let worksize = (effective_cores as u64) * (effective_kws as u64);
             let ring_size = compute_ring_size(worksize);
             let mem_needed = gpu_mem_needed(worksize, ring_size);
 
-            let kws_info = if kws_reduced {
+            let cores_info = if effective_cores < cores {
+                format!("{} (auto-reduced from {})", effective_cores, cores)
+            } else {
+                format!("{}", cores)
+            };
+            let kws_info = if was_reduced && effective_kws < device_kws {
                 format!("{} (auto-reduced from {})", effective_kws, device_kws)
             } else {
                 format!("{}", effective_kws)
@@ -411,7 +416,7 @@ pub fn platform_info() {
                 j,
                 vendor,
                 name,
-                cores,
+                cores_info,
                 kws_info,
                 ring_size,
                 mem_needed as f64 / 1024.0 / 1024.0 / 1024.0,
@@ -429,20 +434,27 @@ fn get_kernel_work_group_size(kernel: &Kernel, device: &Device, kws_override: us
     kernel.get_work_group_size(device.id()).unwrap_or(256)
 }
 
-/// Auto-reduce kws by halving until ring buffer fits in max_mem_alloc_size.
-/// Returns (effective_kws, was_reduced). Skips reduction if kws_override is set.
+/// Auto-reduce cores and kws until ring buffer fits in max_mem_alloc_size.
+///
+/// Strategy: first reduce cores to the next power of 2 (this maximizes
+/// gcd(worksize, COMPRESS_BATCH) and minimizes ring overhead), then halve
+/// kws if still needed. Returns (effective_kws, effective_cores, was_reduced).
+/// Skips reduction if kws_override is set.
 fn fit_kws_to_max_alloc(
     device_kws: usize,
     cores: usize,
     max_alloc: u64,
     kws_override: usize,
-) -> (usize, bool) {
+) -> (usize, usize, bool) {
     if kws_override != 0 {
-        return (kws_override, false);
+        return (kws_override, cores, false);
     }
+    // Step 1: reduce cores to next lower power of 2
+    let effective_cores = prev_power_of_two(cores);
+    // Step 2: halve kws until ring fits
     let mut kws = device_kws;
     loop {
-        let worksize = (kws * cores) as u64;
+        let worksize = (kws * effective_cores) as u64;
         let ring_size = compute_ring_size(worksize);
         let ring_bytes = ring_size * NONCE_SIZE;
         if ring_bytes <= max_alloc || kws <= 1 {
@@ -450,7 +462,16 @@ fn fit_kws_to_max_alloc(
         }
         kws /= 2;
     }
-    (kws, kws < device_kws)
+    let was_reduced = effective_cores < cores || kws < device_kws;
+    (kws, effective_cores, was_reduced)
+}
+
+/// Largest power of 2 less than or equal to n. Returns 1 for n <= 1.
+fn prev_power_of_two(n: usize) -> usize {
+    if n <= 1 {
+        return 1;
+    }
+    1 << (usize::BITS - 1 - n.leading_zeros())
 }
 
 /// GPU device information with kernel workgroup size
@@ -589,9 +610,9 @@ pub fn gpu_get_info(gpu: &str, quiet: bool, kws_override: usize) -> Result<(u64,
         min(gpu_cores, max_compute_units)
     };
 
-    let (kernel_workgroup_size, kws_reduced) =
+    let (kernel_workgroup_size, effective_cores, was_reduced) =
         fit_kws_to_max_alloc(device_kws, gpu_cores, max_alloc, kws_override);
-    let worksize = (gpu_cores * kernel_workgroup_size) as u64;
+    let worksize = (effective_cores * kernel_workgroup_size) as u64;
     let ring_size = compute_ring_size(worksize);
     let mem_needed = gpu_mem_needed(worksize, ring_size);
 
@@ -606,12 +627,12 @@ pub fn gpu_get_info(gpu: &str, quiet: bool, kws_override: usize) -> Result<(u64,
     if !quiet {
         let vendor = device.vendor().unwrap_or_else(|_| "Unknown".to_string());
         let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
-        let cu_info = if gpu_cores < max_compute_units {
-            format!("{} of {}", gpu_cores, max_compute_units)
+        let cu_info = if effective_cores < max_compute_units {
+            format!("{} of {}", effective_cores, max_compute_units)
         } else {
-            format!("{}", gpu_cores)
+            format!("{}", effective_cores)
         };
-        let kws_info = if kws_reduced {
+        let kws_info = if was_reduced && kernel_workgroup_size < device_kws {
             format!("{} of {}", kernel_workgroup_size, device_kws)
         } else {
             format!("{}", kernel_workgroup_size)
@@ -711,6 +732,52 @@ mod tests {
         assert_eq!(gcd(8192, 8192), 8192);
         assert_eq!(gcd(256, 8192), 256);
         assert_eq!(gcd(100, 75), 25);
+    }
+
+    #[test]
+    fn test_prev_power_of_two() {
+        assert_eq!(prev_power_of_two(1), 1);
+        assert_eq!(prev_power_of_two(2), 2);
+        assert_eq!(prev_power_of_two(3), 2);
+        assert_eq!(prev_power_of_two(4), 4);
+        assert_eq!(prev_power_of_two(7), 4);
+        assert_eq!(prev_power_of_two(8), 8);
+        assert_eq!(prev_power_of_two(10), 8);
+        assert_eq!(prev_power_of_two(16), 16);
+        assert_eq!(prev_power_of_two(31), 16);
+        assert_eq!(prev_power_of_two(32), 32);
+    }
+
+    #[test]
+    fn test_fit_kws_cores_reduction() {
+        let max_alloc_2gib = 2 * 1024 * 1024 * 1024u64;
+        // 10 cores, kws=256: should reduce cores to 8 (power of 2)
+        // worksize=8*256=2048, ring=2048+8192-2048=8192, ring_bytes=2GiB
+        let (kws, cores, reduced) = fit_kws_to_max_alloc(256, 10, max_alloc_2gib, 0);
+        assert_eq!(cores, 8, "cores should be reduced to 8");
+        assert!(reduced, "should be marked as reduced");
+        // ring=8192 nonces = exactly 2 GiB, should fit
+        let ring = compute_ring_size((kws * cores) as u64);
+        assert_eq!(ring, 8192);
+    }
+
+    #[test]
+    fn test_fit_kws_power_of_two_cores_unchanged() {
+        let max_alloc_4gib = 4 * 1024 * 1024 * 1024u64;
+        // 8 cores already power of 2, plenty of max_alloc
+        let (kws, cores, reduced) = fit_kws_to_max_alloc(256, 8, max_alloc_4gib, 0);
+        assert_eq!(cores, 8);
+        assert_eq!(kws, 256);
+        assert!(!reduced);
+    }
+
+    #[test]
+    fn test_fit_kws_override_bypasses_reduction() {
+        let max_alloc_1gib = 1024 * 1024 * 1024u64;
+        let (kws, cores, reduced) = fit_kws_to_max_alloc(256, 10, max_alloc_1gib, 64);
+        assert_eq!(kws, 64, "override should be used as-is");
+        assert_eq!(cores, 10, "cores should not be reduced with override");
+        assert!(!reduced);
     }
 
     fn try_create_gpu_context() -> Option<GpuRingContext> {
