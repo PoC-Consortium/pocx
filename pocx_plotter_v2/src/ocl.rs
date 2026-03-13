@@ -144,52 +144,50 @@ impl GpuRingContext {
         };
 
         // Allocate ring buffer(s)
-        let (ring_buffer, ring_sub_buffers, nonces_per_sub, hash_kernel_split, compress_kernel_split) =
-            if num_splits > 1 {
-                let nps = nonces_per_sub_aligned(ring_size, num_splits);
-                let sub_bytes = (nps * NONCE_SIZE) as usize;
+        let (
+            ring_buffer,
+            ring_sub_buffers,
+            nonces_per_sub,
+            hash_kernel_split,
+            compress_kernel_split,
+        ) = if num_splits > 1 {
+            let nps = nonces_per_sub_aligned(ring_size, num_splits);
+            let sub_bytes = (nps * NONCE_SIZE) as usize;
 
-                let mut subs = Vec::with_capacity(MAX_RING_SPLITS);
-                for i in 0..MAX_RING_SPLITS {
-                    let size = if i < num_splits { sub_bytes } else { 4 };
-                    let buf = unsafe {
-                        Buffer::<u8>::create(
-                            &context,
-                            CL_MEM_READ_WRITE,
-                            size,
-                            ptr::null_mut(),
-                        )
-                        .map_err(|e| {
-                            format!("Failed to create ring sub-buffer {}: {:?}", i, e)
-                        })?
-                    };
-                    subs.push(buf);
-                }
-
-                // Dummy single ring_buffer (not used in split mode)
-                let dummy = unsafe {
-                    Buffer::<u8>::create(&context, CL_MEM_READ_WRITE, 4, ptr::null_mut())
-                        .map_err(|e| format!("Failed to create dummy ring buffer: {:?}", e))?
+            let mut subs = Vec::with_capacity(MAX_RING_SPLITS);
+            for i in 0..MAX_RING_SPLITS {
+                let size = if i < num_splits { sub_bytes } else { 4 };
+                let buf = unsafe {
+                    Buffer::<u8>::create(&context, CL_MEM_READ_WRITE, size, ptr::null_mut())
+                        .map_err(|e| format!("Failed to create ring sub-buffer {}: {:?}", i, e))?
                 };
+                subs.push(buf);
+            }
 
-                let hk = Kernel::create(&program, "calculate_nonces_split")
-                    .map_err(|e| format!("Failed to create split hash kernel: {:?}", e))?;
-                let ck = Kernel::create(&program, "fused_scatter_compress_split")
-                    .map_err(|e| format!("Failed to create split compress kernel: {:?}", e))?;
-
-                (dummy, subs, nps, Some(hk), Some(ck))
-            } else {
-                let ring_buffer = unsafe {
-                    Buffer::<u8>::create(
-                        &context,
-                        CL_MEM_READ_WRITE,
-                        ring_buffer_bytes as usize,
-                        ptr::null_mut(),
-                    )
-                    .map_err(|e| format!("Failed to create ring buffer: {:?}", e))?
-                };
-                (ring_buffer, Vec::new(), 0, None, None)
+            // Dummy single ring_buffer (not used in split mode)
+            let dummy = unsafe {
+                Buffer::<u8>::create(&context, CL_MEM_READ_WRITE, 4, ptr::null_mut())
+                    .map_err(|e| format!("Failed to create dummy ring buffer: {:?}", e))?
             };
+
+            let hk = Kernel::create(&program, "calculate_nonces_split")
+                .map_err(|e| format!("Failed to create split hash kernel: {:?}", e))?;
+            let ck = Kernel::create(&program, "fused_scatter_compress_split")
+                .map_err(|e| format!("Failed to create split compress kernel: {:?}", e))?;
+
+            (dummy, subs, nps, Some(hk), Some(ck))
+        } else {
+            let ring_buffer = unsafe {
+                Buffer::<u8>::create(
+                    &context,
+                    CL_MEM_READ_WRITE,
+                    ring_buffer_bytes as usize,
+                    ptr::null_mut(),
+                )
+                .map_err(|e| format!("Failed to create ring buffer: {:?}", e))?
+            };
+            (ring_buffer, Vec::new(), 0, None, None)
+        };
 
         let compressed_buffer = unsafe {
             Buffer::<u8>::create(
@@ -273,12 +271,7 @@ pub fn gpu_ring_hash(ctx: &GpuRingContext, startnonce: u64, nonces: u64, ring_of
     }
 }
 
-fn gpu_ring_hash_single(
-    ctx: &GpuRingContext,
-    startnonce: u64,
-    nonces: u64,
-    ring_offset: u64,
-) {
+fn gpu_ring_hash_single(ctx: &GpuRingContext, startnonce: u64, nonces: u64, ring_offset: u64) {
     for i in (0..8192usize).step_by(GPU_HASHES_PER_RUN) {
         let (start, end) = if i + GPU_HASHES_PER_RUN < 8192 {
             (i as i32, (i + GPU_HASHES_PER_RUN - 1) as i32)
@@ -308,13 +301,11 @@ fn gpu_ring_hash_single(
         .expect("Failed to finish hash queue");
 }
 
-fn gpu_ring_hash_split(
-    ctx: &GpuRingContext,
-    startnonce: u64,
-    nonces: u64,
-    ring_offset: u64,
-) {
-    let kernel = ctx.hash_kernel_split.as_ref().expect("Split hash kernel not initialized");
+fn gpu_ring_hash_split(ctx: &GpuRingContext, startnonce: u64, nonces: u64, ring_offset: u64) {
+    let kernel = ctx
+        .hash_kernel_split
+        .as_ref()
+        .expect("Split hash kernel not initialized");
 
     for i in (0..8192usize).step_by(GPU_HASHES_PER_RUN) {
         let (start, end) = if i + GPU_HASHES_PER_RUN < 8192 {
@@ -491,9 +482,11 @@ pub fn gpu_ring_transfer(
 pub fn gpu_ring_transfer_raw(ctx: &GpuRingContext, host_buffer: &mut [u8]) {
     if ctx.is_split() {
         let sub_bytes = (ctx.nonces_per_sub * NONCE_SIZE) as usize;
-        let num_real = compute_ring_splits(ctx.ring_size * NONCE_SIZE,
+        let num_real = compute_ring_splits(
+            ctx.ring_size * NONCE_SIZE,
             // Reconstruct max_alloc from split geometry
-            ctx.nonces_per_sub * NONCE_SIZE);
+            ctx.nonces_per_sub * NONCE_SIZE,
+        );
         for i in 0..num_real {
             let remaining_nonces = if (i as u64 + 1) * ctx.nonces_per_sub > ctx.ring_size {
                 ctx.ring_size - i as u64 * ctx.nonces_per_sub
@@ -662,7 +655,7 @@ fn fit_kws_to_max_alloc(
         return (kws_override, cores, false);
     }
     let min_ring_bytes = COMPRESS_BATCH * NONCE_SIZE; // 2 GiB floor
-    // Step 1: reduce cores to next lower power of 2
+                                                      // Step 1: reduce cores to next lower power of 2
     let effective_cores = prev_power_of_two(cores);
     // Step 2: halve kws while ring exceeds max_alloc and hasn't hit the floor
     let mut kws = device_kws;
@@ -693,7 +686,7 @@ fn compute_ring_splits(ring_bytes: u64, max_alloc: u64) -> usize {
     if ring_bytes <= max_alloc {
         return 1;
     }
-    let n = ((ring_bytes + max_alloc - 1) / max_alloc) as usize;
+    let n = ring_bytes.div_ceil(max_alloc) as usize;
     assert!(
         n <= MAX_RING_SPLITS,
         "Ring buffer requires {} splits but max is {} (max_alloc={:.2} GiB too small)",
@@ -706,7 +699,7 @@ fn compute_ring_splits(ring_bytes: u64, max_alloc: u64) -> usize {
 
 /// Compute nonces per sub-buffer, aligned to NONCES_VECTOR (16).
 fn nonces_per_sub_aligned(ring_size: u64, num_splits: usize) -> u64 {
-    let raw = (ring_size + num_splits as u64 - 1) / num_splits as u64;
+    let raw = ring_size.div_ceil(num_splits as u64);
     (raw + NONCES_VECTOR - 1) & !(NONCES_VECTOR - 1)
 }
 
@@ -792,7 +785,11 @@ pub fn get_gpu_device_info() -> Vec<GpuDeviceInfo> {
     devices
 }
 
-pub fn gpu_get_info(gpu: &str, quiet: bool, kws_override: usize) -> Result<(u64, u64, u64), String> {
+pub fn gpu_get_info(
+    gpu: &str,
+    quiet: bool,
+    kws_override: usize,
+) -> Result<(u64, u64, u64), String> {
     let platforms = match get_platforms() {
         Ok(p) => p,
         Err(_) => return Ok((0, 0, 0)),
@@ -1089,7 +1086,12 @@ mod tests {
         assert_eq!(nonces_per_sub_aligned(8192, 3), 2736);
         for n in 2..=4 {
             let nps = nonces_per_sub_aligned(8192, n);
-            assert!(nps * n as u64 >= 8192, "n={}: nps*n={} < 8192", n, nps * n as u64);
+            assert!(
+                nps * n as u64 >= 8192,
+                "n={}: nps*n={} < 8192",
+                n,
+                nps * n as u64
+            );
             assert_eq!(nps % NONCES_VECTOR, 0, "n={}: nps={} not aligned", n, nps);
         }
     }

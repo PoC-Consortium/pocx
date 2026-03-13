@@ -420,8 +420,9 @@ impl Miner {
             info!("Priority {} : ({}) {}", i + 1, chain.name, endpoint_str);
 
             // Validate and get auth token - exit if cookie auth fails
-            let auth_token = chain.get_auth_token_or_exit()
-                .map_err(|e| format!("{}", e))?;
+            let auth_token = chain
+                .get_auth_token_or_exit()
+                .map_err(|e| e.to_string())?;
 
             chain_states.push(Arc::new(Mutex::new(ChainState::default())));
 
@@ -456,8 +457,8 @@ impl Miner {
         }
         let known_account_payloads: Vec<String> = known_account_payloads.into_iter().collect();
 
-        let max_compression_steps = validate_compression_setup(&cfg)
-            .map_err(|e| format!("Configuration error: {}", e))?;
+        let max_compression_steps =
+            validate_compression_setup(&cfg).map_err(|e| format!("Configuration error: {}", e))?;
 
         let reader_thread_pool =
             Arc::new(new_thread_pool(plots.disks.len(), cfg.cpu_thread_pinning));
