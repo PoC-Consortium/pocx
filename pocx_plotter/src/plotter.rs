@@ -140,7 +140,8 @@ impl Plotter {
         let mem_gpu = 0u64;
         #[cfg(feature = "opencl")]
         let mem_gpu = match &task.gpus {
-            Some(x) => gpu_get_info(x, task.quiet, task.kws_override),
+            Some(x) => gpu_get_info(x, task.quiet, task.kws_override)
+                .map_err(PoCXPlotterError::Hardware)?,
             None => 0,
         };
 

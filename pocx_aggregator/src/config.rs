@@ -145,7 +145,7 @@ impl UpstreamConfig {
     }
 
     /// Get auth token or exit on failure.
-    pub fn get_auth_token_or_exit(&self) -> Option<String> {
+    pub fn get_auth_token_or_exit(&self) -> std::result::Result<Option<String>, String> {
         self.rpc_auth.get_token_or_exit(&self.name)
     }
 }

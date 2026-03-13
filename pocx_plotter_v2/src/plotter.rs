@@ -127,7 +127,8 @@ impl Plotter {
         // Get GPU info (only in GPU mode)
         #[cfg(feature = "opencl")]
         let (_worksize, _ring_size, mem_gpu) = if !cpu_mode {
-            let info = gpu_get_info(&task.gpu, task.quiet, task.kws_override);
+            let info = gpu_get_info(&task.gpu, task.quiet, task.kws_override)
+                .map_err(PoCXPlotterError::Hardware)?;
             if info.0 == 0 {
                 return Err(PoCXPlotterError::Hardware(
                     "No GPU available or GPU initialization failed".to_string(),

@@ -83,7 +83,7 @@ impl PoolManager {
             .with_timeout(timeout);
 
         // Get auth token if configured (supports None, UserPass, Cookie)
-        if let Some(token) = upstream.get_auth_token_or_exit() {
+        if let Some(token) = upstream.get_auth_token_or_exit().map_err(Error::Config)? {
             client = client.with_auth_token(token);
         }
 
