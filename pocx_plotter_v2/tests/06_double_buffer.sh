@@ -11,7 +11,7 @@ DIR_NEW=$(make_temp_dir)
 trap 'rm -rf "$DIR_OLD" "$DIR_NEW"' EXIT
 
 run_old_plotter "$DIR_OLD" 9 1 3
-run_new_plotter_seeded "$DIR_NEW" 9 1 3 --double-buffer
+run_new_plotter_seeded "$DIR_NEW" 9 1 3 --async-write
 
 OLD_FILE=$(find_plotfile "$DIR_OLD")
 NEW_FILE=$(find_plotfile "$DIR_NEW")
