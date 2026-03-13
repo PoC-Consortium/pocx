@@ -60,6 +60,12 @@ cargo build --release -p pocx_plotter_v2 --no-default-features
 - `-b, --bench` - Run in benchmark mode
 - `-o, --opencl` - Display OpenCL platforms and devices
 
+## GPU Requirements
+
+GPU plotting requires a minimum of **3 GiB GPU memory** (2 GiB ring buffer + 1 GiB compressed buffer). The plotter will automatically adjust kernel workgroup sizes for GPUs with limited `CL_DEVICE_MAX_MEM_ALLOC_SIZE` (common on iGPUs), but total GPU memory must meet the 3 GiB floor.
+
+If your GPU has less than 3 GiB, use CPU mode (`-c`) or consider `pocx_plotter` (v1), which operates with significantly lower GPU memory requirements.
+
 ## OpenCL GPU Plotting
 
 ```bash

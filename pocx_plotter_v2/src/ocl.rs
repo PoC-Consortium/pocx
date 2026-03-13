@@ -29,6 +29,7 @@ use crate::plotter::NONCE_SIZE;
 use opencl3::command_queue::CommandQueue;
 use opencl3::context::Context;
 use opencl3::device::{Device, CL_DEVICE_TYPE_GPU};
+use opencl3::event::Event;
 use opencl3::kernel::{ExecuteKernel, Kernel};
 use opencl3::memory::{Buffer, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE};
 use opencl3::platform::get_platforms;
@@ -81,6 +82,8 @@ pub struct GpuRingContext {
     compressed_buffer: Buffer<u8>,
     pub worksize: u64,
     pub ring_size: u64,
+    /// True for discrete GPUs (separate VRAM). Enables async hash+transfer overlap.
+    pub is_dgpu: bool,
 }
 
 // Safety: GpuRingContext is safe to send between threads as OpenCL handles are thread-safe
@@ -102,6 +105,8 @@ impl GpuRingContext {
             .get_devices(CL_DEVICE_TYPE_GPU)
             .map_err(|e| format!("Failed to get GPU devices: {:?}", e))?;
         let device = Device::new(devices[gpu_id]);
+        let host_unified = device.host_unified_memory().unwrap_or(false);
+        let is_dgpu = !host_unified;
 
         let context = Context::from_device(&device)
             .map_err(|e| format!("Failed to create context: {:?}", e))?;
@@ -217,6 +222,7 @@ impl GpuRingContext {
             compressed_buffer,
             worksize,
             ring_size,
+            is_dgpu,
         })
     }
 
@@ -271,7 +277,29 @@ pub fn gpu_ring_hash(ctx: &GpuRingContext, startnonce: u64, nonces: u64, ring_of
     }
 }
 
-fn gpu_ring_hash_single(ctx: &GpuRingContext, startnonce: u64, nonces: u64, ring_offset: u64) {
+/// Enqueue hash dispatches into the ring buffer without waiting for completion.
+/// Must call `gpu_ring_hash_flush` before using the results.
+pub fn gpu_ring_hash_no_wait(ctx: &GpuRingContext, startnonce: u64, nonces: u64, ring_offset: u64) {
+    if ctx.is_split() {
+        gpu_ring_hash_enqueue_split(ctx, startnonce, nonces, ring_offset);
+    } else {
+        gpu_ring_hash_enqueue_single(ctx, startnonce, nonces, ring_offset);
+    }
+}
+
+/// Wait for all enqueued hash dispatches to complete.
+pub fn gpu_ring_hash_flush(ctx: &GpuRingContext) {
+    ctx.queue_hash
+        .finish()
+        .expect("Failed to finish hash queue");
+}
+
+fn gpu_ring_hash_enqueue_single(
+    ctx: &GpuRingContext,
+    startnonce: u64,
+    nonces: u64,
+    ring_offset: u64,
+) {
     for i in (0..8192usize).step_by(GPU_HASHES_PER_RUN) {
         let (start, end) = if i + GPU_HASHES_PER_RUN < 8192 {
             (i as i32, (i + GPU_HASHES_PER_RUN - 1) as i32)
@@ -296,12 +324,14 @@ fn gpu_ring_hash_single(ctx: &GpuRingContext, startnonce: u64, nonces: u64, ring
                 .expect("Failed to enqueue hash kernel");
         }
     }
-    ctx.queue_hash
-        .finish()
-        .expect("Failed to finish hash queue");
 }
 
-fn gpu_ring_hash_split(ctx: &GpuRingContext, startnonce: u64, nonces: u64, ring_offset: u64) {
+fn gpu_ring_hash_enqueue_split(
+    ctx: &GpuRingContext,
+    startnonce: u64,
+    nonces: u64,
+    ring_offset: u64,
+) {
     let kernel = ctx
         .hash_kernel_split
         .as_ref()
@@ -335,6 +365,17 @@ fn gpu_ring_hash_split(ctx: &GpuRingContext, startnonce: u64, nonces: u64, ring_
                 .expect("Failed to enqueue split hash kernel");
         }
     }
+}
+
+fn gpu_ring_hash_single(ctx: &GpuRingContext, startnonce: u64, nonces: u64, ring_offset: u64) {
+    gpu_ring_hash_enqueue_single(ctx, startnonce, nonces, ring_offset);
+    ctx.queue_hash
+        .finish()
+        .expect("Failed to finish hash queue");
+}
+
+fn gpu_ring_hash_split(ctx: &GpuRingContext, startnonce: u64, nonces: u64, ring_offset: u64) {
+    gpu_ring_hash_enqueue_split(ctx, startnonce, nonces, ring_offset);
     ctx.queue_hash
         .finish()
         .expect("Failed to finish hash queue");
@@ -473,6 +514,57 @@ pub fn gpu_ring_transfer(
         ctx.queue_transfer
             .finish()
             .expect("Failed to finish transfer queue");
+    }
+}
+
+/// Non-blocking transfer of compressed buffer from GPU to host.
+/// Returns an Event that completes when the DMA transfer is done.
+/// The caller must wait on this event before reusing the compressed buffer.
+pub fn gpu_ring_transfer_async(
+    ctx: &GpuRingContext,
+    host_buffer: &mut [u8],
+    warp_index: u64,
+    total_warps_in_buffer: u64,
+) -> Event {
+    let scoop_size = DIM as usize * DOUBLE_HASH_SIZE as usize;
+    let num_scoops = DIM as usize;
+
+    if total_warps_in_buffer == 1 {
+        unsafe {
+            ctx.queue_transfer
+                .enqueue_read_buffer(
+                    &ctx.compressed_buffer,
+                    CL_NON_BLOCKING,
+                    0,
+                    &mut host_buffer[..scoop_size * num_scoops],
+                    &[],
+                )
+                .expect("Failed to enqueue async read")
+        }
+    } else {
+        let buffer_origin: [usize; 3] = [0, 0, 0];
+        let host_origin: [usize; 3] = [warp_index as usize * scoop_size, 0, 0];
+        let region: [usize; 3] = [scoop_size, num_scoops, 1];
+        let buffer_row_pitch = scoop_size;
+        let host_row_pitch = total_warps_in_buffer as usize * scoop_size;
+
+        unsafe {
+            ctx.queue_transfer
+                .enqueue_read_buffer_rect(
+                    &ctx.compressed_buffer,
+                    CL_NON_BLOCKING,
+                    buffer_origin.as_ptr(),
+                    host_origin.as_ptr(),
+                    region.as_ptr(),
+                    buffer_row_pitch,
+                    0,
+                    host_row_pitch,
+                    0,
+                    host_buffer.as_mut_ptr() as *mut std::ffi::c_void,
+                    &[],
+                )
+                .expect("Failed to enqueue async read rect")
+        }
     }
 }
 

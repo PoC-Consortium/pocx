@@ -35,11 +35,12 @@ use crate::error::lock_mutex;
 use crate::get_plotter_callback;
 use crate::is_stop_requested;
 use crate::ocl::{
-    gpu_ring_compress, gpu_ring_hash, gpu_ring_transfer, gpu_upload_base58, gpu_upload_seed,
-    GpuRingContext,
+    gpu_ring_compress, gpu_ring_hash, gpu_ring_hash_flush, gpu_ring_hash_no_wait,
+    gpu_ring_transfer, gpu_ring_transfer_async, gpu_upload_base58, gpu_upload_seed, GpuRingContext,
 };
 use crate::plotter::{PlotterTask, WARP_SIZE};
 use crossbeam_channel::{Receiver, Sender};
+use opencl3::event::Event;
 use rand::Rng;
 use std::sync::Arc;
 
@@ -102,6 +103,17 @@ pub fn create_ring_scheduler_thread(
         let mut buffer_start_warp: u64 = warp_offsets[path_pointer];
         let mut buffer_path: usize = path_pointer;
 
+        // Async transfer state (dGPU only: overlap hash with DMA transfer)
+        let use_async = gpu_ctx.is_dgpu;
+        let mut pending_transfer: Option<Event> = None;
+
+        // Helper: wait for any pending async transfer to complete
+        let wait_pending = |pending: &mut Option<Event>| {
+            if let Some(evt) = pending.take() {
+                evt.wait().expect("Failed to wait for async transfer");
+            }
+        };
+
         // Helper: flush current write buffer to the correct writer
         let flush_buffer = |write_buffer: &mut Option<PageAlignedByteBuffer>,
                             warps_in_buffer: &mut u64,
@@ -152,16 +164,30 @@ pub fn create_ring_scheduler_thread(
                 let nonces_this_batch =
                     std::cmp::min(worksize, nonces_for_file - global_nonces[path_pointer]);
 
-                gpu_ring_hash(
-                    &gpu_ctx,
-                    global_nonces[path_pointer],
-                    nonces_this_batch,
-                    ring_head,
-                );
+                if use_async {
+                    gpu_ring_hash_no_wait(
+                        &gpu_ctx,
+                        global_nonces[path_pointer],
+                        nonces_this_batch,
+                        ring_head,
+                    );
+                } else {
+                    gpu_ring_hash(
+                        &gpu_ctx,
+                        global_nonces[path_pointer],
+                        nonces_this_batch,
+                        ring_head,
+                    );
+                }
 
                 ring_head = (ring_head + worksize) % ring_size;
                 ring_available += worksize;
                 global_nonces[path_pointer] += nonces_this_batch;
+            }
+
+            // Flush hash queue before compress (all hashes must be in ring)
+            if use_async {
+                gpu_ring_hash_flush(&gpu_ctx);
             }
 
             // Phase 2: Compress available batches (XOR-accumulate into compressed buffer)
@@ -169,6 +195,9 @@ pub fn create_ring_scheduler_thread(
                 if is_stop_requested() {
                     break;
                 }
+
+                // Wait for previous transfer before compress (both use compressed_buffer)
+                wait_pending(&mut pending_transfer);
 
                 let compress_start = (ring_head + ring_size - ring_available) % ring_size;
 
@@ -195,7 +224,17 @@ pub fn create_ring_scheduler_thread(
                         let buf_ref = write_buffer.as_ref().unwrap();
                         let mutex_buf = buf_ref.get_buffer();
                         let mut buf = lock_mutex(&mutex_buf).expect("Write buffer mutex poisoned");
-                        gpu_ring_transfer(&gpu_ctx, &mut buf, warps_in_buffer, escalate, true);
+                        if use_async {
+                            let evt = gpu_ring_transfer_async(
+                                &gpu_ctx,
+                                &mut buf,
+                                warps_in_buffer,
+                                escalate,
+                            );
+                            pending_transfer = Some(evt);
+                        } else {
+                            gpu_ring_transfer(&gpu_ctx, &mut buf, warps_in_buffer, escalate, true);
+                        }
                     }
 
                     warps_in_buffer += 1;
@@ -213,6 +252,9 @@ pub fn create_ring_scheduler_thread(
 
                     // Flush buffer when full or at file boundary
                     if warps_in_buffer == escalate || at_file_boundary {
+                        // Must wait for transfer before sending buffer to disk writer
+                        wait_pending(&mut pending_transfer);
+
                         flush_buffer(
                             &mut write_buffer,
                             &mut warps_in_buffer,
@@ -270,9 +312,20 @@ pub fn create_ring_scheduler_thread(
                             break; // Exit Phase 2, refill ring for new seed
                         }
                     }
+
+                    // dGPU: break out of Phase 2 to overlap next hash with in-flight transfer
+                    if use_async
+                        && pending_transfer.is_some()
+                        && global_nonces[path_pointer] < nonces_for_file
+                    {
+                        break;
+                    }
                 }
             }
         }
+
+        // Wait for any in-flight transfer before cleanup
+        wait_pending(&mut pending_transfer);
 
         // Flush any remaining warps in the buffer
         if warps_in_buffer > 0 {

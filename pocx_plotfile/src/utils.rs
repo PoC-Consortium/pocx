@@ -26,6 +26,7 @@ cfg_if! {
     if #[cfg(unix)] {
         use std::ffi::CString;
         use std::mem::MaybeUninit;
+        #[cfg(not(target_os = "macos"))]
         use std::os::unix::fs::OpenOptionsExt;
         use fs2::FileExt;
 
