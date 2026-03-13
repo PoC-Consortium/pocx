@@ -546,6 +546,268 @@ __kernel void calculate_nonces(__global unsigned char* buffer, unsigned long sta
 	}
 }
 
+/* Split ring buffer variant of calculate_nonces.
+ *
+ * When max_alloc < 2 GiB, the ring buffer is split into up to 4
+ * sub-buffers. Each sub-buffer holds nonces_per_sub nonces with the
+ * same SIMD-interleaved layout. Since each work item only accesses
+ * its own nonce slot, we resolve the sub-buffer once at the top.
+ */
+__kernel void calculate_nonces_split(
+    __global unsigned char* buf0,
+    __global unsigned char* buf1,
+    __global unsigned char* buf2,
+    __global unsigned char* buf3,
+    unsigned long nonces_per_sub,
+    unsigned long startnonce,
+    __global unsigned char* base58,
+    __global unsigned char* seed,
+    int start,
+    int end,
+    unsigned long nonces,
+    unsigned long ring_offset,
+    unsigned long ring_size)
+{
+	int gid = get_global_id(0);
+
+	if (gid >= nonces)
+		return;
+	unsigned long rgid = ((unsigned long)gid + ring_offset) % ring_size;
+
+	// Resolve sub-buffer and local nonce index
+	unsigned long sub = rgid / nonces_per_sub;
+	unsigned long ln = rgid % nonces_per_sub;
+	__global unsigned char* buffer;
+	if (sub == 0) buffer = buf0;
+	else if (sub == 1) buffer = buf1;
+	else if (sub == 2) buffer = buf2;
+	else buffer = buf3;
+
+	int num;
+	sph_u32 B8,B9,BA,BB,BC,BD,BE,BF;
+	unsigned long nonce_be = EndianSwap64(startnonce + gid);
+
+	for (int hash = NUM_HASHES - start; hash > -1 + NUM_HASHES - end; hash -= 1) {
+		num = (NUM_HASHES - hash) >> 1;
+		if (hash != 0) {
+			num = (num > MESSAGE_CAP) ? MESSAGE_CAP : num;
+		}
+
+        sph_u32
+            A00 = A_init_256[0], A01 = A_init_256[1], A02 = A_init_256[2], A03 = A_init_256[3],
+            A04 = A_init_256[4], A05 = A_init_256[5], A06 = A_init_256[6], A07 = A_init_256[7],
+            A08 = A_init_256[8], A09 = A_init_256[9], A0A = A_init_256[10], A0B = A_init_256[11];
+        sph_u32
+            B0 = B_init_256[0], B1 = B_init_256[1], B2 = B_init_256[2], B3 = B_init_256[3],
+            B4 = B_init_256[4], B5 = B_init_256[5], B6 = B_init_256[6], B7 = B_init_256[7];
+            B8 = B_init_256[8]; B9 = B_init_256[9]; BA = B_init_256[10]; BB = B_init_256[11];
+            BC = B_init_256[12]; BD = B_init_256[13]; BE = B_init_256[14]; BF = B_init_256[15];
+        sph_u32
+            C0 = C_init_256[0], C1 = C_init_256[1], C2 = C_init_256[2], C3 = C_init_256[3],
+            C4 = C_init_256[4], C5 = C_init_256[5], C6 = C_init_256[6], C7 = C_init_256[7],
+            C8 = C_init_256[8], C9 = C_init_256[9], CA = C_init_256[10], CB = C_init_256[11],
+            CC = C_init_256[12], CD = C_init_256[13], CE = C_init_256[14], CF = C_init_256[15];
+        sph_u32 M0, M1, M2, M3, M4, M5, M6, M7, M8, M9, MA, MB, MC, MD, ME, MF;
+        sph_u32 Wlow = 1, Whigh = 0;
+
+		for (int i = 0; i < 2 * num; i+=2){
+			M0 = ((__global unsigned int*)buffer)[Address(ln, hash + i, 0)];
+			M1 = ((__global unsigned int*)buffer)[Address(ln, hash + i, 1)];
+			M2 = ((__global unsigned int*)buffer)[Address(ln, hash + i, 2)];
+			M3 = ((__global unsigned int*)buffer)[Address(ln, hash + i, 3)];
+			M4 = ((__global unsigned int*)buffer)[Address(ln, hash + i, 4)];
+			M5 = ((__global unsigned int*)buffer)[Address(ln, hash + i, 5)];
+			M6 = ((__global unsigned int*)buffer)[Address(ln, hash + i, 6)];
+			M7 = ((__global unsigned int*)buffer)[Address(ln, hash + i, 7)];
+			M8 = ((__global unsigned int*)buffer)[Address(ln, hash + i + 1, 0)];
+			M9 = ((__global unsigned int*)buffer)[Address(ln, hash + i + 1, 1)];
+			MA = ((__global unsigned int*)buffer)[Address(ln, hash + i + 1, 2)];
+			MB = ((__global unsigned int*)buffer)[Address(ln, hash + i + 1, 3)];
+			MC = ((__global unsigned int*)buffer)[Address(ln, hash + i + 1, 4)];
+			MD = ((__global unsigned int*)buffer)[Address(ln, hash + i + 1, 5)];
+			ME = ((__global unsigned int*)buffer)[Address(ln, hash + i + 1, 6)];
+			MF = ((__global unsigned int*)buffer)[Address(ln, hash + i + 1, 7)];
+
+    		INPUT_BLOCK_ADD;
+    		XOR_W;
+    		APPLY_P;
+    		INPUT_BLOCK_SUB;
+    		SWAP_BC;
+    		INCR_W;
+    	}
+
+		if (num == MESSAGE_CAP) {
+            M0 = 0x80;
+            M1 = M2 = M3 = M4 = M5 = M6 = M7 = M8 = M9 = MA = MB = MC = MD = ME = MF = 0;
+        }
+        else if((hash & 1) == 0) {
+            M0 = ((__global unsigned int*)seed)[0];
+            M1 = ((__global unsigned int*)seed)[1];
+            M2 = ((__global unsigned int*)seed)[2];
+            M3 = ((__global unsigned int*)seed)[3];
+            M4 = ((__global unsigned int*)seed)[4];
+            M5 = ((__global unsigned int*)seed)[5];
+            M6 = ((__global unsigned int*)seed)[6];
+            M7 = ((__global unsigned int*)seed)[7];
+            M8 = ((__global unsigned int*)base58)[0];
+            M9 = ((__global unsigned int*)base58)[1];
+            MA = ((__global unsigned int*)base58)[2];
+            MB = ((__global unsigned int*)base58)[3];
+            MC = ((__global unsigned int*)base58)[4];
+            MD = ((unsigned int*)&nonce_be)[0];
+            ME = ((unsigned int*)&nonce_be)[1];
+            MF = 0x80;
+        }
+        else if((hash & 1) == 1) {
+            M0 = ((__global unsigned int*)buffer)[Address(ln, NUM_HASHES-1, 0)];
+            M1 = ((__global unsigned int*)buffer)[Address(ln, NUM_HASHES-1, 1)];
+            M2 = ((__global unsigned int*)buffer)[Address(ln, NUM_HASHES-1, 2)];
+            M3 = ((__global unsigned int*)buffer)[Address(ln, NUM_HASHES-1, 3)];
+            M4 = ((__global unsigned int*)buffer)[Address(ln, NUM_HASHES-1, 4)];
+            M5 = ((__global unsigned int*)buffer)[Address(ln, NUM_HASHES-1, 5)];
+            M6 = ((__global unsigned int*)buffer)[Address(ln, NUM_HASHES-1, 6)];
+            M7 = ((__global unsigned int*)buffer)[Address(ln, NUM_HASHES-1, 7)];
+			M8 = ((__global unsigned int*)seed)[0];
+            M9 = ((__global unsigned int*)seed)[1];
+            MA = ((__global unsigned int*)seed)[2];
+            MB = ((__global unsigned int*)seed)[3];
+            MC = ((__global unsigned int*)seed)[4];
+            MD = ((__global unsigned int*)seed)[5];
+            ME = ((__global unsigned int*)seed)[6];
+            MF = ((__global unsigned int*)seed)[7];
+
+			INPUT_BLOCK_ADD;
+    		XOR_W;
+    		APPLY_P;
+    		INPUT_BLOCK_SUB;
+    		SWAP_BC;
+    		INCR_W;
+
+            M0 = ((__global unsigned int*)base58)[0];
+            M1 = ((__global unsigned int*)base58)[1];
+            M2 = ((__global unsigned int*)base58)[2];
+            M3 = ((__global unsigned int*)base58)[3];
+            M4 = ((__global unsigned int*)base58)[4];
+            M5 = ((unsigned int*)&nonce_be)[0];
+            M6 = ((unsigned int*)&nonce_be)[1];
+            M7 = 0x80;
+            M8 = M9 = MA = MB = MC = MD = ME = MF = 0;
+		}
+
+    	INPUT_BLOCK_ADD;
+    	XOR_W;
+    	APPLY_P;
+    	for (int i = 0; i < 3; i ++) {
+	        SWAP_BC;
+        	XOR_W;
+        	APPLY_P;
+    	}
+
+		if (hash > 0){
+			((__global unsigned int*)buffer)[Address(ln, hash-1, 0)] = B8;
+			((__global unsigned int*)buffer)[Address(ln, hash-1, 1)] = B9;
+			((__global unsigned int*)buffer)[Address(ln, hash-1, 2)] = BA;
+			((__global unsigned int*)buffer)[Address(ln, hash-1, 3)] = BB;
+			((__global unsigned int*)buffer)[Address(ln, hash-1, 4)] = BC;
+			((__global unsigned int*)buffer)[Address(ln, hash-1, 5)] = BD;
+			((__global unsigned int*)buffer)[Address(ln, hash-1, 6)] = BE;
+			((__global unsigned int*)buffer)[Address(ln, hash-1, 7)] = BF;
+		}
+	}
+
+	if(end==8192){
+		for (size_t i = 0; i < NUM_HASHES; i++){
+			((__global unsigned int*)buffer)[Address(ln, i, 0)] ^= B8;
+			((__global unsigned int*)buffer)[Address(ln, i, 1)] ^= B9;
+			((__global unsigned int*)buffer)[Address(ln, i, 2)] ^= BA;
+			((__global unsigned int*)buffer)[Address(ln, i, 3)] ^= BB;
+			((__global unsigned int*)buffer)[Address(ln, i, 4)] ^= BC;
+			((__global unsigned int*)buffer)[Address(ln, i, 5)] ^= BD;
+			((__global unsigned int*)buffer)[Address(ln, i, 6)] ^= BE;
+			((__global unsigned int*)buffer)[Address(ln, i, 7)] ^= BF;
+		}
+	}
+}
+
+/* Helper: resolve split sub-buffer pointer for a ring nonce index. */
+inline __global unsigned int* resolve_split_buf(
+    __global unsigned char* buf0,
+    __global unsigned char* buf1,
+    __global unsigned char* buf2,
+    __global unsigned char* buf3,
+    unsigned long nonce,
+    unsigned long nonces_per_sub)
+{
+    unsigned long sub = nonce / nonces_per_sub;
+    if (sub == 0) return (__global unsigned int*)buf0;
+    if (sub == 1) return (__global unsigned int*)buf1;
+    if (sub == 2) return (__global unsigned int*)buf2;
+    return (__global unsigned int*)buf3;
+}
+
+/* Split ring buffer variant of fused_scatter_compress.
+ *
+ * Same helix compression logic but reads from split sub-buffers.
+ * rnx (constant per work item) is resolved once; rny is resolved
+ * per scoop_y iteration.
+ */
+__kernel void fused_scatter_compress_split(
+    __global unsigned char* buf0,
+    __global unsigned char* buf1,
+    __global unsigned char* buf2,
+    __global unsigned char* buf3,
+    unsigned long nonces_per_sub,
+    __global unsigned char* output,
+    unsigned long ring_size,
+    unsigned long compress_start,
+    int accumulate)
+{
+    int nonce_x = get_global_id(0);
+    if (nonce_x >= 4096)
+        return;
+
+    unsigned long rnx = (compress_start + (unsigned long)nonce_x) % ring_size;
+    unsigned long rnx_local = rnx % nonces_per_sub;
+    __global unsigned int* rnx_buf = resolve_split_buf(buf0, buf1, buf2, buf3, rnx, nonces_per_sub);
+
+    for (int scoop_y = 0; scoop_y < 4096; scoop_y++) {
+        unsigned long rny = (compress_start + 4096 + (unsigned long)scoop_y) % ring_size;
+        unsigned long rny_local = rny % nonces_per_sub;
+        __global unsigned int* rny_buf = resolve_split_buf(buf0, buf1, buf2, buf3, rny, nonces_per_sub);
+
+        int h_y_first  = 2 * scoop_y;
+        int h_y_second = 8191 - 2 * scoop_y;
+        int h_x_first  = 2 * nonce_x;
+        int h_x_second = 8191 - 2 * nonce_x;
+
+        unsigned long out_idx = (unsigned long)scoop_y * 4096 * 16 + (unsigned long)nonce_x * 16;
+
+        if (accumulate) {
+            for (int w = 0; w < 8; w++) {
+                ((__global unsigned int*)output)[out_idx + w] ^=
+                    rnx_buf[Address(rnx_local, h_y_first, w)] ^
+                    rny_buf[Address(rny_local, h_x_first, w)];
+            }
+            for (int w = 0; w < 8; w++) {
+                ((__global unsigned int*)output)[out_idx + 8 + w] ^=
+                    rnx_buf[Address(rnx_local, h_y_second, w)] ^
+                    rny_buf[Address(rny_local, h_x_second, w)];
+            }
+        } else {
+            for (int w = 0; w < 8; w++) {
+                ((__global unsigned int*)output)[out_idx + w] =
+                    rnx_buf[Address(rnx_local, h_y_first, w)] ^
+                    rny_buf[Address(rny_local, h_x_first, w)];
+            }
+            for (int w = 0; w < 8; w++) {
+                ((__global unsigned int*)output)[out_idx + 8 + w] =
+                    rnx_buf[Address(rnx_local, h_y_second, w)] ^
+                    rny_buf[Address(rny_local, h_x_second, w)];
+            }
+        }
+    }
+}
+
 /* Fused scatter + helix compress kernel for ring buffer GPU plotter.
  *
  * Reads SIMD-interleaved nonces from the ring buffer, applies POC2 shuffle,
