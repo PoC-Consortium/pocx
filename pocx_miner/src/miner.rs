@@ -420,9 +420,7 @@ impl Miner {
             info!("Priority {} : ({}) {}", i + 1, chain.name, endpoint_str);
 
             // Validate and get auth token - exit if cookie auth fails
-            let auth_token = chain
-                .get_auth_token_or_exit()
-                .map_err(|e| e.to_string())?;
+            let auth_token = chain.get_auth_token_or_exit().map_err(|e| e.to_string())?;
 
             chain_states.push(Arc::new(Mutex::new(ChainState::default())));
 
