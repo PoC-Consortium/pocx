@@ -166,41 +166,35 @@ impl SubmissionQueue {
                 let now = Instant::now();
 
                 // 1. Drain channel and enqueue new items (non-blocking)
-                loop {
-                    match rx.try_next() {
-                        Ok(Some(new_submission)) => {
-                            let key = (
-                                new_submission.params.account_id.clone(),
-                                new_submission.params.block_hash.clone(),
+                while let Ok(new_submission) = rx.try_recv() {
+                    let key = (
+                        new_submission.params.account_id.clone(),
+                        new_submission.params.block_hash.clone(),
+                    );
+
+                    let should_add = if let Some(&best_in_queue) = in_queue_best.get(&key) {
+                        if new_submission.params.raw_quality < best_in_queue {
+                            in_queue_best.insert(key, new_submission.params.raw_quality);
+                            true
+                        } else {
+                            log::debug!(
+                                "Dropping new submission: worse than queued ({}  >= {})",
+                                new_submission.params.raw_quality,
+                                best_in_queue
                             );
-
-                            let should_add = if let Some(&best_in_queue) = in_queue_best.get(&key) {
-                                if new_submission.params.raw_quality < best_in_queue {
-                                    in_queue_best.insert(key, new_submission.params.raw_quality);
-                                    true
-                                } else {
-                                    log::debug!(
-                                        "Dropping new submission: worse than queued ({}  >= {})",
-                                        new_submission.params.raw_quality,
-                                        best_in_queue
-                                    );
-                                    false
-                                }
-                            } else {
-                                in_queue_best.insert(key, new_submission.params.raw_quality);
-                                true
-                            };
-
-                            if should_add {
-                                pending_queue.push_back(TimestampedSubmission {
-                                    submission: new_submission,
-                                    queued_at: now,
-                                    retry_count: 0,
-                                });
-                            }
+                            false
                         }
-                        Ok(None) => break, // Channel closed
-                        Err(_) => break,   // Would block, no more items
+                    } else {
+                        in_queue_best.insert(key, new_submission.params.raw_quality);
+                        true
+                    };
+
+                    if should_add {
+                        pending_queue.push_back(TimestampedSubmission {
+                            submission: new_submission,
+                            queued_at: now,
+                            retry_count: 0,
+                        });
                     }
                 }
 

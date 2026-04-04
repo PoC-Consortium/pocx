@@ -90,20 +90,12 @@ cargo bench --workspace
 
 ## CI Pipeline
 
-Use the local CI scripts for development:
-```bash
-# Full CI pipeline (7 steps)
-./ci/run-ci.sh
+CI runs via GitHub Actions on pull requests to master (`.github/workflows/ci.yml`):
+- **Checks**: formatting (`cargo fmt`), linting (`cargo clippy -D warnings`), security audit (`cargo-audit`)
+- **Tests**: `cargo test --release --workspace` on Linux
+- **Builds**: Multi-platform (Linux x86_64/ARM64, Windows, macOS Intel/ARM)
 
-# Individual steps (workspace-level operations)
-./ci/01-format.sh    # Code formatting
-./ci/02-lint.sh      # Clippy linting (workspace-level)
-./ci/03-security.sh  # Security audit
-./ci/04-build.sh     # Build verification (workspace-level)
-./ci/05-test.sh      # Test suite (workspace-level)
-./ci/06-coverage.sh  # Coverage analysis (comprehensive, no timeouts)
-./ci/07-docs.sh      # Documentation generation
-```
+Releases are automated via `.github/workflows/release.yml` on version tags (`v*.*.*`).
 
 # Instructions for Claude
 - Role: Senior Software Engineer & Researcher in cryptography and distributed systems.  
