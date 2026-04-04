@@ -102,6 +102,7 @@ jobs:
             cross build --release --target ${{ matrix.target }} \
               -p pocx_miner \
               -p pocx_plotter \
+              -p pocx_plotter_v2 \
               -p pocx_verifier \
               -p pocx_aggregator \
               -p pocx_mockchain
@@ -109,6 +110,7 @@ jobs:
             cargo build --release --target ${{ matrix.target }} \
               -p pocx_miner \
               -p pocx_plotter \
+              -p pocx_plotter_v2 \
               -p pocx_verifier \
               -p pocx_aggregator \
               -p pocx_mockchain
@@ -133,6 +135,7 @@ jobs:
           # Copy binaries to staging
           cp target/${{ matrix.target }}/release/pocx_miner staging/
           cp target/${{ matrix.target }}/release/pocx_plotter staging/
+          cp target/${{ matrix.target }}/release/pocx_plotter_v2 staging/
           cp target/${{ matrix.target }}/release/pocx_verifier staging/
           cp target/${{ matrix.target }}/release/pocx_aggregator staging/
           cp target/${{ matrix.target }}/release/pocx_mockchain staging/
@@ -165,6 +168,7 @@ jobs:
           # Copy binaries to staging
           Copy-Item target/${{ matrix.target }}/release/pocx_miner.exe staging/
           Copy-Item target/${{ matrix.target }}/release/pocx_plotter.exe staging/
+          Copy-Item target/${{ matrix.target }}/release/pocx_plotter_v2.exe staging/
           Copy-Item target/${{ matrix.target }}/release/pocx_verifier.exe staging/
           Copy-Item target/${{ matrix.target }}/release/pocx_aggregator.exe staging/
           Copy-Item target/${{ matrix.target }}/release/pocx_mockchain.exe staging/
@@ -254,6 +258,7 @@ jobs:
             **Binaries:**
             - `pocx_miner` - Mining client
             - `pocx_plotter` - Plot file generator (GPU accelerated when OpenCL available)
+            - `pocx_plotter_v2` - Next-gen plot file generator with ring scheduler
             - `pocx_verifier` - Plot verification tool
             - `pocx_aggregator` - Mining proxy/aggregator
             - `pocx_mockchain` - Mock blockchain for testing
