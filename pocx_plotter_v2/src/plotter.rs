@@ -335,7 +335,12 @@ impl Plotter {
         }
 
         // Create shared empty-buffer pool
+        // Keep a clone of the receiver on the main thread so the channel stays alive
+        // until all writer threads are joined. Without this, the scheduler thread
+        // dropping its receiver causes writers' tx_empty_buffers.send() to fail,
+        // making them break before processing their final buffers (and the .tmp → .pocx rename).
         let (tx_empty_write_buffers, rx_empty_write_buffers) = bounded(num_write_buffers as usize);
+        let _rx_keepalive = rx_empty_write_buffers.clone();
 
         // Allocate write buffers (each holds `escalate` warps)
         for _ in 0..num_write_buffers {
