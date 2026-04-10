@@ -1752,7 +1752,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_address"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "bech32",
  "bs58",
@@ -1761,15 +1761,13 @@ dependencies = [
 
 [[package]]
 name = "pocx_aggregator"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
- "async-trait",
  "axum",
  "base64",
  "bytesize",
  "chrono",
  "clap",
- "crossbeam-channel",
  "diesel",
  "diesel_migrations",
  "env_logger",
@@ -1780,24 +1778,18 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "pocx_protocol",
- "r2d2",
- "reqwest",
  "serde",
  "serde_json",
  "serde_yaml",
  "tempfile",
  "thiserror",
  "tokio",
- "tower",
- "tower-http",
- "tracing",
  "url",
- "uuid",
 ]
 
 [[package]]
 name = "pocx_hashlib"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "arbitrary",
  "criterion",
@@ -1812,9 +1804,8 @@ dependencies = [
 
 [[package]]
 name = "pocx_miner"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
- "anyhow",
  "bytesize",
  "cfg-if",
  "clap",
@@ -1839,7 +1830,6 @@ dependencies = [
  "rayon",
  "reqwest",
  "serde",
- "serde_json",
  "serde_yaml",
  "tempfile",
  "tokio",
@@ -1851,7 +1841,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_mockchain"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "async-trait",
  "axum",
@@ -1862,9 +1852,7 @@ dependencies = [
  "dotenvy",
  "futures",
  "hex",
- "libc",
  "libsqlite3-sys",
- "num-traits",
  "pocx_address",
  "pocx_hashlib",
  "pocx_protocol",
@@ -1874,13 +1862,12 @@ dependencies = [
  "serde_json",
  "tokio",
  "toml",
- "tower",
  "tower-http",
 ]
 
 [[package]]
 name = "pocx_plotfile"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "arbitrary",
  "cfg-if",
@@ -1901,7 +1888,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_plotter"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "bytesize",
  "cfg-if",
@@ -1911,7 +1898,6 @@ dependencies = [
  "fs2",
  "hex",
  "indicatif",
- "libc",
  "num_cpus",
  "opencl3",
  "page_size",
@@ -1930,7 +1916,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_plotter_v2"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "cfg-if",
  "clap",
@@ -1938,7 +1924,6 @@ dependencies = [
  "fs2",
  "hex",
  "indicatif",
- "libc",
  "num_cpus",
  "opencl3",
  "page_size",
@@ -1957,11 +1942,10 @@ dependencies = [
 
 [[package]]
 name = "pocx_protocol"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "async-trait",
  "base64",
- "futures",
  "log",
  "mockito",
  "reqwest",
@@ -1977,7 +1961,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_verifier"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "clap",
  "hex",

@@ -103,7 +103,11 @@ pub fn create_writer_thread(
                     }
 
                     if tx_empty_buffers.send(buffer).is_err() {
-                        // Channel closed — scheduler finished, no more buffers needed
+                        // Channel closed — all receivers dropped. This should not happen
+                        // during normal operation (main thread keeps a receiver alive).
+                        // If it does, we'd lose remaining queued ProcessTasks including
+                        // the final .tmp → .pocx rename.
+                        eprintln!("WARNING: Writer[{}] buffer return channel closed, remaining tasks may be lost", path_ptr);
                         break;
                     }
                 }
