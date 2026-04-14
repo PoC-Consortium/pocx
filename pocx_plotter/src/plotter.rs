@@ -64,7 +64,7 @@ pub struct PlotterTask {
     pub compress: u8,
     pub output_paths: Vec<String>,
     pub mem: String,
-    pub cpu_threads: u8,
+    pub cpu_threads: usize,
     pub gpus: Option<Vec<String>>,
     pub direct_io: bool,
     pub escalate: u64,
@@ -517,7 +517,7 @@ impl Plotter {
             create_scheduler_thread(
                 task.clone(),
                 rayon::ThreadPoolBuilder::new()
-                    .num_threads(task.cpu_threads as usize)
+                    .num_threads(task.cpu_threads)
                     .start_handler(move |id| {
                         if thread_pinning {
                             #[cfg(not(windows))]

@@ -429,18 +429,13 @@ fn run() -> Result<()> {
     let cpu_threads = matches
         .get_one::<String>("cpu")
         .map(|s| {
-            let value = s.parse::<u8>().map_err(|e| {
+            let value = s.parse::<usize>().map_err(|e| {
                 PoCXPlotterError::InvalidInput(format!("Invalid cpu threads value: {}", e))
             })?;
-            if value > 128 {
-                return Err(PoCXPlotterError::InvalidInput(
-                    "CPU threads value too large: maximum 128 allowed".to_string(),
-                ));
-            }
-            Ok::<u8, PoCXPlotterError>(value)
+            Ok::<usize, PoCXPlotterError>(value)
         })
         .transpose()?
-        .unwrap_or(0u8);
+        .unwrap_or(0);
 
     #[cfg(feature = "opencl")]
     let gpus = matches
@@ -452,7 +447,7 @@ fn run() -> Result<()> {
 
     // work out number of cpu threads to use
     // Use num_cpus instead of sysinfo for better Android compatibility
-    let cores = num_cpus::get() as u8;
+    let cores = num_cpus::get();
     let cpu_threads = if cpu_threads == 0 {
         cores
     } else {
@@ -462,7 +457,7 @@ fn run() -> Result<()> {
     // special case: dont use cpu if only a gpu is defined
     #[cfg(feature = "opencl")]
     let cpu_threads = if matches.contains_id("gpu") && !matches.contains_id("cpu") {
-        0u8
+        0usize
     } else {
         cpu_threads
     };

@@ -146,7 +146,8 @@ pub struct PlotterTaskBuilder {
     number_of_plots: Vec<u64>,
     output_paths: Vec<String>,
     gpu: String,
-    cpu_threads: u8,
+    cpu_threads: usize,
+    cpu_threads_set: bool,
     compress: u8,
     direct_io: bool,
     escalate: u64,
@@ -200,8 +201,9 @@ impl PlotterTaskBuilder {
         self
     }
 
-    pub fn cpu_threads(mut self, threads: u8) -> Self {
+    pub fn cpu_threads(mut self, threads: usize) -> Self {
         self.cpu_threads = threads;
+        self.cpu_threads_set = true;
         self
     }
 
@@ -260,6 +262,13 @@ impl PlotterTaskBuilder {
             ));
         }
 
+        if self.cpu_threads_set && self.cpu_threads == 0 {
+            return Err(PoCXPlotterError::InvalidInput(
+                "cpu_threads must be greater than 0 when CPU participation is requested"
+                    .to_string(),
+            ));
+        }
+
         if self.warps.contains(&0) {
             return Err(PoCXPlotterError::InvalidInput(
                 "Warps must be greater than 0 for all output paths".to_string(),
@@ -284,7 +293,7 @@ impl PlotterTaskBuilder {
             number_of_plots: self.number_of_plots,
             output_paths: self.output_paths,
             gpu: self.gpu,
-            cpu_threads: self.cpu_threads as usize,
+            cpu_threads: self.cpu_threads,
             direct_io: self.direct_io,
             escalate: self.escalate,
             async_write: self.async_write,
@@ -292,5 +301,83 @@ impl PlotterTaskBuilder {
             benchmark: self.benchmark,
             kws_override: self.kws_override,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_ADDRESS: &str = "POCX-2345-4567-89AB-CDEF1";
+
+    fn make_builder() -> PlotterTaskBuilder {
+        let mut payload = [0u8; 20];
+        for (i, b) in payload.iter_mut().enumerate() {
+            *b = (i * 7) as u8;
+        }
+        let addr =
+            pocx_address::encode_address(&payload, pocx_address::NetworkId::Base58(0x55)).unwrap();
+        PlotterTaskBuilder::new()
+            .address(&addr)
+            .unwrap()
+            .add_output("/tmp/plot_test".to_string(), 1, 1)
+    }
+
+    #[test]
+    fn test_cpu_threads_256_does_not_overflow() {
+        let _ = TEST_ADDRESS;
+        let task = make_builder().cpu_threads(256).build().unwrap();
+        assert_eq!(
+            task.cpu_threads, 256,
+            "cpu_threads=256 must be preserved (u8 overflow would yield 0)"
+        );
+    }
+
+    #[test]
+    fn test_cpu_threads_1024_preserved() {
+        let task = make_builder().cpu_threads(1024).build().unwrap();
+        assert_eq!(task.cpu_threads, 1024);
+    }
+
+    #[test]
+    fn test_rayon_pool_honors_large_thread_count() {
+        let requested = 256usize;
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(requested)
+            .build()
+            .expect("pool build");
+        assert_eq!(
+            pool.current_num_threads(),
+            requested,
+            "rayon should create exactly the requested number of threads"
+        );
+    }
+
+    #[test]
+    fn test_explicit_zero_cpu_threads_rejected() {
+        let result = make_builder()
+            .gpu("0:0:0".to_string())
+            .cpu_threads(0)
+            .build();
+        assert!(
+            result.is_err(),
+            "explicit cpu_threads(0) with GPU set must be rejected"
+        );
+        let msg = result.err().unwrap().to_string();
+        assert!(
+            msg.contains("cpu_threads"),
+            "error should mention cpu_threads, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_gpu_only_build_succeeds() {
+        let task = make_builder()
+            .gpu("0:0:0".to_string())
+            .build()
+            .ok()
+            .expect("GPU-only config should build");
+        assert_eq!(task.cpu_threads, 0);
+        assert_eq!(task.gpu, "0:0:0");
     }
 }

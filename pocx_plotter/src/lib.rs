@@ -183,7 +183,7 @@ pub struct PlotterTaskBuilder {
     compress: u8,
     output_paths: Vec<String>,
     mem: String,
-    cpu_threads: u8,
+    cpu_threads: usize,
     gpus: Option<Vec<String>>,
     direct_io: bool,
     escalate: u64,
@@ -200,7 +200,7 @@ impl PlotterTaskBuilder {
     pub fn new() -> Self {
         Self {
             mem: "0B".to_string(), // Match CLI default format
-            cpu_threads: num_cpus::get() as u8,
+            cpu_threads: num_cpus::get(),
             direct_io: true,
             escalate: 1,
             quiet: true,
@@ -245,7 +245,7 @@ impl PlotterTaskBuilder {
         self
     }
 
-    pub fn cpu_threads(mut self, threads: u8) -> Self {
+    pub fn cpu_threads(mut self, threads: usize) -> Self {
         self.cpu_threads = threads;
         self
     }
