@@ -155,7 +155,9 @@ fn test_seed_validation_integration() {
 
 #[test]
 fn test_cpu_thread_validation() {
-    // Create a valid address using proper pocx_address encoding
+    // Non-numeric --cpu argument must be rejected by the parser.
+    // The previous 128-thread cap was removed to support high-core systems
+    // (e.g. dual EPYC 7B12 with 256 threads).
     let mut payload = [0u8; 20];
     for i in 0..20 {
         payload[i] = (i * 19) as u8;
@@ -163,21 +165,20 @@ fn test_cpu_thread_validation() {
     let test_id =
         pocx_address::encode_address(&payload, pocx_address::NetworkId::Base58(0x55)).unwrap();
 
-    // Test CPU threads too large
     let binary = get_plotter_binary();
     let output = Command::new(&binary)
-        .args(&[
-            "--id", &test_id, "--cpu", "200", // Over our 128 limit
-            "--bench",
-        ])
+        .args(&["--id", &test_id, "--cpu", "not_a_number", "--bench"])
         .output()
-        .expect("Failed to execute with large CPU threads");
+        .expect("Failed to execute with invalid CPU threads");
 
-    assert!(!output.status.success(), "Should reject cpu threads > 128");
+    assert!(
+        !output.status.success(),
+        "Should reject non-numeric cpu threads value"
+    );
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(
-        stderr.contains("too large"),
-        "Should show CPU threads error"
+        stderr.contains("Invalid") || stderr.contains("cpu"),
+        "Should show CPU threads parse error, got: {stderr}"
     );
 }
 

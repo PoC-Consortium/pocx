@@ -372,11 +372,10 @@ mod tests {
 
     #[test]
     fn test_gpu_only_build_succeeds() {
-        let task = make_builder()
-            .gpu("0:0:0".to_string())
-            .build()
-            .ok()
-            .expect("GPU-only config should build");
+        let task = match make_builder().gpu("0:0:0".to_string()).build() {
+            Ok(t) => t,
+            Err(e) => panic!("GPU-only config should build: {e}"),
+        };
         assert_eq!(task.cpu_threads, 0);
         assert_eq!(task.gpu, "0:0:0");
     }
