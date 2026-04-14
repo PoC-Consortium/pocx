@@ -1,6 +1,6 @@
 [package]
 name = "pocx_plotter_v2"
-version = "1.0.1"
+version = "1.0.2"
 license = "MIT"
 authors = [
     "Proof of Capacity Consortium",
@@ -45,9 +45,9 @@ fs2 = "0.4"
 page_size = { workspace = true }
 hex = { workspace = true }
 rand = { workspace = true }
-pocx_plotfile = { version = "1.0.1", path = "../pocx_plotfile" }
-pocx_address = { version = "1.0.1", path = "../pocx_address" }
-pocx_hashlib = { version = "1.0.1", path = "../pocx_hashlib" }
+pocx_plotfile = { version = "1.0.2", path = "../pocx_plotfile" }
+pocx_address = { version = "1.0.2", path = "../pocx_address" }
+pocx_hashlib = { version = "1.0.2", path = "../pocx_hashlib" }
 rayon = "1.10"
 
 [target.'cfg(linux)'.dependencies]
