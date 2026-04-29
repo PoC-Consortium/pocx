@@ -790,10 +790,7 @@ impl PoCXPlotFile {
 
                 // rename finished file
                 if start_warp + warps_to_write == self.meta.number_of_warps {
-                    let mut new_filename_and_path = self.meta.filename_and_path.clone();
-                    new_filename_and_path.set_extension("pocx");
-                    fs::rename(&self.meta.filename_and_path, &new_filename_and_path)
-                        .map_err(PoCXPlotFileError::Io)?;
+                    self.finalize()?;
                 }
 
                 Ok(total_write as u64)
@@ -805,6 +802,29 @@ impl PoCXPlotFile {
 
     fn file_offset(&self, scoop: u64, warp: u64, number_of_warps: u64) -> u64 {
         scoop * number_of_warps * NUM_SCOOPS * SCOOP_SIZE + warp * NUM_SCOOPS * SCOOP_SIZE
+    }
+
+    /// Finalize a fully-plotted file by renaming `<…>.tmp` → `<…>.pocx`.
+    ///
+    /// Drops the underlying file handle before renaming so the operation is
+    /// safe on platforms that disallow renaming open files. No-op if the path
+    /// does not have a `.tmp` extension (already finalized). Updates
+    /// `self.meta.filename_and_path` and `self.meta.filename` on success.
+    pub fn finalize(&mut self) -> Result<()> {
+        if self.meta.filename_and_path.extension().and_then(|e| e.to_str()) != Some("tmp") {
+            return Ok(());
+        }
+        // Drop the handle so Windows can rename even if the file was opened
+        // without FILE_SHARE_DELETE.
+        self.file_handle = None;
+        let mut new_path = self.meta.filename_and_path.clone();
+        new_path.set_extension("pocx");
+        fs::rename(&self.meta.filename_and_path, &new_path).map_err(PoCXPlotFileError::Io)?;
+        if let Some(name) = new_path.file_name().and_then(|n| n.to_str()) {
+            self.meta.filename = name.to_string();
+        }
+        self.meta.filename_and_path = new_path;
+        Ok(())
     }
 
     pub fn read_resume_info(&mut self) -> Result<u64> {
