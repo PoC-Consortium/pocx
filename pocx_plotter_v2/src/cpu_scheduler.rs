@@ -90,6 +90,40 @@ pub fn create_cpu_scheduler_thread(
             }
         }
 
+        // Issue #48: a previous run may have been killed in the kill-window
+        // between the final `write_resume_info(number_of_warps)` and the
+        // `.tmp → .pocx` rename. The marker on disk says progress == number_of_warps
+        // but the file extension is still .tmp. Detect this state per path,
+        // dispatch a Finalize task to the writer to complete the rename, and
+        // advance per-path counters as if the first plot had just completed.
+        for i in 0..num_paths {
+            if task.warps[i] == 0 || resumes[i] < task.warps[i] {
+                continue;
+            }
+            let _ = tx_full_per_path[i].send(WriterTask::Finalize {
+                seed: seeds[i],
+                number_of_warps: task.warps[i],
+            });
+            files_done[i] += 1;
+            warp_offsets[i] = 0;
+            global_nonces[i] = 0;
+            if files_done[i] < task.number_of_plots[i] {
+                rand::rng().fill(&mut seeds[i]);
+            }
+        }
+        // Re-pick path_pointer to the first path that still has work, mirroring
+        // the round-robin search at the at-file-boundary block below.
+        if files_done[path_pointer] >= task.number_of_plots[path_pointer] {
+            if let Some((i, _)) = files_done
+                .iter()
+                .zip(task.number_of_plots.iter())
+                .enumerate()
+                .find(|(_, (d, n))| d < n)
+            {
+                path_pointer = i;
+            }
+        }
+
         let mut write_buffer: Option<PageAlignedByteBuffer> = None;
         let mut warps_in_buffer: u64 = 0;
         let mut buffer_start_warp: u64 = warp_offsets[path_pointer];

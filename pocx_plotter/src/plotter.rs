@@ -191,6 +191,60 @@ impl Plotter {
             }
         }
 
+        // Issue #48: kill-window state — the resume marker says path 0's first
+        // plot is already 100% complete, but the file extension is still .tmp
+        // (a previous run was killed between the final write_resume_info() and
+        // the .tmp → .pocx rename in pocx_plotfile/src/lib.rs:789-797). Without
+        // this short-circuit, the scheduler hashes past EOF and the writer
+        // panics with WriteExceedsEof (CPU) / hangs (GPU).
+        //
+        // We do this in plotter.rs (before threads spawn) rather than in the
+        // scheduler to avoid a race with the compressor's shutdown path.
+        if resume > 0 && resume == task.warps[0] && task.number_of_plots[0] >= 1 {
+            if let Some(seed) = task.seed {
+                if let Ok(mut plot_file) = PoCXPlotFile::new(
+                    &task.output_paths[0],
+                    &task.address_payload,
+                    &seed,
+                    task.warps[0],
+                    task.compress,
+                    task.direct_io,
+                    false,
+                ) {
+                    plot_file.finalize().map_err(|e| {
+                        PoCXPlotterError::Config(format!(
+                            "Failed to finalize completed plot file: {}",
+                            e
+                        ))
+                    })?;
+                }
+            }
+            task.number_of_plots[0] -= 1;
+            resume = 0;
+            task.seed = None;
+
+            // If that was the only requested plot and the only path, we're done.
+            let total_remaining: u64 = task
+                .warps
+                .iter()
+                .zip(task.number_of_plots.iter())
+                .map(|(w, n)| w * n)
+                .sum();
+            if total_remaining == 0 {
+                if let Some(cb) = get_plotter_callback() {
+                    cb.on_started(0, 0);
+                    cb.on_complete(0, 0);
+                }
+                if !task.quiet {
+                    println!(
+                        "All requested plots already complete (per resume marker). \
+                         Renamed kill-window .tmp → .pocx and exiting."
+                    );
+                }
+                return Ok(());
+            }
+        }
+
         // work out number of warps and files to plot if not fully specified and check
         // target disk
         for (i, w) in task.warps.iter_mut().enumerate() {
@@ -538,6 +592,14 @@ impl Plotter {
                 resume,
             )
         });
+
+        // Drop the main thread's owned senders so that, when the compressor
+        // shuts down (e.g. via the total_warps == 0 early exit), the remaining
+        // channel clones close and writer threads terminate instead of
+        // blocking on recv().
+        drop(tx_empty_plot_buffers);
+        drop(tx_full_plot_buffers);
+        drop(tx_empty_write_buffers);
 
         // MultiProgress handles rendering automatically, no need to join
 
