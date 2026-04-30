@@ -811,7 +811,13 @@ impl PoCXPlotFile {
     /// does not have a `.tmp` extension (already finalized). Updates
     /// `self.meta.filename_and_path` and `self.meta.filename` on success.
     pub fn finalize(&mut self) -> Result<()> {
-        if self.meta.filename_and_path.extension().and_then(|e| e.to_str()) != Some("tmp") {
+        if self
+            .meta
+            .filename_and_path
+            .extension()
+            .and_then(|e| e.to_str())
+            != Some("tmp")
+        {
             return Ok(());
         }
         // Drop the handle so Windows can rename even if the file was opened
