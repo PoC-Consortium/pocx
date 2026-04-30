@@ -114,11 +114,13 @@ pub fn create_cpu_scheduler_thread(
         // Re-pick path_pointer to the first path that still has work, mirroring
         // the round-robin search at the at-file-boundary block below.
         if files_done[path_pointer] >= task.number_of_plots[path_pointer] {
-            for i in 0..num_paths {
-                if files_done[i] < task.number_of_plots[i] {
-                    path_pointer = i;
-                    break;
-                }
+            if let Some((i, _)) = files_done
+                .iter()
+                .zip(task.number_of_plots.iter())
+                .enumerate()
+                .find(|(_, (d, n))| d < n)
+            {
+                path_pointer = i;
             }
         }
 

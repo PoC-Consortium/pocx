@@ -185,11 +185,7 @@ pub fn validate_proofs(
     for (idx, input) in inputs.iter().enumerate() {
         let xor_result = accumulators[idx].xor_result.lock().unwrap();
         let quality = shabal256_lite(&xor_result[..], &input.generation_signature);
-        let deadline = if input.base_target > 0 {
-            quality / input.base_target
-        } else {
-            u64::MAX
-        };
+        let deadline = quality.checked_div(input.base_target).unwrap_or(u64::MAX);
 
         let (is_valid, error) = if let Some(claimed) = input.claimed_quality {
             if quality == claimed {

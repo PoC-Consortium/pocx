@@ -123,12 +123,14 @@ pub fn create_ring_scheduler_thread(
         // If path_pointer's first plot was finalized and no more plots remain
         // for it, advance to the next not-yet-done path.
         if files_done[path_pointer] >= task.number_of_plots[path_pointer] {
-            for i in 0..num_paths {
-                if files_done[i] < task.number_of_plots[i] {
-                    path_pointer = i;
-                    needs_seed_reupload = true;
-                    break;
-                }
+            if let Some((i, _)) = files_done
+                .iter()
+                .zip(task.number_of_plots.iter())
+                .enumerate()
+                .find(|(_, (d, n))| d < n)
+            {
+                path_pointer = i;
+                needs_seed_reupload = true;
             }
         }
         if needs_seed_reupload {
