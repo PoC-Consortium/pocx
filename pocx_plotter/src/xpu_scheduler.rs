@@ -293,24 +293,133 @@ pub fn create_scheduler_thread(
                 }
             }
 
-            pointer += 1;
-            pointer %= task.output_paths.len();
+            // Advance to the next path that still has work. Skipping completed
+            // paths prevents phantom plotfile_progress increments on paths whose
+            // hash_progress is permanently parked at task.warps (issue #52).
+            match next_active_path(pointer, &plotfile_progress, &task.number_of_plots) {
+                Some(next) => pointer = next,
+                None => {
+                    if let Some(pb) = &pb {
+                        pb.finish_with_message("Hasher done.");
+                    }
+                    #[cfg(feature = "opencl")]
+                    for gpu in &gpu_channels {
+                        gpu.0.send(None).unwrap();
+                    }
+                    break;
+                }
+            }
 
-            // thread end
-            if is_stop_requested()
-                || (task.number_of_plots.iter().sum::<u64>()
-                    == plotfile_progress.iter().sum::<u64>())
-            {
+            if is_stop_requested() {
                 if let Some(pb) = &pb {
                     pb.finish_with_message("Hasher done.");
                 }
-                // shutdown gpu threads
                 #[cfg(feature = "opencl")]
                 for gpu in &gpu_channels {
                     gpu.0.send(None).unwrap();
                 }
                 break;
-            };
+            }
         }
+    }
+}
+
+/// Returns the next path index (starting from `current + 1`, wrapping) whose
+/// `plotfile_progress` is still below `number_of_plots`, or `None` if every
+/// path has reached its target. If the current path is the only one with work
+/// remaining, it is returned after a full wrap.
+fn next_active_path(
+    current: usize,
+    plotfile_progress: &[u64],
+    number_of_plots: &[u64],
+) -> Option<usize> {
+    let n = plotfile_progress.len();
+    for i in 1..=n {
+        let candidate = (current + i) % n;
+        if plotfile_progress[candidate] < number_of_plots[candidate] {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::next_active_path;
+
+    #[test]
+    fn advances_round_robin_when_all_paths_active() {
+        let progress = [0u64, 0, 0];
+        let target = [10u64, 10, 10];
+        assert_eq!(next_active_path(0, &progress, &target), Some(1));
+        assert_eq!(next_active_path(1, &progress, &target), Some(2));
+        assert_eq!(next_active_path(2, &progress, &target), Some(0));
+    }
+
+    #[test]
+    fn skips_completed_paths() {
+        // path 1 already done — round-robin must hop over it
+        let progress = [0u64, 5, 0];
+        let target = [10u64, 5, 10];
+        assert_eq!(next_active_path(0, &progress, &target), Some(2));
+        assert_eq!(next_active_path(2, &progress, &target), Some(0));
+    }
+
+    #[test]
+    fn returns_none_when_all_paths_complete() {
+        let progress = [10u64, 10, 10];
+        let target = [10u64, 10, 10];
+        assert_eq!(next_active_path(0, &progress, &target), None);
+        assert_eq!(next_active_path(2, &progress, &target), None);
+    }
+
+    #[test]
+    fn cycles_back_to_self_when_only_active_path() {
+        // path 0 still has work, the others are done — must return 0 itself
+        let progress = [3u64, 5, 5];
+        let target = [10u64, 5, 5];
+        assert_eq!(next_active_path(0, &progress, &target), Some(0));
+        assert_eq!(next_active_path(1, &progress, &target), Some(0));
+        assert_eq!(next_active_path(2, &progress, &target), Some(0));
+    }
+
+    #[test]
+    fn single_path_until_done() {
+        let mut progress = [0u64];
+        let target = [3u64];
+        assert_eq!(next_active_path(0, &progress, &target), Some(0));
+        progress[0] = 3;
+        assert_eq!(next_active_path(0, &progress, &target), None);
+    }
+
+    /// Regression for issue #52: with unequal `number_of_plots`, a full
+    /// scheduler walk must visit larger paths exactly `number_of_plots` times,
+    /// not be capped at the smallest path's count.
+    ///
+    /// Simulates the round-robin advancement in `xpu_scheduler.rs`: starting at
+    /// pointer 0, on each step we record one "plot completed" for the current
+    /// pointer, then advance. The walk terminates when `next_active_path`
+    /// returns `None`. The pre-fix behaviour exited via the global-sum equality
+    /// check well before the larger paths reached their targets.
+    #[test]
+    fn unequal_plot_counts_all_reach_target() {
+        let target = [100u64, 50, 75];
+        let mut progress = [0u64; 3];
+        let mut pointer = 0usize;
+        let mut steps = 0u64;
+        let total: u64 = target.iter().sum();
+
+        loop {
+            progress[pointer] += 1;
+            steps += 1;
+            assert!(steps <= total, "scheduler exceeded total plot budget");
+            match next_active_path(pointer, &progress, &target) {
+                Some(next) => pointer = next,
+                None => break,
+            }
+        }
+
+        assert_eq!(progress, target);
+        assert_eq!(steps, total);
     }
 }
