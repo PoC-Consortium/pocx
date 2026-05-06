@@ -126,8 +126,14 @@ impl GpuRingContext {
 
         let device_kws = get_kernel_work_group_size(&hash_kernel, &device, kws_override);
         let max_alloc = device.max_mem_alloc_size().unwrap_or(u64::MAX);
-        let (kernel_workgroup_size, effective_cores, _) =
-            fit_kws_to_max_alloc(device_kws, cores, max_alloc, kws_override);
+        let vendor = device.vendor().unwrap_or_default();
+        let (kernel_workgroup_size, effective_cores, _) = fit_kws_to_max_alloc(
+            device_kws,
+            cores,
+            max_alloc,
+            kws_override,
+            trust_oversize_alloc(&vendor),
+        );
         let worksize = (kernel_workgroup_size * effective_cores) as u64;
         let ring_size = compute_ring_size(worksize);
 
@@ -137,8 +143,6 @@ impl GpuRingContext {
         let ring_buffer_bytes = ring_size * NONCE_SIZE;
         let compressed_buffer_bytes = (DIM * DIM * DOUBLE_HASH_SIZE) as usize; // 1 GiB
 
-        let num_splits = compute_ring_splits(ring_buffer_bytes, max_alloc);
-
         let base58 = unsafe {
             Buffer::<u8>::create(&context, CL_MEM_READ_ONLY, 20, ptr::null_mut())
                 .map_err(|e| format!("Failed to create base58 buffer: {:?}", e))?
@@ -146,6 +150,40 @@ impl GpuRingContext {
         let seed = unsafe {
             Buffer::<u8>::create(&context, CL_MEM_READ_ONLY, 32, ptr::null_mut())
                 .map_err(|e| format!("Failed to create seed buffer: {:?}", e))?
+        };
+
+        // When the reported max_alloc is at least the 2 GiB ring floor, attempt a
+        // single-buffer allocation first — NVIDIA's driver caps max_alloc reporting
+        // at ~25% of global memory but happily honors larger buffers in practice.
+        // Below 2 GiB, the irreducible ring minimum genuinely cannot fit in a
+        // single OpenCL buffer, so split-mode is mandatory.
+        let try_single_first = max_alloc >= COMPRESS_BATCH * NONCE_SIZE;
+
+        let single_buffer = if try_single_first {
+            unsafe {
+                Buffer::<u8>::create(
+                    &context,
+                    CL_MEM_READ_WRITE,
+                    ring_buffer_bytes as usize,
+                    ptr::null_mut(),
+                )
+            }
+            .ok()
+        } else {
+            None
+        };
+
+        let num_splits = if single_buffer.is_some() {
+            1
+        } else {
+            if try_single_first {
+                eprintln!(
+                    "Warning: single-buffer ring allocation of {:.2} GiB failed despite max_alloc reporting {:.2} GiB; falling back to split mode.",
+                    ring_buffer_bytes as f64 / 1024.0 / 1024.0 / 1024.0,
+                    max_alloc as f64 / 1024.0 / 1024.0 / 1024.0,
+                );
+            }
+            compute_ring_splits(ring_buffer_bytes, max_alloc)
         };
 
         // Allocate ring buffer(s)
@@ -181,8 +219,12 @@ impl GpuRingContext {
                 .map_err(|e| format!("Failed to create split compress kernel: {:?}", e))?;
 
             (dummy, subs, nps, Some(hk), Some(ck))
+        } else if let Some(rb) = single_buffer {
+            (rb, Vec::new(), 0, None, None)
         } else {
-            let ring_buffer = unsafe {
+            // try_single_first was false but split returned 1 — only possible at
+            // the 2 GiB exact boundary; allocate the single buffer now.
+            let rb = unsafe {
                 Buffer::<u8>::create(
                     &context,
                     CL_MEM_READ_WRITE,
@@ -191,7 +233,7 @@ impl GpuRingContext {
                 )
                 .map_err(|e| format!("Failed to create ring buffer: {:?}", e))?
             };
-            (ring_buffer, Vec::new(), 0, None, None)
+            (rb, Vec::new(), 0, None, None)
         };
 
         let compressed_buffer = unsafe {
@@ -670,12 +712,13 @@ pub fn platform_info() {
             let mem = device.global_mem_size().unwrap_or(0);
             let max_alloc = device.max_mem_alloc_size().unwrap_or(0);
 
+            let trust_oversize = trust_oversize_alloc(&vendor);
             let (effective_kws, effective_cores, was_reduced) =
-                fit_kws_to_max_alloc(device_kws, cores, max_alloc, 0);
+                fit_kws_to_max_alloc(device_kws, cores, max_alloc, 0, trust_oversize);
             let worksize = (effective_cores as u64) * (effective_kws as u64);
             let ring_size = compute_ring_size(worksize);
             let ring_bytes = ring_size * NONCE_SIZE;
-            let num_splits = compute_ring_splits(ring_bytes, max_alloc);
+            let predicted_splits = predict_num_splits(ring_bytes, max_alloc);
             let mem_needed = gpu_mem_needed(worksize, ring_size);
 
             let cores_info = if effective_cores < cores {
@@ -689,19 +732,10 @@ pub fn platform_info() {
                 format!("{}", effective_kws)
             };
 
-            let split_info = if num_splits > 1 {
-                let nps = nonces_per_sub_aligned(ring_size, num_splits);
-                format!(
-                    ", ring-split={}x{:.2} GiB",
-                    num_splits,
-                    (nps * NONCE_SIZE) as f64 / 1024.0 / 1024.0 / 1024.0
-                )
-            } else {
-                String::new()
-            };
+            let mode_tag = ring_mode_tag(predicted_splits, ring_size);
 
             println!(
-                "- device {}, {} - {}, cores={}, kws={}, ring={} nonces, GPU-RAM={:.2}/{:.2} GiB, max-alloc={:.2} GiB{}",
+                "- device {}, {} - {}, cores={}, kws={}, ring={} nonces, GPU-RAM={:.2}/{:.2} GiB [{}], max-alloc={:.2} GiB",
                 j,
                 vendor,
                 name,
@@ -710,8 +744,8 @@ pub fn platform_info() {
                 ring_size,
                 mem_needed as f64 / 1024.0 / 1024.0 / 1024.0,
                 mem as f64 / 1024.0 / 1024.0 / 1024.0,
+                mode_tag,
                 max_alloc as f64 / 1024.0 / 1024.0 / 1024.0,
-                split_info,
             );
         }
     }
@@ -724,38 +758,54 @@ fn get_kernel_work_group_size(kernel: &Kernel, device: &Device, kws_override: us
     kernel.get_work_group_size(device.id()).unwrap_or(256)
 }
 
-/// Auto-reduce cores and kws until ring buffer fits in max_alloc or
-/// reaches the irreducible minimum (8192 nonces = 2 GiB).
+/// Returns `true` if the OpenCL driver for this vendor is known to honor
+/// allocations larger than its reported `CL_DEVICE_MAX_MEM_ALLOC_SIZE`.
 ///
-/// Strategy:
-/// 1. Reduce cores to prev_power_of_two — maximizes gcd(worksize, 8192),
-///    ensuring ring_size = exactly 8192 when worksize ≤ 8192.
-/// 2. Halve kws while ring_bytes > max_alloc AND ring_size > 8192.
-///    Stops at the 8192 floor since further halving cannot shrink the ring.
-/// 3. If ring still exceeds max_alloc (i.e. max_alloc < 2 GiB), splitting
-///    handles the rest (see `compute_ring_splits`).
+/// NVIDIA's OpenCL driver caps the reported value at ~25% of global memory
+/// but accepts much larger single-buffer allocations in practice (verified
+/// on RTX 2000 Ada / RTX 3060). For permissive vendors we keep full cores
+/// and full kws; if the speculative allocation actually fails, the caller
+/// falls back to split mode.
+fn trust_oversize_alloc(vendor: &str) -> bool {
+    vendor.to_uppercase().contains("NVIDIA")
+}
+
+/// Pick worksize parameters (kws, cores) that the GPU should run with.
+///
+/// On vendors known to honor allocations beyond the reported `max_alloc`
+/// (NVIDIA), keep the device-reported `device_kws` and `cores` unchanged
+/// — the caller will attempt a single-buffer ring allocation and only
+/// fall back to split-mode if that allocation fails at runtime.
+///
+/// Otherwise, cap the ring at `max(2 GiB, max_alloc)` by reducing cores
+/// to the next power of 2 (so worksize divides `COMPRESS_BATCH` cleanly,
+/// preventing the kws-halving runaway documented in commit 679985f) and
+/// halving kws until the ring fits. The 2 GiB floor is the irreducible
+/// ring minimum (`COMPRESS_BATCH * NONCE_SIZE`); below that, split-mode
+/// takes over via `compute_ring_splits`.
 ///
 /// Returns (effective_kws, effective_cores, was_reduced).
-/// Skips all reduction if kws_override is set.
+/// Skips all reduction if `kws_override` is set.
 fn fit_kws_to_max_alloc(
     device_kws: usize,
     cores: usize,
     max_alloc: u64,
     kws_override: usize,
+    trust_oversize_alloc: bool,
 ) -> (usize, usize, bool) {
     if kws_override != 0 {
         return (kws_override, cores, false);
     }
-    let min_ring_bytes = COMPRESS_BATCH * NONCE_SIZE; // 2 GiB floor
-                                                      // Step 1: reduce cores to next lower power of 2
+    if trust_oversize_alloc {
+        return (device_kws, cores, false);
+    }
+    let target = max_alloc.max(COMPRESS_BATCH * NONCE_SIZE);
     let effective_cores = prev_power_of_two(cores);
-    // Step 2: halve kws while ring exceeds max_alloc and hasn't hit the floor
     let mut kws = device_kws;
     loop {
         let worksize = (kws * effective_cores) as u64;
-        let ring_size = compute_ring_size(worksize);
-        let ring_bytes = ring_size * NONCE_SIZE;
-        if ring_bytes <= max_alloc || ring_bytes <= min_ring_bytes || kws <= 1 {
+        let ring_bytes = compute_ring_size(worksize) * NONCE_SIZE;
+        if ring_bytes <= target || kws <= 1 {
             break;
         }
         kws /= 2;
@@ -770,6 +820,35 @@ fn prev_power_of_two(n: usize) -> usize {
         return 1;
     }
     1 << (usize::BITS - 1 - n.leading_zeros())
+}
+
+/// Predict the ring-mode that `GpuRingContext::new` will attempt first.
+///
+/// When `max_alloc >= 2 GiB` we attempt a single-buffer allocation regardless
+/// of the ring size — NVIDIA reports a conservative `max_alloc` (~25% of
+/// global) but its driver honors larger allocations. If that allocation
+/// actually fails at runtime, the caller falls back to split-mode using
+/// `compute_ring_splits`. Below 2 GiB, split-mode is mandatory upfront.
+fn predict_num_splits(ring_bytes: u64, max_alloc: u64) -> usize {
+    if max_alloc >= COMPRESS_BATCH * NONCE_SIZE {
+        1
+    } else {
+        compute_ring_splits(ring_bytes, max_alloc)
+    }
+}
+
+/// Render the ring-mode indicator shown in the CLI banner.
+fn ring_mode_tag(num_splits: usize, ring_size: u64) -> String {
+    if num_splits > 1 {
+        let nps = nonces_per_sub_aligned(ring_size, num_splits);
+        format!(
+            "ring=split {}x{:.2} GiB",
+            num_splits,
+            (nps * NONCE_SIZE) as f64 / 1024.0 / 1024.0 / 1024.0
+        )
+    } else {
+        "ring=single".to_string()
+    }
 }
 
 /// Determine how many sub-buffers are needed to fit ring_bytes into max_alloc.
@@ -935,12 +1014,19 @@ pub fn gpu_get_info(
         min(gpu_cores, max_compute_units)
     };
 
-    let (kernel_workgroup_size, effective_cores, was_reduced) =
-        fit_kws_to_max_alloc(device_kws, gpu_cores, max_alloc, kws_override);
+    let vendor = device.vendor().unwrap_or_default();
+    let trust_oversize = trust_oversize_alloc(&vendor);
+    let (kernel_workgroup_size, effective_cores, was_reduced) = fit_kws_to_max_alloc(
+        device_kws,
+        gpu_cores,
+        max_alloc,
+        kws_override,
+        trust_oversize,
+    );
     let worksize = (effective_cores * kernel_workgroup_size) as u64;
     let ring_size = compute_ring_size(worksize);
     let ring_bytes = ring_size * NONCE_SIZE;
-    let num_splits = compute_ring_splits(ring_bytes, max_alloc);
+    let predicted_splits = predict_num_splits(ring_bytes, max_alloc);
     let mem_needed = gpu_mem_needed(worksize, ring_size);
 
     if mem_needed > mem {
@@ -952,7 +1038,6 @@ pub fn gpu_get_info(
     }
 
     if !quiet {
-        let vendor = device.vendor().unwrap_or_else(|_| "Unknown".to_string());
         let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
         let cu_info = if effective_cores < max_compute_units {
             format!("{} of {}", effective_cores, max_compute_units)
@@ -968,23 +1053,14 @@ pub fn gpu_get_info(
             "GPU: {} - {} [{} CUs, {} kws]",
             vendor, name, cu_info, kws_info
         );
-        let split_info = if num_splits > 1 {
-            let nps = nonces_per_sub_aligned(ring_size, num_splits);
-            format!(
-                ", split={}x{:.2} GiB",
-                num_splits,
-                (nps * NONCE_SIZE) as f64 / 1024.0 / 1024.0 / 1024.0
-            )
-        } else {
-            String::new()
-        };
+        let mode_tag = ring_mode_tag(predicted_splits, ring_size);
         println!(
-            "     worksize={}, ring={} nonces{}, GPU-RAM: {:.2}/{:.2} GiB",
+            "     worksize={}, ring={} nonces, GPU-RAM: {:.2}/{:.2} GiB [{}]",
             worksize,
             ring_size,
-            split_info,
             mem_needed as f64 / 1024.0 / 1024.0 / 1024.0,
             mem as f64 / 1024.0 / 1024.0 / 1024.0,
+            mode_tag,
         );
     }
 
@@ -1086,12 +1162,15 @@ mod tests {
         assert_eq!(prev_power_of_two(32), 32);
     }
 
+    // Conservative path (non-permissive driver) reduces cores to pow2 + halves kws.
+    // Permissive path (trust_oversize=true, NVIDIA-style) keeps full cores+kws.
+
     #[test]
     fn test_fit_kws_cores_reduction() {
         let max_alloc_2gib = 2 * 1024 * 1024 * 1024u64;
         // 10 cores, kws=256: should reduce cores to 8 (power of 2)
         // worksize=8*256=2048, ring=8192, ring_bytes=2GiB
-        let (kws, cores, reduced) = fit_kws_to_max_alloc(256, 10, max_alloc_2gib, 0);
+        let (kws, cores, reduced) = fit_kws_to_max_alloc(256, 10, max_alloc_2gib, 0, false);
         assert_eq!(cores, 8, "cores should be reduced to 8");
         assert!(reduced, "should be marked as reduced");
         let ring = compute_ring_size((kws * cores) as u64);
@@ -1102,7 +1181,7 @@ mod tests {
     fn test_fit_kws_power_of_two_cores_unchanged() {
         let max_alloc_4gib = 4 * 1024 * 1024 * 1024u64;
         // 8 cores already power of 2, plenty of max_alloc
-        let (kws, cores, reduced) = fit_kws_to_max_alloc(256, 8, max_alloc_4gib, 0);
+        let (kws, cores, reduced) = fit_kws_to_max_alloc(256, 8, max_alloc_4gib, 0, false);
         assert_eq!(cores, 8);
         assert_eq!(kws, 256);
         assert!(!reduced);
@@ -1111,18 +1190,22 @@ mod tests {
     #[test]
     fn test_fit_kws_override_bypasses_reduction() {
         let max_alloc_1gib = 1024 * 1024 * 1024u64;
-        let (kws, cores, reduced) = fit_kws_to_max_alloc(256, 10, max_alloc_1gib, 64);
+        let (kws, cores, reduced) = fit_kws_to_max_alloc(256, 10, max_alloc_1gib, 64, false);
         assert_eq!(kws, 64, "override should be used as-is");
         assert_eq!(cores, 10, "cores should not be reduced with override");
         assert!(!reduced);
+        // Override path also bypasses the permissive driver shortcut.
+        let (kws, cores, _) = fit_kws_to_max_alloc(256, 10, max_alloc_1gib, 64, true);
+        assert_eq!(kws, 64);
+        assert_eq!(cores, 10);
     }
 
     #[test]
     fn test_fit_kws_stops_at_floor_when_max_alloc_below_2gib() {
-        // max_alloc = 1.5 GiB (below 2 GiB floor)
+        // max_alloc = 1.5 GiB (below 2 GiB floor) — split-mode rescue territory.
         let max_alloc_1_5g = 3 * 1024 * 1024 * 1024 / 2;
         // 8 cores, kws=256: worksize=2048, ring=8192 (2 GiB floor) — can't go lower
-        let (kws, cores, _reduced) = fit_kws_to_max_alloc(256, 8, max_alloc_1_5g, 0);
+        let (kws, cores, _reduced) = fit_kws_to_max_alloc(256, 8, max_alloc_1_5g, 0, false);
         assert_eq!(cores, 8);
         assert_eq!(kws, 256, "kws should not be reduced past the ring floor");
         let ring_bytes = compute_ring_size((kws * cores) as u64) * NONCE_SIZE;
@@ -1135,7 +1218,7 @@ mod tests {
         let max_alloc_3g = 3 * 1024 * 1024 * 1024u64;
         // 48 cores → 32 (power of 2), kws=512: worksize=16384, ring=16384 (4 GiB)
         // halve to kws=256: worksize=8192, ring=8192 (2 GiB) → fits
-        let (kws, cores, reduced) = fit_kws_to_max_alloc(512, 48, max_alloc_3g, 0);
+        let (kws, cores, reduced) = fit_kws_to_max_alloc(512, 48, max_alloc_3g, 0, false);
         assert_eq!(cores, 32);
         let ring_bytes = compute_ring_size((kws * cores) as u64) * NONCE_SIZE;
         assert!(ring_bytes <= max_alloc_3g);
@@ -1146,7 +1229,7 @@ mod tests {
     fn test_fit_kws_32core_512kws_2gib() {
         // Real case: 32 CU iGPU, kws=512, max_alloc=2 GiB
         let max_alloc_2gib = 2 * 1024 * 1024 * 1024u64;
-        let (kws, cores, reduced) = fit_kws_to_max_alloc(512, 32, max_alloc_2gib, 0);
+        let (kws, cores, reduced) = fit_kws_to_max_alloc(512, 32, max_alloc_2gib, 0, false);
         assert_eq!(cores, 32);
         // worksize=32*512=16384, ring=16384 (4 GiB) → halve
         // kws=256: worksize=8192, ring=8192 (2 GiB) → fits
@@ -1154,6 +1237,154 @@ mod tests {
         assert!(reduced);
         let ring = compute_ring_size((kws * cores) as u64);
         assert_eq!(ring, 8192);
+    }
+
+    #[test]
+    fn test_trust_oversize_alloc_vendor_match() {
+        assert!(trust_oversize_alloc("NVIDIA Corporation"));
+        assert!(trust_oversize_alloc("nvidia corporation"));
+        assert!(!trust_oversize_alloc("Intel(R) Corporation"));
+        assert!(!trust_oversize_alloc("Advanced Micro Devices, Inc."));
+        assert!(!trust_oversize_alloc("Apple"));
+        assert!(!trust_oversize_alloc(""));
+    }
+
+    /// Card-table tests mirroring the analysis in PoC-Consortium/pocx#51.
+    /// Each test asserts (effective_cores, effective_kws, predicted_splits)
+    /// for a representative real or plausible device configuration.
+    #[allow(clippy::too_many_arguments)]
+    fn assert_card(
+        label: &str,
+        device_kws: usize,
+        cores: usize,
+        max_alloc_gib: f64,
+        trust_oversize: bool,
+        expected_cores: usize,
+        expected_kws: usize,
+        expected_splits: usize,
+    ) {
+        let max_alloc = (max_alloc_gib * 1024.0 * 1024.0 * 1024.0) as u64;
+        let (kws, eff_cores, _was_reduced) =
+            fit_kws_to_max_alloc(device_kws, cores, max_alloc, 0, trust_oversize);
+        let worksize = (eff_cores * kws) as u64;
+        let ring_bytes = compute_ring_size(worksize) * NONCE_SIZE;
+        let splits = predict_num_splits(ring_bytes, max_alloc);
+        assert_eq!(
+            (eff_cores, kws, splits),
+            (expected_cores, expected_kws, expected_splits),
+            "{}: got (cores={}, kws={}, splits={}) expected (cores={}, kws={}, splits={})",
+            label,
+            eff_cores,
+            kws,
+            splits,
+            expected_cores,
+            expected_kws,
+            expected_splits,
+        );
+    }
+
+    #[test]
+    fn card_rtx_4090() {
+        // 128 SMs (already pow2), ~6 GiB max_alloc on 24 GiB. Permissive driver.
+        // Full ring = 128*256 = 32768 worksize, 32768 nonces = 8 GiB. Single-buffer
+        // attempted; NVIDIA driver honors oversize alloc.
+        assert_card("RTX 4090", 256, 128, 6.0, true, 128, 256, 1);
+    }
+
+    #[test]
+    fn card_rtx_5090() {
+        // 170 SMs (non-pow2), ~8 GiB max_alloc on 32 GiB. Permissive driver.
+        // Full ring = 170*256 = 43520 worksize, 51200 nonces = 12.5 GiB.
+        assert_card("RTX 5090", 256, 170, 8.0, true, 170, 256, 1);
+    }
+
+    #[test]
+    fn card_rtx_3080() {
+        // 68 SMs (non-pow2), ~3 GiB max_alloc on 12 GiB. Permissive driver.
+        // Full ring = 68*256 = 17408 worksize, 25088 nonces ≈ 6.125 GiB.
+        assert_card("RTX 3080", 256, 68, 3.0, true, 68, 256, 1);
+    }
+
+    #[test]
+    fn card_rtx_3060() {
+        // Issue #51 reporter card. 28 SMs, ~2.91 GiB max_alloc on 12 GiB.
+        // Full ring = 28*256 = 7168 worksize, 14336 nonces = 3.5 GiB.
+        // Confirmed working with -k 256 on the actual hardware.
+        assert_card("RTX 3060", 256, 28, 2.91, true, 28, 256, 1);
+    }
+
+    #[test]
+    fn card_rtx_2000_ada() {
+        // Verified on this dev machine. 22 SMs, 4.0 GiB max_alloc on 16 GiB.
+        // Full ring = 22*256 = 5632 worksize, 13312 nonces = 3.25 GiB. Fits
+        // even within the conservatively-reported max_alloc.
+        assert_card("RTX 2000 Ada", 256, 22, 4.0, true, 22, 256, 1);
+    }
+
+    #[test]
+    fn card_intel_uhd_770() {
+        // 32 EUs (already pow2), kws=512, max_alloc≈4 GiB. Conservative driver.
+        // 32*512=16384, ring=16384 = 4 GiB; reported max_alloc rounds slightly
+        // below 4 GiB so kws halves to 256, ring=8192 = 2 GiB.
+        // Use 3.99 GiB for max_alloc since Intel reports just under exact 4 GiB.
+        assert_card("Intel UHD 770", 512, 32, 3.99, false, 32, 256, 1);
+    }
+
+    #[test]
+    fn card_5700g_apu() {
+        // Ryzen 5700G iGPU: 8 CUs (pow2). Assume max_alloc ≥ 2 GiB.
+        // Full kws=256: ring = 8192 = 2 GiB exactly. Single buffer.
+        assert_card("Ryzen 5700G", 256, 8, 2.0, false, 8, 256, 1);
+    }
+
+    #[test]
+    fn card_m3_mac_mini() {
+        // M3 mini iGPU: 10 cores. Apple OpenCL is conservative-class.
+        // Conservative path reduces to pow2(10)=8, kws=256, ring=8192=2GiB.
+        assert_card("M3 mac mini", 256, 10, 2.0, false, 8, 256, 1);
+    }
+
+    #[test]
+    fn card_tight_igpu() {
+        // Pathological 10-core iGPU with max_alloc=1 GiB (truly tight APU).
+        // Conservative path: pow2(10)=8, kws=256, ring=8192=2 GiB.
+        // predict_num_splits: max_alloc < 2 GiB → split into ceil(2/1)=2.
+        assert_card("tight iGPU 1 GiB", 256, 10, 1.0, false, 8, 256, 2);
+    }
+
+    #[test]
+    fn card_very_tight_igpu() {
+        // Extreme APU with max_alloc=512 MiB → 4-way split (the supported limit).
+        assert_card("very tight iGPU 512 MiB", 256, 8, 0.5, false, 8, 256, 4);
+    }
+
+    #[test]
+    fn predict_num_splits_above_2gib_is_single() {
+        // Above the 2 GiB threshold we always intend single-buffer mode.
+        // The runtime alloc-fail fallback handles the rare case where the
+        // driver doesn't honor an oversize request.
+        let four_gib = 4 * 1024 * 1024 * 1024u64;
+        let three_gib = 3 * 1024 * 1024 * 1024u64;
+        // ring=8 GiB on a 4 GiB max_alloc — single intended (NVIDIA-style)
+        assert_eq!(predict_num_splits(8 * 1024 * 1024 * 1024u64, four_gib), 1);
+        assert_eq!(predict_num_splits(three_gib, four_gib), 1);
+    }
+
+    #[test]
+    fn predict_num_splits_below_2gib_uses_compute_ring_splits() {
+        let two_gib = COMPRESS_BATCH * NONCE_SIZE;
+        let one_gib = 1024 * 1024 * 1024u64;
+        let half_gib = 512 * 1024 * 1024u64;
+        assert_eq!(predict_num_splits(two_gib, one_gib), 2);
+        assert_eq!(predict_num_splits(two_gib, half_gib), 4);
+    }
+
+    #[test]
+    fn ring_mode_tag_format() {
+        assert_eq!(ring_mode_tag(1, 8192), "ring=single");
+        let tag = ring_mode_tag(2, 8192);
+        assert!(tag.starts_with("ring=split 2x"), "got: {}", tag);
+        assert!(tag.contains("GiB"), "got: {}", tag);
     }
 
     #[test]
