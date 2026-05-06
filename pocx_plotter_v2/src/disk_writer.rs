@@ -109,14 +109,12 @@ pub fn create_writer_thread(
                                 return Err(e.into());
                             }
                         };
-                        if let Err(e) = optimized_plot_file
-                            .write_optimised_buffer_into_plotfile(
-                                &bs,
-                                warp_offset,
-                                warps_to_write,
-                                &pb,
-                            )
-                        {
+                        if let Err(e) = optimized_plot_file.write_optimised_buffer_into_plotfile(
+                            &bs,
+                            warp_offset,
+                            warps_to_write,
+                            &pb,
+                        ) {
                             let msg = format!(
                                 "Writer[{}] write to '{}' failed: {}",
                                 path_ptr, &task.output_paths[path_ptr], e
