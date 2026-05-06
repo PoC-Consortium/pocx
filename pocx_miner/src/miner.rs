@@ -1076,11 +1076,11 @@ impl Miner {
                 {
                     // Derive adjusted quality for comparison (target_quality and best_quality
                     // are in adjusted units)
-                    let adjusted_quality = if chain_state.base_target > 0 {
-                        submission_parameter.nonce_submission.raw_quality / chain_state.base_target
-                    } else {
-                        u64::MAX
-                    };
+                    let adjusted_quality = submission_parameter
+                        .nonce_submission
+                        .raw_quality
+                        .checked_div(chain_state.base_target)
+                        .unwrap_or(u64::MAX);
 
                     // Determine best quality based on submission mode
                     let best_quality = if chain_state.submission_mode == SubmissionMode::Wallet {

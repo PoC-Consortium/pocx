@@ -97,6 +97,46 @@ pub fn create_ring_scheduler_thread(
             }
         }
 
+        // Issue #48: handle marker-full kill-window state. See cpu_scheduler.rs
+        // for the full rationale. For each path whose resume marker reports the
+        // first plot already 100% complete, dispatch a Finalize to the writer
+        // and advance per-path counters as if the boundary just fired.
+        let mut needs_seed_reupload = false;
+        for i in 0..num_paths {
+            if task.warps[i] == 0 || resumes[i] < task.warps[i] {
+                continue;
+            }
+            let _ = tx_full_per_path[i].send(WriterTask::Finalize {
+                seed: seeds[i],
+                number_of_warps: task.warps[i],
+            });
+            files_done[i] += 1;
+            warp_offsets[i] = 0;
+            global_nonces[i] = 0;
+            if files_done[i] < task.number_of_plots[i] {
+                rand::rng().fill(&mut seeds[i]);
+                if i == path_pointer {
+                    needs_seed_reupload = true;
+                }
+            }
+        }
+        // If path_pointer's first plot was finalized and no more plots remain
+        // for it, advance to the next not-yet-done path.
+        if files_done[path_pointer] >= task.number_of_plots[path_pointer] {
+            if let Some((i, _)) = files_done
+                .iter()
+                .zip(task.number_of_plots.iter())
+                .enumerate()
+                .find(|(_, (d, n))| d < n)
+            {
+                path_pointer = i;
+                needs_seed_reupload = true;
+            }
+        }
+        if needs_seed_reupload {
+            gpu_upload_seed(&mut gpu_ctx, &seeds[path_pointer]);
+        }
+
         // Escalation: accumulate multiple warps into one write buffer
         let mut write_buffer: Option<PageAlignedByteBuffer> = None;
         let mut warps_in_buffer: u64 = 0;

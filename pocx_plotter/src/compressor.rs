@@ -87,6 +87,17 @@ pub fn create_chunk_compressor_thread(
             .sum::<u64>()
             - resume;
 
+        // Issue #48: when every requested plot is already accounted for in the
+        // resume marker, the scheduler dispatches Finalize tasks at init and
+        // sends nothing to the compressor. Without this, the for-loop below
+        // would block on the first recv(). Shut down the writers and return.
+        if total_warps == 0 {
+            for writer in tx_full_write_buffers {
+                let _ = writer.send(WriterTask::EndTask);
+            }
+            return;
+        }
+
         for read_buffer in rx_full_plot_buffers {
             let mutex_read_buffer = &(read_buffer.buffer).get_buffer();
             let mut mutex_read_buffer =

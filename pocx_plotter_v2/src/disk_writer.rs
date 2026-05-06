@@ -37,6 +37,15 @@ pub enum WriterTask {
         warps_to_write: u64,
         number_of_warps: u64,
     },
+    /// Finalize an already-fully-written `.tmp` (resume marker says
+    /// `progress == number_of_warps`) by renaming it to `.pocx`.
+    /// Used when the previous run was killed in the window between the final
+    /// `write_resume_info` and the `.tmp → .pocx` rename
+    /// (`pocx_plotfile/src/lib.rs:789-797`).
+    Finalize {
+        seed: [u8; 32],
+        number_of_warps: u64,
+    },
 }
 
 pub fn create_writer_thread(
@@ -109,6 +118,40 @@ pub fn create_writer_thread(
                         // the final .tmp → .pocx rename.
                         eprintln!("WARNING: Writer[{}] buffer return channel closed, remaining tasks may be lost", path_ptr);
                         break;
+                    }
+                }
+                WriterTask::Finalize {
+                    seed,
+                    number_of_warps,
+                } => {
+                    if !task.benchmark {
+                        let mut plot_file = match PoCXPlotFile::new(
+                            &task.output_paths[path_ptr],
+                            &task.address_payload,
+                            &seed,
+                            number_of_warps,
+                            task.compress,
+                            task.direct_io,
+                            false,
+                        ) {
+                            Ok(pf) => pf,
+                            Err(e) => {
+                                eprintln!(
+                                    "ERROR: Writer[{}] cannot open file for finalize: {}",
+                                    path_ptr, e
+                                );
+                                continue;
+                            }
+                        };
+                        if let Err(e) = plot_file.finalize() {
+                            eprintln!(
+                                "ERROR: Writer[{}] finalize (rename .tmp → .pocx) failed: {}",
+                                path_ptr, e
+                            );
+                        }
+                    }
+                    if let Some(cb) = get_plotter_callback() {
+                        cb.on_writing_progress(0);
                     }
                 }
             }
