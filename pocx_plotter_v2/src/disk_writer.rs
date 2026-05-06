@@ -21,8 +21,10 @@
 // SOFTWARE.
 
 use crate::buffer::PageAlignedByteBuffer;
+use crate::error::Result;
 use crate::get_plotter_callback;
 use crate::plotter::{PlotterTask, WARP_SIZE};
+use crate::request_stop;
 use crossbeam_channel::{Receiver, Sender};
 use pocx_plotfile::PoCXPlotFile;
 use std::sync::Arc;
@@ -54,7 +56,7 @@ pub fn create_writer_thread(
     rx_buffers_to_writer: Receiver<WriterTask>,
     tx_empty_buffers: Sender<PageAlignedByteBuffer>,
     path_ptr: usize,
-) -> impl FnOnce() {
+) -> impl FnOnce() -> Result<()> {
     move || {
         for write_task in rx_buffers_to_writer {
             match write_task {
@@ -84,7 +86,7 @@ pub fn create_writer_thread(
                     let delta = warps_to_write * WARP_SIZE;
 
                     if !task.benchmark {
-                        let mut optimized_plot_file = PoCXPlotFile::new(
+                        let mut optimized_plot_file = match PoCXPlotFile::new(
                             &task.output_paths[path_ptr],
                             &task.address_payload,
                             &seed,
@@ -92,16 +94,40 @@ pub fn create_writer_thread(
                             task.compress,
                             task.direct_io,
                             warp_offset == 0,
-                        )
-                        .expect("can't open output file");
-                        optimized_plot_file
+                        ) {
+                            Ok(pf) => pf,
+                            Err(e) => {
+                                let msg = format!(
+                                    "Writer[{}] cannot open '{}': {}",
+                                    path_ptr, &task.output_paths[path_ptr], e
+                                );
+                                eprintln!("ERROR: {}", msg);
+                                if let Some(cb) = get_plotter_callback() {
+                                    cb.on_error(&msg);
+                                }
+                                request_stop();
+                                return Err(e.into());
+                            }
+                        };
+                        if let Err(e) = optimized_plot_file
                             .write_optimised_buffer_into_plotfile(
                                 &bs,
                                 warp_offset,
                                 warps_to_write,
                                 &pb,
                             )
-                            .expect("error writing to file");
+                        {
+                            let msg = format!(
+                                "Writer[{}] write to '{}' failed: {}",
+                                path_ptr, &task.output_paths[path_ptr], e
+                            );
+                            eprintln!("ERROR: {}", msg);
+                            if let Some(cb) = get_plotter_callback() {
+                                cb.on_error(&msg);
+                            }
+                            request_stop();
+                            return Err(e.into());
+                        }
                     } else if let Some(pbr) = &pb {
                         pbr.inc(delta);
                     }
@@ -156,5 +182,6 @@ pub fn create_writer_thread(
                 }
             }
         }
+        Ok(())
     }
 }
