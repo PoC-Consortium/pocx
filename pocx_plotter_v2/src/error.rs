@@ -112,6 +112,15 @@ impl From<hex::FromHexError> for PoCXPlotterError {
     }
 }
 
+impl From<pocx_plotfile::PoCXPlotFileError> for PoCXPlotterError {
+    fn from(err: pocx_plotfile::PoCXPlotFileError) -> Self {
+        match err {
+            pocx_plotfile::PoCXPlotFileError::Io(io) => PoCXPlotterError::Io(io),
+            other => PoCXPlotterError::Io(std::io::Error::other(other.to_string())),
+        }
+    }
+}
+
 /// Result type for PoCX Plotter operations
 pub type Result<T> = std::result::Result<T, PoCXPlotterError>;
 

@@ -138,15 +138,20 @@ pub fn create_cpu_scheduler_thread(
                             current_warps: u64,
                             tx_per_path: &[Sender<WriterTask>]| {
             if let Some(buf) = write_buffer.take() {
-                tx_per_path[buffer_path]
-                    .send(WriterTask::ProcessTask {
-                        buffer: buf,
-                        seed,
-                        warp_offset: *buffer_start_warp,
-                        warps_to_write: *warps_in_buffer,
-                        number_of_warps: current_warps,
-                    })
-                    .expect("Failed to send to writer");
+                if let Err(e) = tx_per_path[buffer_path].send(WriterTask::ProcessTask {
+                    buffer: buf,
+                    seed,
+                    warp_offset: *buffer_start_warp,
+                    warps_to_write: *warps_in_buffer,
+                    number_of_warps: current_warps,
+                }) {
+                    eprintln!(
+                        "WARNING: cpu_scheduler: writer for path {} unavailable, stopping: {}",
+                        buffer_path, e
+                    );
+                    crate::request_stop();
+                    return;
+                }
                 *warps_in_buffer = 0;
                 *buffer_start_warp = next_warp_offset;
             }

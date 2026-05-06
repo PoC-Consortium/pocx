@@ -452,10 +452,19 @@ impl Plotter {
             }
         }
 
+        let mut first_writer_err: Option<PoCXPlotterError> = None;
         for writer in writers {
-            writer
+            let join_result = writer
                 .join()
                 .map_err(|_| PoCXPlotterError::Channel("Writer thread panicked".to_string()))?;
+            if let Err(e) = join_result {
+                if first_writer_err.is_none() {
+                    first_writer_err = Some(e);
+                }
+            }
+        }
+        if let Some(e) = first_writer_err {
+            return Err(e);
         }
 
         let elapsed = start_time.elapsed().as_millis() as u64;
