@@ -597,9 +597,9 @@ checksum = "3c877555693c14d2f84191cfd3ad8582790fc52b5e2274b40b59cf5f5cea25c7"
 
 [[package]]
 name = "diesel"
-version = "2.3.7"
+version = "2.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4ae09a41a4b89f94ec1e053623da8340d996bc32c6517d325a9daad9b239358"
+checksum = "9940fb8467a0a06312218ed384185cb8536aa10d8ec017d0ce7fad2c1bd882d5"
 dependencies = [
  "chrono",
  "diesel_derives",
@@ -1154,7 +1154,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.62.2",
+ "windows-core",
 ]
 
 [[package]]
@@ -1752,7 +1752,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_address"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "bech32",
  "bs58",
@@ -1761,7 +1761,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_aggregator"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "axum",
  "base64",
@@ -1789,7 +1789,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_hashlib"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "arbitrary",
  "criterion",
@@ -1804,7 +1804,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_miner"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "bytesize",
  "cfg-if",
@@ -1841,7 +1841,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_mockchain"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "async-trait",
  "axum",
@@ -1867,7 +1867,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_plotfile"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "arbitrary",
  "cfg-if",
@@ -1888,7 +1888,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_plotter"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "bytesize",
  "cfg-if",
@@ -1916,7 +1916,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_plotter_v2"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "cfg-if",
  "clap",
@@ -1942,7 +1942,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_protocol"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "async-trait",
  "base64",
@@ -1961,7 +1961,7 @@ dependencies = [
 
 [[package]]
 name = "pocx_verifier"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "clap",
  "hex",
@@ -3334,7 +3334,7 @@ version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "12342cb4d8e3b046f3d80effd474a7a02447231330ef77d71daa6fbc40681143"
 dependencies = [
- "windows-core 0.57.0",
+ "windows-core",
  "windows-targets 0.52.6",
 ]
 
@@ -3344,23 +3344,10 @@ version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2ed2439a290666cd67ecce2b0ffaad89c2a56b976b736e6ece670297897832d"
 dependencies = [
- "windows-implement 0.57.0",
- "windows-interface 0.57.0",
- "windows-result 0.1.2",
+ "windows-implement",
+ "windows-interface",
+ "windows-result",
  "windows-targets 0.52.6",
-]
-
-[[package]]
-name = "windows-core"
-version = "0.62.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8e83a14d34d0623b51dce9581199302a221863196a1dde71a7663a4c2be9deb"
-dependencies = [
- "windows-implement 0.60.2",
- "windows-interface 0.59.3",
- "windows-link",
- "windows-result 0.4.1",
- "windows-strings",
 ]
 
 [[package]]
@@ -3375,32 +3362,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "windows-implement"
-version = "0.60.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "053e2e040ab57b9dc951b72c264860db7eb3b0200ba345b4e4c3b14f67855ddf"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "windows-interface"
 version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29bee4b38ea3cde66011baa44dba677c432a78593e202392d1e9070cf2a7fca7"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "windows-interface"
-version = "0.59.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f316c4a2570ba26bbec722032c4099d8c8bc095efccdc15688708623367e358"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3420,24 +3385,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e383302e8ec8515204254685643de10811af0ed97ea37210dc26fb0032647f8"
 dependencies = [
  "windows-targets 0.52.6",
-]
-
-[[package]]
-name = "windows-result"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7781fa89eaf60850ac3d2da7af8e5242a5ea78d1a11c49bf2910bb5a73853eb5"
-dependencies = [
- "windows-link",
-]
-
-[[package]]
-name = "windows-strings"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7837d08f69c77cf6b07689544538e017c1bfcf57e34b4c0ff58e6c2cd3b37091"
-dependencies = [
- "windows-link",
 ]
 
 [[package]]
