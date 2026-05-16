@@ -41,8 +41,14 @@ minimum_compression_level = 1
 target_compression_level = 1
 genesis_signature = "0000000000000000000000000000000000000000000000000000000000000000"
 
+# Difficulty adjustment parameters
+[network.difficulty_adjustment]
+lookback_blocks = 24          # Blocks to analyze
+min_adjustment_ratio = 0.8    # Max 20% decrease
+max_adjustment_ratio = 1.2    # Max 20% increase
+
 [server]
-host = "127.0.0.1"
+host = "127.0.0.1"            # Use "0.0.0.0" for all interfaces
 port = 8081
 enable_cors = true
 

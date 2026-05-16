@@ -55,7 +55,8 @@ cargo build --release
 | **pocx_hashlib** | Core cryptographic library with SIMD optimizations |
 | **pocx_address** | Address encoding/decoding utilities |
 | **pocx_plotfile** | Plot file I/O with memory-mapped operations |
-| **pocx_plotter** | High-performance plot file generator |
+| **pocx_plotter** | Plot file generator (v1, low-VRAM fallback) |
+| **pocx_plotter_v2** | Plot file generator (v2, GPU-fused pipeline, recommended; requires ≥ 3 GiB GPU memory) |
 | **pocx_miner** | Mining client supporting multiple chains |
 | **pocx_aggregator** | Mining proxy aggregating submissions from multiple miners |
 | **pocx_verifier** | Plot file integrity verification tool |
@@ -64,27 +65,38 @@ cargo build --release
 
 ## Example Configuration
 
-### Mining Configuration (config.yaml)
+### Mining Configuration (miner_config.yaml)
 
 ```yaml
-# Mining pools
+# Mining chains (pools or local nodes)
 chains:
-  - name: "primary_pool"
-    base_url: "http://pool.example.com:8080"
-    api_path: "/pocx"
-    accounts:
-      - account: "your_account_id"
+  - name: 'primary_pool'
+    rpc_transport: http           # http | https
+    rpc_host: 'pool.example.com'
+    rpc_port: 8080
+    rpc_auth:
+      type: none                  # none | user_pass | cookie
+      # username: 'miner'
+      # password: 'secret'
+    block_time_seconds: 120
+    submission_mode: pool         # pool | wallet
+    # Optional per-account quality overrides
+    # accounts:
+    #   - account: '0123456789abcdef...'
+    #     target_quality: 500000
 
-# Plot file directories  
+# Plot file directories - all drives containing .pocx plot files
 plot_dirs:
-  - "/path/to/plots1"
-  - "/path/to/plots2"
+  - 'D:\'
+  # - '/mnt/plots'                # Linux example
 
 # Performance settings
-cpu_threads: 8
+cpu_threads: 0                    # 0 = auto-detect
 hdd_use_direct_io: true
 show_progress: true
 ```
+
+See `pocx_miner/miner_config.yaml` for the complete reference (cookie auth, HTTPS pools, multi-chain setups).
 
 ## Documentation
 
