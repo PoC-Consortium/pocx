@@ -3,7 +3,7 @@
 [![Release](https://img.shields.io/github/v/release/PoC-Consortium/pocx)](https://github.com/PoC-Consortium/pocx/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-%3E%3D1.75.0-brightgreen.svg)](https://www.rust-lang.org)
-![Website](https://img.shields.io/website?url=https%3A%2F%2Fbitcoin-pocx.org&up_message=Website%20here&up_color=%23ED7D31&down_message=Maintainance&down_color=lightgrey&logo=bitcoin&logoColor=%23ED7D31)
+[![Website](https://img.shields.io/website?url=https%3A%2F%2Fbitcoin-pocx.org&up_message=Bitcoin%20PoCX&up_color=%23ED7D31&down_message=Maintenance&down_color=lightgrey&logo=bitcoin&logoColor=%23ED7D31)](https://bitcoin-pocx.org)
 
 
 PoCX is a high-performance Proof-of-Capacity (PoC) cryptocurrency mining framework written in Rust. It provides tools for plot generation, mining, verification, and testing for PoC-based blockchains.
