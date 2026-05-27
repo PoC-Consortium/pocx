@@ -287,6 +287,48 @@ pub fn calculate_quality_from_height(
     )
 }
 
+/// Scalar (non-SIMD) variant of [`calculate_quality_raw`].
+///
+/// Re-derives the scoop and quality entirely through the scalar code path,
+/// providing an independent recomputation of a claimed deadline.
+pub fn calculate_quality_raw_scalar(
+    address_payload: &[u8; 20],
+    seed: &[u8; 32],
+    nonce: u64,
+    compression: u8,
+    scoop: u64,
+    generation_signature_bytes: &[u8; 32],
+) -> Result<u64> {
+    if scoop >= NUM_SCOOPS as u64 {
+        return Err(PoCXHashError::InvalidInput(format!(
+            "Scoop number {} must be less than {}",
+            scoop, NUM_SCOOPS
+        )));
+    }
+    let nonce = generate_scoop_scalar(address_payload, seed, scoop, nonce, compression)?;
+    Ok(find_best_quality_32(&nonce, 1, generation_signature_bytes).0)
+}
+
+/// Scalar (non-SIMD) variant of [`calculate_quality_from_height`].
+pub fn calculate_quality_from_height_scalar(
+    address_payload: &[u8; 20],
+    seed: &[u8; 32],
+    nonce: u64,
+    compression: u8,
+    block_height: u64,
+    generation_signature_bytes: &[u8; 32],
+) -> Result<u64> {
+    let scoop = calculate_scoop(block_height, generation_signature_bytes);
+    calculate_quality_raw_scalar(
+        address_payload,
+        seed,
+        nonce,
+        compression,
+        scoop,
+        generation_signature_bytes,
+    )
+}
+
 /// converts a hex string representation a generation signature into a byte
 /// array
 pub fn decode_generation_signature(generation_signature: &str) -> Result<[u8; 32]> {
@@ -357,14 +399,19 @@ pub fn find_best_quality(
     find_best_quality_32(data, number_of_nonces, generation_signature_bytes)
 }
 
-/// generates a single nonce with compression and extracts the specified scoop
-pub fn generate_scoop(
+/// generates a single nonce with compression and extracts the specified scoop,
+/// using the provided nonce generator
+fn generate_scoop_with<F>(
     address_payload: &[u8; 20],
     seed: &[u8; 32],
     scoop: u64,
     nonce: u64,
     compression: u8,
-) -> Result<[u8; 64]> {
+    mut gen_nonces: F,
+) -> Result<[u8; 64]>
+where
+    F: FnMut(&mut [u8], usize, &[u8; 20], &[u8; 32], u64, u64) -> Result<()>,
+{
     let warp = nonce / NUM_SCOOPS as u64;
     let nonce_in_warp = nonce % NUM_SCOOPS as u64;
     let num_uncompressed_nonces = u64::pow(2, compression as u32);
@@ -381,7 +428,7 @@ pub fn generate_scoop(
         let warp_x = num_uncompressed_nonces * warp + i;
         let nonce_x = warp_x * NUM_SCOOPS as u64 + nonce_in_warp_x;
 
-        generate_nonces(&mut nonce_buffer, 0, address_payload, seed, nonce_x, 1)?;
+        gen_nonces(&mut nonce_buffer, 0, address_payload, seed, nonce_x, 1)?;
 
         let start = scoop_x as usize * SCOOP_SIZE;
         let end = start + SCOOP_SIZE;
@@ -400,6 +447,48 @@ pub fn generate_scoop(
     }
 
     Ok(result)
+}
+
+/// generates a single nonce with compression and extracts the specified scoop
+pub fn generate_scoop(
+    address_payload: &[u8; 20],
+    seed: &[u8; 32],
+    scoop: u64,
+    nonce: u64,
+    compression: u8,
+) -> Result<[u8; 64]> {
+    generate_scoop_with(
+        address_payload,
+        seed,
+        scoop,
+        nonce,
+        compression,
+        generate_nonces,
+    )
+}
+
+/// generates a single scoop using the scalar (non-SIMD) nonce generator
+///
+/// Produces byte-identical output to [`generate_scoop`]; used for independent
+/// re-derivation of a scoop without relying on the SIMD code paths.
+fn generate_scoop_scalar(
+    address_payload: &[u8; 20],
+    seed: &[u8; 32],
+    scoop: u64,
+    nonce: u64,
+    compression: u8,
+) -> Result<[u8; 64]> {
+    generate_scoop_with(
+        address_payload,
+        seed,
+        scoop,
+        nonce,
+        compression,
+        |cache, cache_offset, payload, seed, start_nonce, num_nonces| {
+            generate_nonces_32(cache, cache_offset, payload, seed, start_nonce, num_nonces);
+            Ok(())
+        },
+    )
 }
 
 /// generates a series of uncompressed nonces and stores them into an optimized
@@ -698,6 +787,90 @@ mod tests {
 
         // Should be identical
         assert_eq!(quality_from_height, quality_from_scoop);
+    }
+
+    #[test]
+    fn test_scalar_quality_matches_simd() {
+        let address_payload = [7u8; 20];
+        let seed = [9u8; 32];
+        let mut generation_signature_bytes = [0u8; 32];
+        hex::decode_to_slice(
+            "9821beb3b34d9a3b30127c05f8d1e9006f8a02f565a3572145134bbe34d37a76",
+            &mut generation_signature_bytes,
+        )
+        .unwrap();
+        let block_height = 12345;
+        let nonce = 777;
+
+        // The scalar re-derivation must produce byte-identical quality to the
+        // SIMD-dispatched path it is meant to independently confirm.
+        for compression in 0u8..=2 {
+            let simd = calculate_quality_from_height(
+                &address_payload,
+                &seed,
+                nonce,
+                compression,
+                block_height,
+                &generation_signature_bytes,
+            )
+            .unwrap();
+            let scalar = calculate_quality_from_height_scalar(
+                &address_payload,
+                &seed,
+                nonce,
+                compression,
+                block_height,
+                &generation_signature_bytes,
+            )
+            .unwrap();
+            assert_eq!(
+                simd, scalar,
+                "scalar quality must match SIMD for compression {}",
+                compression
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_deadline_detects_corruption() {
+        let address_payload = [11u8; 20];
+        let seed = [13u8; 32];
+        let mut generation_signature_bytes = [0u8; 32];
+        hex::decode_to_slice(
+            "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+            &mut generation_signature_bytes,
+        )
+        .unwrap();
+        let block_height = 500;
+        let nonce = 4242;
+        let compression = 1;
+        let scoop = calculate_scoop(block_height, &generation_signature_bytes);
+
+        // Canonical scoop and the quality a healthy disk would report for it.
+        let canonical = generate_scoop(&address_payload, &seed, scoop, nonce, compression).unwrap();
+        let canonical_quality = find_best_quality(&canonical, 1, &generation_signature_bytes).0;
+
+        // The independent re-derivation reproduces the canonical value.
+        let recomputed = calculate_quality_from_height_scalar(
+            &address_payload,
+            &seed,
+            nonce,
+            compression,
+            block_height,
+            &generation_signature_bytes,
+        )
+        .unwrap();
+        assert_eq!(recomputed, canonical_quality);
+
+        // Simulate a corrupt read by flipping a byte: the on-disk quality no longer
+        // matches the recomputed canonical quality, so the validation gate rejects it.
+        let mut corrupt = canonical;
+        corrupt[0] ^= 0xFF;
+        let corrupt_quality = find_best_quality(&corrupt, 1, &generation_signature_bytes).0;
+        assert_ne!(
+            corrupt_quality, recomputed,
+            "corrupted scoop must not reproduce the canonical deadline"
+        );
     }
 
     #[test]

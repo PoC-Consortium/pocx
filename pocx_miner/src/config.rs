@@ -92,6 +92,9 @@ pub struct Cfg {
 
     #[serde(default = "default_enable_on_the_fly_compression")]
     pub enable_on_the_fly_compression: bool,
+
+    #[serde(default = "default_validate_deadlines")]
+    pub validate_deadlines: bool,
 }
 
 impl<'de> Deserialize<'de> for Benchmark {
@@ -168,6 +171,10 @@ fn default_enable_on_the_fly_compression() -> bool {
     true
 }
 
+fn default_validate_deadlines() -> bool {
+    false
+}
+
 pub fn load_cfg(config: &str) -> Result<Cfg, String> {
     let cfg_str = fs::read_to_string(config)
         .map_err(|e| format!("Failed to open config file '{}': {}", config, e))?;
@@ -211,6 +218,7 @@ pub struct CfgBuilder {
     get_mining_info_interval: u64,
     timeout: u64,
     enable_on_the_fly_compression: bool,
+    validate_deadlines: bool,
     line_progress: bool,
 }
 
@@ -234,6 +242,7 @@ impl CfgBuilder {
             get_mining_info_interval: default_get_mining_info_interval(),
             timeout: default_timeout(),
             enable_on_the_fly_compression: default_enable_on_the_fly_compression(),
+            validate_deadlines: default_validate_deadlines(),
             line_progress: true, // GUI mode uses line progress
         }
     }
@@ -310,6 +319,12 @@ impl CfgBuilder {
         self
     }
 
+    /// Enable/disable independent re-validation of new best deadlines
+    pub fn validate_deadlines(mut self, enabled: bool) -> Self {
+        self.validate_deadlines = enabled;
+        self
+    }
+
     /// Enable/disable line progress protocol (for GUI)
     pub fn line_progress(mut self, enabled: bool) -> Self {
         self.line_progress = enabled;
@@ -341,6 +356,7 @@ impl CfgBuilder {
             console_log_pattern: default_console_log_pattern(),
             logfile_log_pattern: default_logfile_log_pattern(),
             enable_on_the_fly_compression: self.enable_on_the_fly_compression,
+            validate_deadlines: self.validate_deadlines,
         }
     }
 }
@@ -373,6 +389,7 @@ mod tests {
             console_log_pattern: default_console_log_pattern(),
             logfile_log_pattern: default_logfile_log_pattern(),
             enable_on_the_fly_compression: default_enable_on_the_fly_compression(),
+            validate_deadlines: default_validate_deadlines(),
         };
 
         // Add mix of valid and invalid paths
