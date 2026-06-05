@@ -18,7 +18,9 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
+use std::hint::black_box;
+
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 
 use pocx_hashlib::noncegen_common::{NUM_SCOOPS, SCOOP_SIZE};
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
