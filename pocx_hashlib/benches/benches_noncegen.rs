@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use criterion::{criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 use pocx_hashlib::noncegen_128::generate_nonces_128;
@@ -47,7 +47,14 @@ fn bench_nonce_generation_none(c: &mut Criterion) {
 
     group.bench_function("generate_nonces_32", |b| {
         b.iter(|| {
-            generate_nonces_32(&mut buf, 0, &address_payload, &seed, start_nonce, 1);
+            generate_nonces_32(
+                black_box(&mut buf),
+                0,
+                black_box(&address_payload),
+                black_box(&seed),
+                black_box(start_nonce),
+                1,
+            );
         })
     });
 }
@@ -74,7 +81,14 @@ fn bench_nonce_generation_sse2avx(c: &mut Criterion) {
 
     group.bench_function("generate_nonces_128", |b| {
         b.iter(|| {
-            generate_nonces_128(&mut buf, 0, &address_payload, &seed, start_nonce, 4);
+            generate_nonces_128(
+                black_box(&mut buf),
+                0,
+                black_box(&address_payload),
+                black_box(&seed),
+                black_box(start_nonce),
+                4,
+            );
         })
     });
 }
@@ -102,7 +116,14 @@ fn bench_nonce_generation_avx2(c: &mut Criterion) {
 
     group.bench_function("generate_nonces_256", |b| {
         b.iter(|| {
-            generate_nonces_256(&mut buf, 0, &address_payload, &seed, start_nonce, 8);
+            generate_nonces_256(
+                black_box(&mut buf),
+                0,
+                black_box(&address_payload),
+                black_box(&seed),
+                black_box(start_nonce),
+                8,
+            );
         })
     });
 }
@@ -129,7 +150,14 @@ fn bench_nonce_generation_avx512(c: &mut Criterion) {
 
     group.bench_function("generate_nonces_512", |b| {
         b.iter(|| {
-            generate_nonces_512(&mut buf, 0, &address_payload, &seed, start_nonce, 16);
+            generate_nonces_512(
+                black_box(&mut buf),
+                0,
+                black_box(&address_payload),
+                black_box(&seed),
+                black_box(start_nonce),
+                16,
+            );
         })
     });
 }
@@ -158,11 +186,11 @@ fn bench_nonce_generation_neon(c: &mut Criterion) {
     group.bench_function("generate_nonces_neon", |b| {
         b.iter(|| {
             pocx_hashlib::noncegen_neon::generate_nonces_neon(
-                &mut buf,
+                black_box(&mut buf),
                 0,
-                &address_payload,
-                &seed,
-                start_nonce,
+                black_box(&address_payload),
+                black_box(&seed),
+                black_box(start_nonce),
                 4,
             );
         })

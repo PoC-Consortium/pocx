@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use criterion::{criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 
 use pocx_hashlib::noncegen_common::{NUM_SCOOPS, SCOOP_SIZE};
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -46,7 +46,11 @@ fn bench_quality_calculation_none(c: &mut Criterion) {
 
     group.bench_function("quality_32", |b| {
         b.iter(|| {
-            find_best_quality_32(&data, TOTAL_NONCES, &gensig);
+            black_box(find_best_quality_32(
+                black_box(&data),
+                black_box(TOTAL_NONCES),
+                black_box(&gensig),
+            ))
         })
     });
 }
@@ -66,7 +70,11 @@ fn bench_quality_calculation_sse2avx(c: &mut Criterion) {
 
     group.bench_function("quality_128", |b| {
         b.iter(|| {
-            find_best_quality_128(&data, TOTAL_NONCES, &gensig);
+            black_box(find_best_quality_128(
+                black_box(&data),
+                black_box(TOTAL_NONCES),
+                black_box(&gensig),
+            ))
         })
     });
 }
@@ -86,7 +94,11 @@ fn bench_quality_calculation_avx2(c: &mut Criterion) {
 
     group.bench_function("quality_256", |b| {
         b.iter(|| {
-            find_best_quality_256(&data, TOTAL_NONCES, &gensig);
+            black_box(find_best_quality_256(
+                black_box(&data),
+                black_box(TOTAL_NONCES),
+                black_box(&gensig),
+            ))
         })
     });
 }
@@ -106,7 +118,11 @@ fn bench_quality_calculation_avx512(c: &mut Criterion) {
 
     group.bench_function("quality_512", |b| {
         b.iter(|| {
-            find_best_quality_512(&data, TOTAL_NONCES, &gensig);
+            black_box(find_best_quality_512(
+                black_box(&data),
+                black_box(TOTAL_NONCES),
+                black_box(&gensig),
+            ))
         })
     });
 }
@@ -127,7 +143,11 @@ fn bench_quality_calculation_neon(c: &mut Criterion) {
 
     group.bench_function("quality_neon", |b| {
         b.iter(|| {
-            pocx_hashlib::quality_neon::find_best_quality_neon(&data, TOTAL_NONCES, &gensig);
+            black_box(pocx_hashlib::quality_neon::find_best_quality_neon(
+                black_box(&data),
+                black_box(TOTAL_NONCES),
+                black_box(&gensig),
+            ))
         })
     });
 }
