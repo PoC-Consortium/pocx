@@ -34,7 +34,7 @@ const NEON_BATCH_SIZE: usize = 4;
 ///
 /// # Returns
 /// Tuple of (best_quality, best_offset)
-#[cfg(target_arch = "aarch64")]
+#[cfg(pocx_neon)]
 pub fn find_best_quality_neon(
     data: &[u8],
     number_of_nonces: u64,
@@ -97,7 +97,7 @@ mod tests {
     use super::*;
 
     #[test]
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(pocx_neon)]
     fn test_neon_quality_hashing() {
         let gensig =
             hex::decode("4a6f686e6e7946464d206861742064656e206772f6df74656e2050656e697321")

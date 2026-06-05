@@ -20,6 +20,8 @@
 
 //! ARM NEON-optimized Shabal256 lite implementation for quality calculations
 
+#[cfg(target_arch = "arm")]
+use core::arch::arm::*;
 #[cfg(target_arch = "aarch64")]
 use std::arch::aarch64::*;
 
@@ -61,7 +63,7 @@ macro_rules! vrotlq_n_u32 {
 ///
 /// This function uses NEON intrinsics and requires the `neon` target feature.
 /// NEON is mandatory on all AArch64 processors.
-#[cfg(target_arch = "aarch64")]
+#[cfg(pocx_neon)]
 #[target_feature(enable = "neon")]
 pub unsafe fn shabal256_lite_neon(
     scoops: &[u8],
@@ -172,7 +174,7 @@ pub unsafe fn shabal256_lite_neon(
 }
 
 #[inline(always)]
-#[cfg(target_arch = "aarch64")]
+#[cfg(pocx_neon)]
 unsafe fn prepare_message_round1(
     message_data: &mut [u32; 16 * MSHABAL_NEON_VECTOR_SIZE],
     gensig: &[u8; 32],
@@ -194,7 +196,7 @@ unsafe fn prepare_message_round1(
 }
 
 #[inline(always)]
-#[cfg(target_arch = "aarch64")]
+#[cfg(pocx_neon)]
 unsafe fn prepare_message_termination(
     message_data: &mut [u32; 16 * MSHABAL_NEON_VECTOR_SIZE],
     scoops: &[u8],
@@ -215,9 +217,10 @@ unsafe fn prepare_message_termination(
     }
 }
 
-#[inline(always)]
 #[allow(clippy::too_many_arguments)]
-#[cfg(target_arch = "aarch64")]
+#[cfg(pocx_neon)]
+#[cfg_attr(target_arch = "aarch64", inline(always))]
+#[cfg_attr(target_arch = "arm", inline, target_feature(enable = "neon"))]
 unsafe fn mshabal_quality_round(
     a: &mut [uint32x4_t; 12],
     b: &mut [uint32x4_t; 16],
@@ -974,9 +977,10 @@ unsafe fn mshabal_quality_round(
     }
 }
 
-#[inline(always)]
 #[allow(clippy::too_many_arguments)]
-#[cfg(target_arch = "aarch64")]
+#[cfg(pocx_neon)]
+#[cfg_attr(target_arch = "aarch64", inline(always))]
+#[cfg_attr(target_arch = "arm", inline, target_feature(enable = "neon"))]
 unsafe fn pp_neon(
     a: &mut [uint32x4_t; 12],
     xa0_idx: usize,
@@ -1017,7 +1021,7 @@ mod tests {
     const TEST_D_RESULT: u64 = 0x2ACEA174774F5A6A;
 
     #[test]
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(pocx_neon)]
     fn test_shabal256_lite_neon() {
         // Test message C: zero-filled test data and gensig
         let test_data = [0u8; 64];

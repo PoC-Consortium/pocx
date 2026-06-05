@@ -64,7 +64,10 @@ winapi = { workspace = true }
 [features]
 default = ["simd"]
 simd = []
-neon = []
+# Enable 4-way NEON SIMD on 32-bit ARM (armv7/armhf, e.g. Odroid XU4 Cortex-A7/A15).
+# AArch64 uses NEON automatically and does NOT need this. Building with this
+# feature requires a NIGHTLY toolchain and a NEON-capable armv7 target.
+armv7_neon = ["pocx_hashlib/armv7_neon"]
 
 [dev-dependencies]
 proptest = { workspace = true }

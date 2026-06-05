@@ -41,7 +41,7 @@ use crate::noncegen_batch_256::generate_and_extract_scoops_256;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 use crate::noncegen_batch_512::generate_and_extract_scoops_512;
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(pocx_neon)]
 use crate::noncegen_batch_neon::generate_and_extract_scoops_neon;
 
 // ---------------------------------------------------------------------------
@@ -278,9 +278,9 @@ fn detect_simd_width() -> usize {
             return 4;
         }
     }
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(pocx_neon)]
     {
-        return 4; // NEON always available
+        return 4; // NEON (AArch64 always; armv7 via `armv7_neon`)
     }
     #[allow(unreachable_code)]
     1
@@ -319,7 +319,7 @@ fn process_work_range(
             }
         }
 
-        #[cfg(target_arch = "aarch64")]
+        #[cfg(pocx_neon)]
         {
             if remaining >= 4 {
                 process_batch_simd::<4>(&work_units[i..i + 4], accumulators);
@@ -382,7 +382,7 @@ fn process_batch_simd<const N: usize>(work_units: &[WorkUnit], accumulators: &[P
         4 => {
             process_batch_4lane_x86(work_units, accumulators);
         }
-        #[cfg(target_arch = "aarch64")]
+        #[cfg(pocx_neon)]
         4 => {
             let mut payloads = [[0u8; 20]; 4];
             let mut seeds = [[0u8; 32]; 4];

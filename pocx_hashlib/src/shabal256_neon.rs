@@ -26,6 +26,8 @@
 
 #![allow(clippy::too_many_arguments)]
 
+#[cfg(target_arch = "arm")]
+use core::arch::arm::*;
 #[cfg(target_arch = "aarch64")]
 use std::arch::aarch64::*;
 
@@ -72,7 +74,7 @@ macro_rules! vrotlq_n_u32 {
 /// This function uses NEON intrinsics and requires the `neon` target feature.
 /// NEON is mandatory on all AArch64 processors, so this is always available on
 /// ARM64.
-#[cfg(target_arch = "aarch64")]
+#[cfg(pocx_neon)]
 #[target_feature(enable = "neon")]
 pub unsafe fn shabal256_neon(
     data: &[u8],
@@ -218,8 +220,12 @@ pub unsafe fn shabal256_neon(
     }
 }
 
-#[inline(always)]
-#[cfg(target_arch = "aarch64")]
+#[cfg(pocx_neon)]
+// AArch64 has NEON in its baseline, so inline(always) works directly. On 32-bit
+// ARM, NEON is opt-in: the helper needs the target feature to inline the
+// intrinsics (inline(always) + target_feature is rejected, so use plain inline).
+#[cfg_attr(target_arch = "aarch64", inline(always))]
+#[cfg_attr(target_arch = "arm", inline, target_feature(enable = "neon"))]
 unsafe fn apply_p(
     a: &mut [uint32x4_t; 12],
     b: &mut [uint32x4_t; 16],
@@ -296,8 +302,9 @@ unsafe fn apply_p(
     a[11] = vaddq_u32(vaddq_u32(vaddq_u32(a[11], c[6]), c[10]), c[14]);
 }
 
-#[inline(always)]
-#[cfg(target_arch = "aarch64")]
+#[cfg(pocx_neon)]
+#[cfg_attr(target_arch = "aarch64", inline(always))]
+#[cfg_attr(target_arch = "arm", inline, target_feature(enable = "neon"))]
 unsafe fn perm_elt(
     a: &mut [uint32x4_t; 12],
     b: &mut [uint32x4_t; 16],
@@ -370,7 +377,7 @@ mod test {
     ];
 
     #[test]
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(pocx_neon)]
     fn test_shabal256_neon() {
         // Test message A x SIMD_VECTOR_SIZE
         let test_data_a = [0u8; 64 * SIMD_VECTOR_SIZE];

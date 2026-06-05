@@ -19,6 +19,13 @@
 // SOFTWARE.
 
 #![crate_name = "pocx_hashlib"]
+// 32-bit ARM NEON intrinsics and the `neon` target feature are unstable, so the
+// `armv7_neon` feature pulls in the required nightly gates. AArch64 and x86 keep
+// building on stable (no feature flags emitted there).
+#![cfg_attr(
+    all(target_arch = "arm", feature = "armv7_neon"),
+    feature(stdarch_arm_neon_intrinsics, arm_target_feature)
+)]
 
 //! # PoCX Hashlib - Universal Cryptographic Library for Proof of Capacity
 //!
@@ -81,16 +88,16 @@ use crate::quality_256::find_best_quality_256;
 use crate::quality_512::find_best_quality_512;
 
 // ARM NEON SIMD imports
-#[cfg(target_arch = "aarch64")]
+#[cfg(pocx_neon)]
 use crate::noncegen_neon::generate_nonces_neon;
-#[cfg(target_arch = "aarch64")]
+#[cfg(pocx_neon)]
 use crate::quality_neon::find_best_quality_neon;
 
 // Always available (scalar) imports
 use crate::noncegen_32::generate_nonces_32;
 use crate::noncegen_common::*;
-// Used for x86 no-SIMD fallback, unused on aarch64 (has NEON)
-#[cfg_attr(target_arch = "aarch64", allow(unused_imports))]
+// Used for x86 no-SIMD fallback, unused when NEON is active (has NEON)
+#[cfg_attr(pocx_neon, allow(unused_imports))]
 use crate::quality_32::find_best_quality_32;
 use crate::shabal256::shabal256;
 
@@ -139,16 +146,16 @@ mod shabal256_lite_sse2;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod shabal256_sse2;
 
-// ARM NEON SIMD modules
-#[cfg(target_arch = "aarch64")]
+// ARM NEON SIMD modules (AArch64 always; armv7/armhf with the `armv7_neon` feature)
+#[cfg(pocx_neon)]
 pub mod noncegen_batch_neon;
-#[cfg(target_arch = "aarch64")]
+#[cfg(pocx_neon)]
 pub mod noncegen_neon;
-#[cfg(target_arch = "aarch64")]
+#[cfg(pocx_neon)]
 pub mod quality_neon;
-#[cfg(target_arch = "aarch64")]
+#[cfg(pocx_neon)]
 mod shabal256_lite_neon;
-#[cfg(target_arch = "aarch64")]
+#[cfg(pocx_neon)]
 mod shabal256_neon;
 
 // Re-export batch validation types
@@ -338,17 +345,17 @@ pub fn find_best_quality(
     }
 }
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(pocx_neon)]
 pub fn find_best_quality(
     data: &[u8],
     number_of_nonces: u64,
     generation_signature_bytes: &[u8; 32],
 ) -> (u64, u64) {
-    // NEON is always available on AArch64
+    // NEON: always available on AArch64; opt-in on armv7 via `armv7_neon`
     find_best_quality_neon(data, number_of_nonces, generation_signature_bytes)
 }
 
-#[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64", pocx_neon)))]
 pub fn find_best_quality(
     data: &[u8],
     number_of_nonces: u64,
@@ -500,7 +507,7 @@ pub fn generate_nonces(
     Ok(())
 }
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(pocx_neon)]
 pub fn generate_nonces(
     cache: &mut [u8],
     cache_offset: usize,
@@ -518,7 +525,7 @@ pub fn generate_nonces(
         )));
     }
 
-    // NEON is always available on AArch64
+    // NEON: always available on AArch64; opt-in on armv7 via `armv7_neon`
     const NEON_VECTOR_SIZE: u64 = 4;
     let simd_nonces = num_nonces / NEON_VECTOR_SIZE * NEON_VECTOR_SIZE;
     let remainder = num_nonces % NEON_VECTOR_SIZE;
@@ -548,7 +555,7 @@ pub fn generate_nonces(
     Ok(())
 }
 
-#[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64", pocx_neon)))]
 pub fn generate_nonces(
     cache: &mut [u8],
     cache_offset: usize,

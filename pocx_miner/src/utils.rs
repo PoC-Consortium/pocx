@@ -41,7 +41,18 @@ pub fn get_simd_name() -> &'static str {
         return "NEON";
     }
 
-    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
+    // 32-bit ARM (armv7/armhf): NEON only when built with the `armv7_neon` feature.
+    #[cfg(all(target_arch = "arm", feature = "armv7_neon"))]
+    {
+        return "NEON";
+    }
+
+    #[cfg(not(any(
+        target_arch = "x86",
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        all(target_arch = "arm", feature = "armv7_neon")
+    )))]
     {
         return "Scalar";
     }

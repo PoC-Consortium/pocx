@@ -34,7 +34,7 @@ const NEON_VECTOR_SIZE: usize = 4;
 /// * `seed` - 32 byte seed
 /// * `start_nonce` - nonce to start generation at
 /// * `num_nonces` - number of nonces to generate
-#[cfg(target_arch = "aarch64")]
+#[cfg(pocx_neon)]
 pub fn generate_nonces_neon(
     cache: &mut [u8],
     cache_offset: usize,
@@ -234,7 +234,7 @@ mod tests {
     use sha2::{Digest, Sha256};
 
     #[test]
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(pocx_neon)]
     fn test_nonce_generation_neon() {
         let mut seed = [0u8; 32];
         seed[..].clone_from_slice(

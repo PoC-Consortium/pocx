@@ -37,6 +37,11 @@ arbitrary = { workspace = true }
 
 [features]
 default = []
+# Enable 4-way NEON SIMD on 32-bit ARM (armv7/armhf, e.g. Cortex-A7/A15).
+# AArch64 always uses NEON and does NOT need this feature. The 32-bit ARM NEON
+# intrinsics are unstable, so building with this feature requires a NIGHTLY
+# toolchain and a NEON-capable target (e.g. armv7-unknown-linux-gnueabihf).
+armv7_neon = []
 
 [[bench]]
 name = "benches_noncegen"

@@ -21,9 +21,12 @@
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 
 use pocx_hashlib::noncegen_common::{NUM_SCOOPS, SCOOP_SIZE};
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 use pocx_hashlib::quality_128::find_best_quality_128;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 use pocx_hashlib::quality_256::find_best_quality_256;
 use pocx_hashlib::quality_32::find_best_quality_32;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 use pocx_hashlib::quality_512::find_best_quality_512;
 
 // 16 warps * 4096 nonces * 64 bytes = 4MiB per benchmark run
@@ -48,6 +51,7 @@ fn bench_quality_calculation_none(c: &mut Criterion) {
     });
 }
 
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn bench_quality_calculation_sse2avx(c: &mut Criterion) {
     if !is_x86_feature_detected!("avx") && !is_x86_feature_detected!("sse2") {
         return;
@@ -67,6 +71,7 @@ fn bench_quality_calculation_sse2avx(c: &mut Criterion) {
     });
 }
 
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn bench_quality_calculation_avx2(c: &mut Criterion) {
     if !is_x86_feature_detected!("avx2") {
         return;
@@ -86,6 +91,7 @@ fn bench_quality_calculation_avx2(c: &mut Criterion) {
     });
 }
 
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn bench_quality_calculation_avx512(c: &mut Criterion) {
     if !is_x86_feature_detected!("avx512f") {
         return;
@@ -105,6 +111,28 @@ fn bench_quality_calculation_avx512(c: &mut Criterion) {
     });
 }
 
+// ARM NEON: AArch64 always, armv7/armhf with the `armv7_neon` feature.
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "arm", feature = "armv7_neon")
+))]
+fn bench_quality_calculation_neon(c: &mut Criterion) {
+    let mut group = c.benchmark_group("quality_calc");
+    group.sample_size(100);
+    group.throughput(Throughput::Elements(WARPS_PER_RUN));
+    group.measurement_time(std::time::Duration::new(60, 0));
+
+    let gensig = [0x55u8; 32];
+    let data = vec![0x42u8; DATA_SIZE];
+
+    group.bench_function("quality_neon", |b| {
+        b.iter(|| {
+            pocx_hashlib::quality_neon::find_best_quality_neon(&data, TOTAL_NONCES, &gensig);
+        })
+    });
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 criterion_group!(
     benches,
     bench_quality_calculation_none,
@@ -112,4 +140,24 @@ criterion_group!(
     bench_quality_calculation_avx2,
     bench_quality_calculation_avx512
 );
+
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "arm", feature = "armv7_neon")
+))]
+criterion_group!(
+    benches,
+    bench_quality_calculation_none,
+    bench_quality_calculation_neon
+);
+
+// Scalar-only targets (e.g. armv7 without the `armv7_neon` feature).
+#[cfg(not(any(
+    target_arch = "x86",
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    all(target_arch = "arm", feature = "armv7_neon")
+)))]
+criterion_group!(benches, bench_quality_calculation_none);
+
 criterion_main!(benches);

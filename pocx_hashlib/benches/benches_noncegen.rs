@@ -20,9 +20,12 @@
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 use pocx_hashlib::noncegen_128::generate_nonces_128;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 use pocx_hashlib::noncegen_256::generate_nonces_256;
 use pocx_hashlib::noncegen_32::generate_nonces_32;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 use pocx_hashlib::noncegen_512::generate_nonces_512;
 use pocx_hashlib::noncegen_common::NONCE_SIZE;
 
@@ -49,6 +52,7 @@ fn bench_nonce_generation_none(c: &mut Criterion) {
     });
 }
 
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn bench_nonce_generation_sse2avx(c: &mut Criterion) {
     if !is_x86_feature_detected!("avx") && !is_x86_feature_detected!("sse2") {
         return;
@@ -75,6 +79,7 @@ fn bench_nonce_generation_sse2avx(c: &mut Criterion) {
     });
 }
 
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn bench_nonce_generation_avx2(c: &mut Criterion) {
     if !is_x86_feature_detected!("avx2") {
         return;
@@ -102,6 +107,7 @@ fn bench_nonce_generation_avx2(c: &mut Criterion) {
     });
 }
 
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn bench_nonce_generation_avx512(c: &mut Criterion) {
     if !is_x86_feature_detected!("avx512f") {
         return;
@@ -128,6 +134,42 @@ fn bench_nonce_generation_avx512(c: &mut Criterion) {
     });
 }
 
+// ARM NEON: AArch64 always, armv7/armhf with the `armv7_neon` feature.
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "arm", feature = "armv7_neon")
+))]
+fn bench_nonce_generation_neon(c: &mut Criterion) {
+    let mut group = c.benchmark_group("nonce_gen");
+    group.sample_size(100);
+    group.throughput(Throughput::Elements(4));
+    group.measurement_time(std::time::Duration::new(60, 0));
+    let mut seed = [0u8; 32];
+    seed[..].clone_from_slice(
+        &hex::decode("AFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFEAFFE").unwrap(),
+    );
+    let mut address_payload = [0u8; 20];
+    address_payload
+        .clone_from_slice(&hex::decode("5599BC78BA577A95A11F1A344D4D2AE55F2F857B").unwrap());
+    let start_nonce = 1337;
+
+    let mut buf = vec![0; 4 * NONCE_SIZE];
+
+    group.bench_function("generate_nonces_neon", |b| {
+        b.iter(|| {
+            pocx_hashlib::noncegen_neon::generate_nonces_neon(
+                &mut buf,
+                0,
+                &address_payload,
+                &seed,
+                start_nonce,
+                4,
+            );
+        })
+    });
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 criterion_group!(
     benches,
     bench_nonce_generation_none,
@@ -135,4 +177,24 @@ criterion_group!(
     bench_nonce_generation_avx2,
     bench_nonce_generation_avx512
 );
+
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "arm", feature = "armv7_neon")
+))]
+criterion_group!(
+    benches,
+    bench_nonce_generation_none,
+    bench_nonce_generation_neon
+);
+
+// Scalar-only targets (e.g. armv7 without the `armv7_neon` feature).
+#[cfg(not(any(
+    target_arch = "x86",
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    all(target_arch = "arm", feature = "armv7_neon")
+)))]
+criterion_group!(benches, bench_nonce_generation_none);
+
 criterion_main!(benches);

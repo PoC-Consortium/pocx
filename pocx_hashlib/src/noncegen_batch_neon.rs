@@ -33,7 +33,7 @@ const NEON_VECTOR_SIZE: usize = 4;
 const V: usize = NEON_VECTOR_SIZE;
 
 /// Generate 4 nonces with independent params and extract one scoop per lane (NEON).
-#[cfg(target_arch = "aarch64")]
+#[cfg(pocx_neon)]
 pub fn generate_and_extract_scoops_neon(
     account_payloads: &[[u8; 20]; V],
     seeds: &[[u8; 32]; V],
@@ -184,7 +184,7 @@ mod tests {
     use crate::noncegen_batch_32::generate_and_extract_scoop_32;
 
     #[test]
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(pocx_neon)]
     fn test_batch_neon_matches_scalar() {
         let seeds: [[u8; 32]; V] = [[0xAA; 32], [0xBB; 32], [0xCC; 32], [0xDD; 32]];
         let payloads: [[u8; 20]; V] = [[0x01; 20], [0x02; 20], [0x03; 20], [0x04; 20]];
@@ -209,7 +209,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(pocx_neon)]
     fn test_batch_neon_same_params_different_nonces() {
         let seed = [0xAB; 32];
         let payload = [0x42; 20];
