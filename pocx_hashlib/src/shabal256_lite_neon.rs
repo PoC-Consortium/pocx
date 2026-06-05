@@ -47,10 +47,13 @@ const C_INIT: [i32; 16] = [
     0x88B59D60, 0x60E2CEBA, 0x758B4B8B, 0x83E82A7F, 0xBC968828, 0xE6E00BF7, 0xBA839E55, 0x9B491C60,
 ];
 
-/// Helper macro to perform left rotation on NEON vectors
+/// Left rotation on NEON vectors. NEON has no native rotate, but `vsri`
+/// (shift-right-and-insert) does it in 2 ops instead of the 3-op
+/// shift/shift/or: keep the top `32-n` bits of `a << n` and insert
+/// `a >> (32-n)` into the low `n` bits.
 macro_rules! vrotlq_n_u32 {
     ($a:expr, $n:expr) => {
-        vorrq_u32(vshlq_n_u32::<$n>($a), vshrq_n_u32::<{ 32 - $n }>($a))
+        vsriq_n_u32::<{ 32 - $n }>(vshlq_n_u32::<$n>($a), $a)
     };
 }
 

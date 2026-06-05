@@ -55,11 +55,13 @@ const ONE: i32 = 0xFFFFFFFF;
 const SIMD_VECTOR_SIZE: usize = 4;
 const MESSAGE_SIZE: usize = 16;
 
-/// Helper macro to perform left rotation on NEON vectors
-/// NEON doesn't have native rotate, so we synthesize it with shift + or
+/// Left rotation on NEON vectors. NEON has no native rotate, but `vsri`
+/// (shift-right-and-insert) does it in 2 ops instead of the 3-op
+/// shift/shift/or: keep the top `32-n` bits of `a << n` and insert
+/// `a >> (32-n)` into the low `n` bits.
 macro_rules! vrotlq_n_u32 {
     ($a:expr, $n:expr) => {
-        vorrq_u32(vshlq_n_u32::<$n>($a), vshrq_n_u32::<{ 32 - $n }>($a))
+        vsriq_n_u32::<{ 32 - $n }>(vshlq_n_u32::<$n>($a), $a)
     };
 }
 
