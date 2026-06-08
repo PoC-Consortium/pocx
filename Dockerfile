@@ -27,6 +27,7 @@ WORKDIR /app
 # Copy binaries from builder
 COPY --from=builder /usr/src/pocx/target/release/pocx_miner /usr/local/bin/
 COPY --from=builder /usr/src/pocx/target/release/pocx_plotter /usr/local/bin/
+COPY --from=builder /usr/src/pocx/target/release/pocx_plotter_v2 /usr/local/bin/
 COPY --from=builder /usr/src/pocx/target/release/pocx_verifier /usr/local/bin/
 COPY --from=builder /usr/src/pocx/target/release/pocx_aggregator /usr/local/bin/
 COPY --from=builder /usr/src/pocx/target/release/pocx_mockchain /usr/local/bin/
