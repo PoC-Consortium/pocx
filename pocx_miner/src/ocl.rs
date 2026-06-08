@@ -20,9 +20,13 @@
 
 //! OpenCL GPU acceleration for PoCX mining.
 
+#[cfg(feature = "opencl")]
 use crate::com::api::NonceSubmission;
+#[cfg(feature = "opencl")]
 use crate::com::api::SubmissionParameters;
+#[cfg(feature = "opencl")]
 use crate::hasher::HashingTask;
+#[cfg(feature = "opencl")]
 use pocx_plotfile::NUM_SCOOPS;
 
 #[cfg(feature = "opencl")]
@@ -63,7 +67,9 @@ pub struct GpuContext {
 
 // Safety: GpuContext is safe to send between threads as OpenCL handles are thread-safe.
 // Internal buffers are protected by Mutex.
+#[cfg(feature = "opencl")]
 unsafe impl Sync for GpuContext {}
+#[cfg(feature = "opencl")]
 unsafe impl Send for GpuContext {}
 
 #[cfg(feature = "opencl")]

@@ -72,9 +72,19 @@ async fn main() {
                 .action(clap::ArgAction::SetTrue)
                 .help("Enable machine-parsable progress protocol for GUI")
                 .hide(true),
+        )
+        .arg(
+            Arg::new("list-gpu")
+                .long("list-gpu")
+                .action(clap::ArgAction::SetTrue)
+                .help("List available GPU devices"),
         );
 
     let matches = arg.get_matches();
+    if matches.get_flag("list-gpu") {
+        crate::ocl::list_gpu_devices();
+        return;
+    }
     let config = matches.get_one::<String>("config").unwrap();
     let line_progress = matches.get_flag("line-progress");
     let mut cfg_loaded = load_cfg(config).unwrap_or_else(|e| {
