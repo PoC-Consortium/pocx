@@ -386,6 +386,71 @@ __constant static const sph_u32 C_init_512[] = {
 /* Johnny's optimised nonce calculation kernel 
  * based on the implementation found in BRS
  */
+/* PoCX Mining Kernel: Finds the best quality in a scoop buffer */
+__kernel void find_best_quality(__global const uint* scoop_data, __global const uint* gensig, __global ulong* results, uint num_nonces) {
+    uint gid = get_global_id(0);
+    if (gid >= num_nonces) return;
+
+    // Initialize Shabal state
+    sph_u32 A00 = A_init_256[0], A01 = A_init_256[1], A02 = A_init_256[2], A03 = A_init_256[3],
+            A04 = A_init_256[4], A05 = A_init_256[5], A06 = A_init_256[6], A07 = A_init_256[7],
+            A08 = A_init_256[8], A09 = A_init_256[9], A0A = A_init_256[10], A0B = A_init_256[11];
+    sph_u32 B0 = B_init_256[0], B1 = B_init_256[1], B2 = B_init_256[2], B3 = B_init_256[3],
+            B4 = B_init_256[4], B5 = B_init_256[5], B6 = B_init_256[6], B7 = B_init_256[7],
+            B8 = B_init_256[8], B9 = B_init_256[9], BA = B_init_256[10], BB = B_init_256[11],
+            BC = B_init_256[12], BD = B_init_256[13], BE = B_init_256[14], BF = B_init_256[15];
+    sph_u32 C0 = C_init_256[0], C1 = C_init_256[1], C2 = C_init_256[2], C3 = C_init_256[3],
+            C4 = C_init_256[4], C5 = C_init_256[5], C6 = C_init_256[6], C7 = C_init_256[7],
+            C8 = C_init_256[8], C9 = C_init_256[9], CA = C_init_256[10], CB = C_init_256[11],
+            CC = C_init_256[12], CD = C_init_256[13], CE = C_init_256[14], CF = C_init_256[15];
+    
+    sph_u32 Wlow = 1, Whigh = 0;
+    sph_u32 M0, M1, M2, M3, M4, M5, M6, M7, M8, M9, MA, MB, MC, MD, ME, MF;
+
+    // Load scoop data for this nonce (16 uints = 64 bytes)
+    uint scoop_offset = gid * 16;
+    
+    // First Block: gensig (32 bytes) + first 32 bytes of scoop
+    M0 = gensig[0]; M1 = gensig[1]; M2 = gensig[2]; M3 = gensig[3];
+    M4 = gensig[4]; M5 = gensig[5]; M6 = gensig[6]; M7 = gensig[7];
+    M8 = scoop_data[scoop_offset + 0]; M9 = scoop_data[scoop_offset + 1];
+    MA = scoop_data[scoop_offset + 2]; MB = scoop_data[scoop_offset + 3];
+    MC = scoop_data[scoop_offset + 4]; MD = scoop_data[scoop_offset + 5];
+    ME = scoop_data[scoop_offset + 6]; MF = scoop_data[scoop_offset + 7];
+
+    INPUT_BLOCK_ADD;
+    XOR_W;
+    APPLY_P;
+    INPUT_BLOCK_SUB;
+    SWAP_BC;
+    INCR_W;
+
+    // Second Block: last 32 bytes of scoop + term (padding)
+    M0 = scoop_data[scoop_offset + 8];  M1 = scoop_data[scoop_offset + 9];
+    M2 = scoop_data[scoop_offset + 10]; M3 = scoop_data[scoop_offset + 11];
+    M4 = scoop_data[scoop_offset + 12]; M5 = scoop_data[scoop_offset + 13];
+    M6 = scoop_data[scoop_offset + 14]; M7 = scoop_data[scoop_offset + 15];
+    M8 = 0x80; M9 = 0; MA = 0; MB = 0; MC = 0; MD = 0; ME = 0; MF = 0;
+
+    INPUT_BLOCK_ADD;
+    XOR_W;
+    APPLY_P;
+    INPUT_BLOCK_SUB;
+    SWAP_BC;
+    INCR_W;
+
+    // Finalization (3 more APPLY_P rounds as per shabal256_lite)
+    for (int i = 0; i < 3; i++) {
+        SWAP_BC;
+        XOR_W;
+        APPLY_P;
+    }
+
+    // Quality is B8 and B9 combined as a 64-bit little-endian value
+    // In OpenCL, if we just cast it to ulong, it works correctly on LE architectures
+    results[gid] = ((ulong)B9 << 32) | (ulong)B8;
+}
+
 __kernel void calculate_nonces(__global unsigned char* buffer, unsigned long startnonce, __global unsigned char* base58, __global unsigned char* seed, int start, int end, unsigned long nonces) {
 	//if (gid==0) {printf("\n\nOCL 2 %lu\n\n",startnonce);} DEBUG
 	int gid = get_global_id(0);

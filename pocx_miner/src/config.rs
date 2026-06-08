@@ -66,6 +66,15 @@ pub struct Cfg {
     #[serde(default = "default_cpu_thread_pinning")]
     pub cpu_thread_pinning: bool,
 
+    #[serde(default)]
+    pub opencl_platform: Option<usize>,
+
+    #[serde(default)]
+    pub opencl_device: Option<usize>,
+
+    #[serde(default)]
+    pub opencl_threads: usize,
+
     #[serde(default = "default_show_progress")]
     pub show_progress: bool,
 
@@ -216,6 +225,9 @@ pub struct CfgBuilder {
     hdd_read_buffer_count: usize,
     cpu_threads: usize,
     cpu_thread_pinning: bool,
+    opencl_platform: Option<usize>,
+    opencl_device: Option<usize>,
+    opencl_threads: usize,
     get_mining_info_interval: u64,
     timeout: u64,
     enable_on_the_fly_compression: bool,
@@ -240,6 +252,9 @@ impl CfgBuilder {
             hdd_read_buffer_count: default_hdd_read_buffer_count(),
             cpu_threads: 0, // 0 = auto-detect
             cpu_thread_pinning: default_cpu_thread_pinning(),
+            opencl_platform: None,
+            opencl_device: None,
+            opencl_threads: 0,
             get_mining_info_interval: default_get_mining_info_interval(),
             timeout: default_timeout(),
             enable_on_the_fly_compression: default_enable_on_the_fly_compression(),
@@ -307,6 +322,24 @@ impl CfgBuilder {
         self
     }
 
+    /// Set OpenCL platform index
+    pub fn opencl_platform(mut self, index: usize) -> Self {
+        self.opencl_platform = Some(index);
+        self
+    }
+
+    /// Set OpenCL device index
+    pub fn opencl_device(mut self, index: usize) -> Self {
+        self.opencl_device = Some(index);
+        self
+    }
+
+    /// Set OpenCL threads per GPU
+    pub fn opencl_threads(mut self, threads: usize) -> Self {
+        self.opencl_threads = threads;
+        self
+    }
+
     /// Set mining info poll interval in milliseconds
     pub fn mining_info_interval(mut self, ms: u64) -> Self {
         self.get_mining_info_interval = ms;
@@ -347,6 +380,9 @@ impl CfgBuilder {
             hdd_read_buffer_count: self.hdd_read_buffer_count,
             cpu_threads: self.cpu_threads,
             cpu_thread_pinning: self.cpu_thread_pinning,
+            opencl_platform: self.opencl_platform,
+            opencl_device: self.opencl_device,
+            opencl_threads: self.opencl_threads,
             show_progress: false, // GUI mode doesn't use progress bar
             line_progress: self.line_progress,
             benchmark: None,
@@ -380,6 +416,9 @@ mod tests {
             hdd_read_buffer_count: default_hdd_read_buffer_count(),
             cpu_threads: 0,
             cpu_thread_pinning: default_cpu_thread_pinning(),
+            opencl_platform: None,
+            opencl_device: None,
+            opencl_threads: 0,
             show_progress: default_show_progress(),
             line_progress: default_line_progress(),
             benchmark: None,

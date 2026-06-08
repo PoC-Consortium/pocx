@@ -1819,6 +1819,7 @@ dependencies = [
  "log",
  "log4rs",
  "num_cpus",
+ "opencl3",
  "page_size",
  "pocx_hashlib",
  "pocx_plotfile",

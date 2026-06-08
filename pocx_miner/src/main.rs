@@ -44,6 +44,7 @@ mod future;
 mod hasher;
 mod logger;
 mod miner;
+mod ocl;
 mod plots;
 mod request;
 mod shutdown;

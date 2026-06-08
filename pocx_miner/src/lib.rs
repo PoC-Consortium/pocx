@@ -68,6 +68,7 @@ mod future;
 mod hasher;
 pub mod logger;
 pub mod miner;
+pub mod ocl;
 mod plots;
 mod request;
 pub mod shutdown;

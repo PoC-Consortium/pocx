@@ -16,6 +16,9 @@ page_size = { workspace = true }
 libc = { workspace = true }
 cfg-if = { workspace = true }
 
+# OpenCL support
+opencl3 = { version = "0.10", features = ["dynamic"], optional = true }
+
 # Async runtime
 tokio = { workspace = true }
 tokio-util = { version = "0.7", features = ["rt"] }
@@ -62,7 +65,8 @@ pocx_protocol = { version = "1.0.4", path = "../pocx_protocol" }
 winapi = { workspace = true }
 
 [features]
-default = ["simd"]
+default = ["simd", "opencl"]
+opencl = ["opencl3"]
 simd = []
 neon = []
 

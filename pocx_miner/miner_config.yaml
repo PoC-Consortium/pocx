@@ -121,6 +121,11 @@ enable_on_the_fly_compression: true  # Compress uncompressed plots while mining 
 cpu_threads: 0                   # 0 = auto-detect (default: all logical cores)
 cpu_thread_pinning: true         # Pin threads to cores (default: true)
 
+# GPU settings (OpenCL)
+opencl_platform: 0               # OpenCL platform index (default: 0)
+opencl_device: 0                 # OpenCL device index (default: 0)
+opencl_threads: 0                # Number of GPU threads (0 = disabled, default: 0)
+
 # Display settings
 show_progress: true              # Show progress bar (default: true)
 

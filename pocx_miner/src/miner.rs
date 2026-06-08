@@ -32,6 +32,8 @@ use crate::plots::{CompressionConfig, PoCXArray};
 use crate::plots::{ResumeInfo, ScanMessage};
 use crate::request::RequestHandler;
 use crate::utils::new_thread_pool;
+#[cfg(feature = "opencl")]
+use crate::ocl::GpuContext;
 #[cfg(windows)]
 use crate::utils::set_thread_ideal_processor;
 
@@ -182,6 +184,8 @@ pub struct Miner {
     request_handler: Vec<RequestHandler>,
     reader_thread_pool: Arc<rayon::ThreadPool>,
     hasher_thread_pool: Arc<rayon::ThreadPool>, // For CPU-intensive hashing work
+    #[cfg(feature = "opencl")]
+    gpu_context: Option<Arc<GpuContext>>,
     rx_scheduler: Option<UnboundedReceiver<SchedulerMessage>>,
     known_account_payloads: Vec<String>, // Hex payloads from plot files
     cfg: Cfg,                            // Store config for target quality access
@@ -404,6 +408,26 @@ impl Miner {
                 .expect("Failed to create hasher thread pool"),
         );
 
+        #[cfg(feature = "opencl")]
+        let gpu_context = if cfg.opencl_threads > 0 {
+            match GpuContext::new(
+                cfg.opencl_platform.unwrap_or(0),
+                cfg.opencl_device.unwrap_or(0),
+                (cfg.hdd_read_cache_in_warps * pocx_plotfile::NUM_SCOOPS) as usize,
+            ) {
+                Ok(ctx) => {
+                    info!("OpenCL GPU acceleration enabled: {}", ctx.device_name);
+                    Some(Arc::new(ctx))
+                }
+                Err(e) => {
+                    warn!("Failed to initialize OpenCL GPU acceleration: {}. Falling back to CPU.", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         // Create shutdown coordinator - token will be shared with all tasks
         let shutdown_token = CancellationToken::new();
 
@@ -491,6 +515,8 @@ impl Miner {
             request_handler,
             reader_thread_pool,
             hasher_thread_pool,
+            #[cfg(feature = "opencl")]
+            gpu_context,
             rx_scheduler: Some(rx_scheduler),
             known_account_payloads,
             benchmark: cfg.benchmark.clone(),
@@ -670,6 +696,8 @@ impl Miner {
         let hasher_thread_pool = self.hasher_thread_pool.clone();
         let benchmark = self.benchmark.clone();
         let cfg = self.cfg.clone();
+        #[cfg(feature = "opencl")]
+        let gpu_context = self.gpu_context.clone();
         let max_compression_steps = self.max_compression_steps;
         let token = self.shutdown_token.clone();
         task::spawn(async move {
@@ -927,6 +955,8 @@ impl Miner {
                                 let mining_round_miner_state = miner_state.clone();
                                 let mining_round_reader_threadpool = reader_thread_pool.clone();
                                 let mining_round_hasher_threadpool = hasher_thread_pool.clone();
+                                #[cfg(feature = "opencl")]
+                                let mining_round_gpu_context = gpu_context.clone();
                                 let resume_info = resume_states[chain_id].take();
                                 let benchmark_clone = benchmark.clone();
                                 let chain_name = chains[chain_id].name.clone();
@@ -951,6 +981,8 @@ impl Miner {
                                         mining_round_miner_state,
                                         mining_round_reader_threadpool,
                                         mining_round_hasher_threadpool,
+                                        #[cfg(feature = "opencl")]
+                                        mining_round_gpu_context,
                                         mining_info,
                                         decoded_mining_info,
                                         resume_info,
@@ -960,7 +992,7 @@ impl Miner {
                                         matches!(benchmark_clone, Some(Benchmark::Io)),
                                         compression_config,
                                         cfg.line_progress,
-                                    )
+                                    );
                                 });
                             }
                         } else {
@@ -1219,6 +1251,8 @@ impl Miner {
         miner_state: Arc<Mutex<MinerState>>,
         reader_threadpool: Arc<rayon::ThreadPool>,
         hasher_threadpool: Arc<rayon::ThreadPool>,
+        #[cfg(feature = "opencl")]
+        gpu_context: Option<Arc<GpuContext>>,
         mining_info: MiningInfo,
         decoded_mining_info: DecodedMiningInfo,
         resume_info: Option<ResumeInfo>,
@@ -1298,8 +1332,7 @@ impl Miner {
                         // Ignore error during shutdown
                         let _ = channels.tx_empty_buffer.send(read_reply.buffer);
                     } else {
-                        // Spawn quality calc task on local hasher threadpool
-                        let task = calc_qualities(HashingTask {
+                        let hashing_task = HashingTask {
                             buffer: read_reply.buffer,
                             chain_id,
                             chain_name: chain_name.clone(),
@@ -1316,8 +1349,20 @@ impl Miner {
                             compression_level: read_reply.compression_level,
                             tx_buffer: channels.tx_empty_buffer.clone(),
                             tx_nonce_data: channels.tx_nonce_data.clone(),
-                        });
-                        hasher_threadpool.spawn(task);
+                        };
+
+                        #[cfg(feature = "opencl")]
+                        {
+                            if let Some(ref gpu) = gpu_context {
+                                gpu.process_task(hashing_task);
+                            } else {
+                                hasher_threadpool.spawn(calc_qualities(hashing_task));
+                            }
+                        }
+                        #[cfg(not(feature = "opencl"))]
+                        {
+                            hasher_threadpool.spawn(calc_qualities(hashing_task));
+                        }
                     }
                 }
             }
