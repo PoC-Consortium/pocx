@@ -32,5 +32,8 @@ COPY --from=builder /usr/src/pocx/target/release/pocx_verifier /usr/local/bin/
 COPY --from=builder /usr/src/pocx/target/release/pocx_aggregator /usr/local/bin/
 COPY --from=builder /usr/src/pocx/target/release/pocx_mockchain /usr/local/bin/
 
-# Default entrypoint
-ENTRYPOINT ["pocx_miner"]
+# Default working directory
+WORKDIR /config
+
+# Default command (can be overridden)
+CMD ["pocx_miner", "--help"]
