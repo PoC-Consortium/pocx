@@ -19,12 +19,13 @@
 // SOFTWARE.
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use log::{debug, error, trace};
+use log::{debug, error, info, trace, warn};
 use reqwest::{header, Client, ClientBuilder};
 use serde::{de::DeserializeOwned, Serialize};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use crate::config::RpcClientConfig;
+use crate::config::{RpcAuth, RpcClientConfig};
 use crate::protocol::{
     errors::{ProtocolError, Result},
     types::{
@@ -48,11 +49,27 @@ impl std::fmt::Debug for Transport {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct JsonRpcClient {
     transport: Transport,
-    auth_token: Option<String>,
+    /// Current Basic-auth token (`username:password`), shared across clones so a
+    /// runtime cookie re-read propagates to every handler of this connection.
+    auth_token: Arc<RwLock<Option<String>>>,
+    /// Authentication source, retained for runtime re-resolution (e.g. a cookie
+    /// file rotated by a node restart). Only `Cookie` is re-read on auth failure.
+    auth_source: Option<RpcAuth>,
     timeout: Duration,
+}
+
+impl std::fmt::Debug for JsonRpcClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let has_auth = self.auth_token.read().map(|t| t.is_some()).unwrap_or(false);
+        f.debug_struct("JsonRpcClient")
+            .field("transport", &self.transport)
+            .field("timeout", &self.timeout)
+            .field("authenticated", &has_auth)
+            .finish()
+    }
 }
 
 impl JsonRpcClient {
@@ -73,7 +90,8 @@ impl JsonRpcClient {
 
         Ok(Self {
             transport: Transport { client, base_url },
-            auth_token: None,
+            auth_token: Arc::new(RwLock::new(None)),
+            auth_source: None,
             timeout: Duration::from_secs(30),
         })
     }
@@ -87,8 +105,18 @@ impl JsonRpcClient {
         Ok(client.with_timeout(Duration::from_millis(config.timeout_ms)))
     }
 
-    pub fn with_auth_token(mut self, token: impl Into<String>) -> Self {
-        self.auth_token = Some(token.into());
+    pub fn with_auth_token(self, token: impl Into<String>) -> Self {
+        *self.auth_token.write().unwrap() = Some(token.into());
+        self
+    }
+
+    /// Register the authentication source for runtime re-resolution.
+    ///
+    /// Enables re-reading a rotated cookie file and retrying once when the node
+    /// rejects the cached credentials with HTTP 401 (e.g. after a node restart
+    /// regenerates its `.cookie`). Non-cookie sources are never re-read.
+    pub fn with_auth_source(mut self, source: RpcAuth) -> Self {
+        self.auth_source = Some(source);
         self
     }
 
@@ -97,8 +125,8 @@ impl JsonRpcClient {
         self
     }
 
-    pub fn set_auth_token(&mut self, token: Option<String>) {
-        self.auth_token = token;
+    pub fn set_auth_token(&self, token: Option<String>) {
+        *self.auth_token.write().unwrap() = token;
     }
 
     /// Get the endpoint description for logging.
@@ -130,6 +158,10 @@ impl JsonRpcClient {
     }
 
     /// Send request over HTTP transport.
+    ///
+    /// On an authentication failure (HTTP 401) the cookie file is re-read and the
+    /// request retried once, transparently recovering from a node restart that
+    /// rotated the `.cookie`. See [`Self::refresh_cookie_token`].
     async fn request_http<P, R>(
         &self,
         client: &Client,
@@ -146,15 +178,44 @@ impl JsonRpcClient {
 
         trace!("Sending JSON-RPC request: method={}, id={:?}", method, id);
 
+        let token = self.auth_token.read().unwrap().clone();
+        match self
+            .send_once(client, base_url, method, &request, &token)
+            .await
+        {
+            Err(ProtocolError::AuthInvalid) => match self.refresh_cookie_token(&token) {
+                Some(fresh) => {
+                    self.send_once(client, base_url, method, &request, &Some(fresh))
+                        .await
+                }
+                None => Err(ProtocolError::AuthInvalid),
+            },
+            other => other,
+        }
+    }
+
+    /// Perform a single HTTP attempt with the provided auth token.
+    async fn send_once<B, R>(
+        &self,
+        client: &Client,
+        base_url: &str,
+        method: &str,
+        body: &B,
+        token: &Option<String>,
+    ) -> Result<R>
+    where
+        B: Serialize,
+        R: DeserializeOwned,
+    {
         let mut req_builder = client
             .post(base_url)
             .timeout(self.timeout)
             .header(header::CONTENT_TYPE, "application/json")
-            .json(&request);
+            .json(body);
 
         // Use Basic auth with base64 encoding (required for Bitcoin Core RPC)
         // Token format: "username:password" (e.g., cookie content "__cookie__:randomhex")
-        if let Some(ref token) = self.auth_token {
+        if let Some(token) = token {
             let encoded = STANDARD.encode(token);
             req_builder = req_builder.header(header::AUTHORIZATION, format!("Basic {}", encoded));
         }
@@ -189,6 +250,35 @@ impl JsonRpcClient {
         let response_text = response.text().await.map_err(ProtocolError::NetworkError)?;
 
         self.parse_response(&response_text, method)
+    }
+
+    /// Re-read a rotated cookie file after an authentication failure.
+    ///
+    /// Returns the refreshed token only when the source is cookie-based and the
+    /// file content actually changed (e.g. the node restarted and regenerated its
+    /// `.cookie`). On success the shared token is updated so sibling handlers of
+    /// the same connection reuse it. Returns `None` for non-cookie auth, an
+    /// unreadable file, or an unchanged cookie — in those cases retrying the same
+    /// request would not help.
+    fn refresh_cookie_token(&self, current: &Option<String>) -> Option<String> {
+        match &self.auth_source {
+            Some(source @ RpcAuth::Cookie { .. }) => match source.get_token() {
+                Some(fresh) if Some(&fresh) != current.as_ref() => {
+                    info!("Auth failed (401); cookie file rotated, retrying with refreshed token");
+                    *self.auth_token.write().unwrap() = Some(fresh.clone());
+                    Some(fresh)
+                }
+                Some(_) => {
+                    warn!("Auth failed (401) but cookie file is unchanged; not retrying");
+                    None
+                }
+                None => {
+                    warn!("Auth failed (401) and cookie file could not be re-read; not retrying");
+                    None
+                }
+            },
+            _ => None,
+        }
     }
 
     /// Parse JSON-RPC response and handle errors.
@@ -419,5 +509,103 @@ mod tests {
         }
 
         mock.assert_async().await;
+    }
+
+    fn mining_info_body() -> String {
+        json!({
+            "jsonrpc": "2.0",
+            "result": {
+                "generation_signature": "abc123",
+                "base_target": 12345,
+                "height": 98765,
+                "block_hash": "test_hash",
+                "minimum_compression_level": 1,
+                "target_compression_level": 9
+            },
+            "id": "test-id"
+        })
+        .to_string()
+    }
+
+    // A stale cookie (HTTP 401) is recovered by re-reading the rotated cookie
+    // file and retrying the request once with the refreshed token.
+    #[tokio::test]
+    async fn test_cookie_reauth_retries_with_refreshed_token() {
+        let mut server = Server::new_async().await;
+
+        let stale = "__cookie__:stale";
+        let fresh = "__cookie__:fresh";
+        let stale_hdr = format!("Basic {}", STANDARD.encode(stale));
+        let fresh_hdr = format!("Basic {}", STANDARD.encode(fresh));
+
+        // Cookie file on disk holds the FRESH token, as if the node rotated it.
+        let path = std::env::temp_dir().join(format!("pocx_reauth_ok_{}", std::process::id()));
+        std::fs::write(&path, fresh).unwrap();
+
+        let mock_stale = server
+            .mock("POST", "/jsonrpc")
+            .match_header("authorization", stale_hdr.as_str())
+            .with_status(401)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let mock_fresh = server
+            .mock("POST", "/jsonrpc")
+            .match_header("authorization", fresh_hdr.as_str())
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(mining_info_body())
+            .expect(1)
+            .create_async()
+            .await;
+
+        let client = JsonRpcClient::new(server.url() + "/jsonrpc")
+            .unwrap()
+            .with_auth_token(stale)
+            .with_auth_source(RpcAuth::Cookie {
+                cookie_path: Some(path.to_string_lossy().to_string()),
+            });
+
+        let result = client.get_mining_info().await.unwrap();
+        assert_eq!(result.base_target, 12345);
+
+        mock_stale.assert_async().await;
+        mock_fresh.assert_async().await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // When the cookie file is unchanged, the client must not retry in a loop:
+    // a single 401 is surfaced as AuthInvalid.
+    #[tokio::test]
+    async fn test_cookie_reauth_no_retry_when_unchanged() {
+        let mut server = Server::new_async().await;
+
+        let token = "__cookie__:same";
+        let hdr = format!("Basic {}", STANDARD.encode(token));
+
+        let path = std::env::temp_dir().join(format!("pocx_reauth_same_{}", std::process::id()));
+        std::fs::write(&path, token).unwrap();
+
+        let mock = server
+            .mock("POST", "/jsonrpc")
+            .match_header("authorization", hdr.as_str())
+            .with_status(401)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let client = JsonRpcClient::new(server.url() + "/jsonrpc")
+            .unwrap()
+            .with_auth_token(token)
+            .with_auth_source(RpcAuth::Cookie {
+                cookie_path: Some(path.to_string_lossy().to_string()),
+            });
+
+        let result = client.get_mining_info().await;
+        assert!(matches!(result, Err(ProtocolError::AuthInvalid)));
+
+        mock.assert_async().await;
+        let _ = std::fs::remove_file(&path);
     }
 }
