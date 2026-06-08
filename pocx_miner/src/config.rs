@@ -295,6 +295,12 @@ impl CfgBuilder {
         self
     }
 
+    /// Set number of read buffers per disk
+    pub fn read_buffer_count(mut self, count: usize) -> Self {
+        self.hdd_read_buffer_count = count;
+        self
+    }
+
     /// Enable/disable CPU thread pinning
     pub fn thread_pinning(mut self, enabled: bool) -> Self {
         self.cpu_thread_pinning = enabled;
@@ -338,6 +344,7 @@ impl CfgBuilder {
             hdd_use_direct_io: self.hdd_use_direct_io,
             hdd_wakeup_after: self.hdd_wakeup_after,
             hdd_read_cache_in_warps: self.hdd_read_cache_in_warps,
+            hdd_read_buffer_count: self.hdd_read_buffer_count,
             cpu_threads: self.cpu_threads,
             cpu_thread_pinning: self.cpu_thread_pinning,
             show_progress: false, // GUI mode doesn't use progress bar
