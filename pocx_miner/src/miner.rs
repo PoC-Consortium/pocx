@@ -461,9 +461,9 @@ impl Miner {
         let reader_thread_pool =
             Arc::new(new_thread_pool(plots.disks.len(), cfg.cpu_thread_pinning));
 
-        let num_write_buffers = plots.disks.len() * 2;
-        let (tx_empty_buffer, rx_empty_buffer) = bounded(num_write_buffers);
-        for _ in 0..num_write_buffers {
+        let num_read_buffers = plots.disks.len() * cfg.hdd_read_buffer_count;
+        let (tx_empty_buffer, rx_empty_buffer) = bounded(num_read_buffers);
+        for _ in 0..num_read_buffers {
             tx_empty_buffer
                 .try_send(PageAlignedByteBuffer::new(
                     (cfg.hdd_read_cache_in_warps * NUM_SCOOPS * SCOOP_SIZE) as usize,

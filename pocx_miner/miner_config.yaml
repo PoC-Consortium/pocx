@@ -112,6 +112,7 @@ plot_dirs:
 hdd_use_direct_io: true          # Bypass OS cache (default: true)
 hdd_wakeup_after: 30             # Wake HDD after idle seconds (default: 30, 0=disabled)
 hdd_read_cache_in_warps: 16      # Read buffer size in warps (default: 16)
+hdd_read_buffer_count: 4         # Number of read buffers per disk (default: 4)
 
 # Mining settings
 enable_on_the_fly_compression: true  # Compress uncompressed plots while mining (default: true)

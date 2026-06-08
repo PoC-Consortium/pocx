@@ -57,6 +57,9 @@ pub struct Cfg {
     #[serde(default = "default_hdd_read_cache_in_warps")]
     pub hdd_read_cache_in_warps: u64,
 
+    #[serde(default = "default_hdd_read_buffer_count")]
+    pub hdd_read_buffer_count: usize,
+
     #[serde(default)]
     pub cpu_threads: usize,
 
@@ -118,6 +121,10 @@ fn default_hdd_wakeup_after() -> i64 {
 
 fn default_hdd_read_cache_in_warps() -> u64 {
     16
+}
+
+fn default_hdd_read_buffer_count() -> usize {
+    4
 }
 
 fn default_cpu_thread_pinning() -> bool {
@@ -206,6 +213,7 @@ pub struct CfgBuilder {
     hdd_use_direct_io: bool,
     hdd_wakeup_after: i64,
     hdd_read_cache_in_warps: u64,
+    hdd_read_buffer_count: usize,
     cpu_threads: usize,
     cpu_thread_pinning: bool,
     get_mining_info_interval: u64,
@@ -229,6 +237,7 @@ impl CfgBuilder {
             hdd_use_direct_io: default_hdd_use_direct_io(),
             hdd_wakeup_after: default_hdd_wakeup_after(),
             hdd_read_cache_in_warps: default_hdd_read_cache_in_warps(),
+            hdd_read_buffer_count: default_hdd_read_buffer_count(),
             cpu_threads: 0, // 0 = auto-detect
             cpu_thread_pinning: default_cpu_thread_pinning(),
             get_mining_info_interval: default_get_mining_info_interval(),
