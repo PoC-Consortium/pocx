@@ -432,6 +432,7 @@ impl Miner {
                 base_url,
                 cfg.timeout,
                 auth_token,
+                chain.rpc_auth.clone(),
                 cfg.chains[i].submission_mode.clone(),
                 shutdown_token.clone(),
             );
