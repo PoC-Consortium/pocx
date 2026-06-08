@@ -28,12 +28,12 @@ use crate::config::{Benchmark, Cfg};
 use crate::control::is_stop_requested;
 use crate::hasher::calc_qualities;
 use crate::hasher::HashingTask;
+#[cfg(feature = "opencl")]
+use crate::ocl::GpuContext;
 use crate::plots::{CompressionConfig, PoCXArray};
 use crate::plots::{ResumeInfo, ScanMessage};
 use crate::request::RequestHandler;
 use crate::utils::new_thread_pool;
-#[cfg(feature = "opencl")]
-use crate::ocl::GpuContext;
 #[cfg(windows)]
 use crate::utils::set_thread_ideal_processor;
 
@@ -420,7 +420,10 @@ impl Miner {
                     Some(Arc::new(ctx))
                 }
                 Err(e) => {
-                    warn!("Failed to initialize OpenCL GPU acceleration: {}. Falling back to CPU.", e);
+                    warn!(
+                        "Failed to initialize OpenCL GPU acceleration: {}. Falling back to CPU.",
+                        e
+                    );
                     None
                 }
             }
@@ -1251,8 +1254,7 @@ impl Miner {
         miner_state: Arc<Mutex<MinerState>>,
         reader_threadpool: Arc<rayon::ThreadPool>,
         hasher_threadpool: Arc<rayon::ThreadPool>,
-        #[cfg(feature = "opencl")]
-        gpu_context: Option<Arc<GpuContext>>,
+        #[cfg(feature = "opencl")] gpu_context: Option<Arc<GpuContext>>,
         mining_info: MiningInfo,
         decoded_mining_info: DecodedMiningInfo,
         resume_info: Option<ResumeInfo>,

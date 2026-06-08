@@ -20,8 +20,8 @@
 
 //! OpenCL GPU acceleration for PoCX mining.
 
-use crate::com::api::SubmissionParameters;
 use crate::com::api::NonceSubmission;
+use crate::com::api::SubmissionParameters;
 use crate::hasher::HashingTask;
 use pocx_plotfile::NUM_SCOOPS;
 
@@ -75,7 +75,8 @@ impl GpuContext {
         }
         let platform = platforms[platform_idx];
 
-        let devices = platform.get_devices(CL_DEVICE_TYPE_GPU)
+        let devices = platform
+            .get_devices(CL_DEVICE_TYPE_GPU)
             .map_err(|e| format!("OCL error: {:?}", e))?;
         if device_idx >= devices.len() {
             return Err(format!("Invalid device index: {}", device_idx));
@@ -83,10 +84,9 @@ impl GpuContext {
         let device = Device::new(devices[device_idx]);
         let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
 
-        let context = Context::from_device(&device)
-            .map_err(|e| format!("OCL error: {:?}", e))?;
-        let queue = CommandQueue::create_default(&context, 0)
-            .map_err(|e| format!("OCL error: {:?}", e))?;
+        let context = Context::from_device(&device).map_err(|e| format!("OCL error: {:?}", e))?;
+        let queue =
+            CommandQueue::create_default(&context, 0).map_err(|e| format!("OCL error: {:?}", e))?;
 
         let program = Program::create_and_build_from_source(&context, KERNEL_SRC, "")
             .map_err(|e| format!("OCL error: {:?}", e))?;
@@ -95,16 +95,26 @@ impl GpuContext {
 
         // Pre-allocate buffers for the maximum expected work size
         let scoop_buffer = unsafe {
-            Buffer::<u32>::create(&context, CL_MEM_READ_ONLY, max_nonces * 16, std::ptr::null_mut())
-                .map_err(|e| format!("Buffer error: {:?}", e))?
+            Buffer::<u32>::create(
+                &context,
+                CL_MEM_READ_ONLY,
+                max_nonces * 16,
+                std::ptr::null_mut(),
+            )
+            .map_err(|e| format!("Buffer error: {:?}", e))?
         };
         let gensig_buffer = unsafe {
             Buffer::<u32>::create(&context, CL_MEM_READ_ONLY, 8, std::ptr::null_mut())
                 .map_err(|e| format!("Buffer error: {:?}", e))?
         };
         let results_buffer = unsafe {
-            Buffer::<u64>::create(&context, CL_MEM_READ_WRITE, max_nonces, std::ptr::null_mut())
-                .map_err(|e| format!("Buffer error: {:?}", e))?
+            Buffer::<u64>::create(
+                &context,
+                CL_MEM_READ_WRITE,
+                max_nonces,
+                std::ptr::null_mut(),
+            )
+            .map_err(|e| format!("Buffer error: {:?}", e))?
         };
 
         Ok(Self {
@@ -123,13 +133,18 @@ impl GpuContext {
         let num_nonces = (task.number_of_warps * NUM_SCOOPS) as usize;
         if num_nonces > self.max_nonces {
             // Fallback to CPU if task is too large for GPU buffers
-            log::warn!("Task size {} exceeds GPU buffer capacity {}, falling back to CPU", num_nonces, self.max_nonces);
+            log::warn!(
+                "Task size {} exceeds GPU buffer capacity {}, falling back to CPU",
+                num_nonces,
+                self.max_nonces
+            );
             (crate::hasher::calc_qualities(task))();
             return;
         }
 
         let scoop_data = task.buffer.get_buffer_ref();
-        let gensig = unsafe { std::mem::transmute::<[u8; 32], [u32; 8]>(task.generation_signature_bytes) };
+        let gensig =
+            unsafe { std::mem::transmute::<[u8; 32], [u32; 8]>(task.generation_signature_bytes) };
 
         let mut s_buf = self.scoop_buffer.lock().unwrap();
         let mut g_buf = self.gensig_buffer.lock().unwrap();
@@ -140,9 +155,11 @@ impl GpuContext {
             std::slice::from_raw_parts(scoop_data.as_ptr() as *const u32, num_nonces * 16)
         };
         unsafe {
-            self.queue.enqueue_write_buffer(&mut s_buf, CL_BLOCKING, 0, scoop_data_u32, &[])
+            self.queue
+                .enqueue_write_buffer(&mut s_buf, CL_BLOCKING, 0, scoop_data_u32, &[])
                 .expect("OCL write error");
-            self.queue.enqueue_write_buffer(&mut g_buf, CL_BLOCKING, 0, &gensig, &[])
+            self.queue
+                .enqueue_write_buffer(&mut g_buf, CL_BLOCKING, 0, &gensig, &[])
                 .expect("OCL write error");
         }
 
@@ -152,7 +169,9 @@ impl GpuContext {
             kernel.set_arg(0, &*s_buf).expect("OCL arg error");
             kernel.set_arg(1, &*g_buf).expect("OCL arg error");
             kernel.set_arg(2, &*r_buf).expect("OCL arg error");
-            kernel.set_arg(3, &(num_nonces as u32)).expect("OCL arg error");
+            kernel
+                .set_arg(3, &(num_nonces as u32))
+                .expect("OCL arg error");
 
             ExecuteKernel::new(&kernel)
                 .set_global_work_size(num_nonces)
@@ -163,7 +182,8 @@ impl GpuContext {
         // 3. Download results
         let mut results = vec![0u64; num_nonces];
         unsafe {
-            self.queue.enqueue_read_buffer(&r_buf, CL_BLOCKING, 0, &mut results, &[])
+            self.queue
+                .enqueue_read_buffer(&r_buf, CL_BLOCKING, 0, &mut results, &[])
                 .expect("OCL read error");
         }
 
@@ -178,24 +198,29 @@ impl GpuContext {
         }
 
         // 5. Submit result
-        if task.tx_nonce_data.clone().unbounded_send((
-            task.chain_id,
-            SubmissionParameters {
-                chain: task.chain_name,
-                block_count: task.block_count,
-                nonce_submission: NonceSubmission {
-                    block_hash: task.block_hash,
-                    account_id: task.account_id,
-                    seed: task.seed,
-                    nonce: task.start_warp * NUM_SCOOPS + best_offset,
-                    block_height: task.block_height,
-                    generation_signature: hex::encode(task.generation_signature_bytes),
-                    base_target: task.base_target,
-                    raw_quality: best_quality,
-                    compression: task.compression_level,
+        if task
+            .tx_nonce_data
+            .clone()
+            .unbounded_send((
+                task.chain_id,
+                SubmissionParameters {
+                    chain: task.chain_name,
+                    block_count: task.block_count,
+                    nonce_submission: NonceSubmission {
+                        block_hash: task.block_hash,
+                        account_id: task.account_id,
+                        seed: task.seed,
+                        nonce: task.start_warp * NUM_SCOOPS + best_offset,
+                        block_height: task.block_height,
+                        generation_signature: hex::encode(task.generation_signature_bytes),
+                        base_target: task.base_target,
+                        raw_quality: best_quality,
+                        compression: task.compression_level,
+                    },
                 },
-            },
-        )).is_err() {
+            ))
+            .is_err()
+        {
             log::debug!("GPU Hasher: nonce channel closed");
         }
 
@@ -213,7 +238,10 @@ pub fn list_gpu_devices() {
                     for (d_idx, d) in devices.iter().enumerate() {
                         let device = Device::new(*d);
                         if let Ok(name) = device.name() {
-                            println!("GPU Device [Platform {}, Device {}]: {}", p_idx, d_idx, name);
+                            println!(
+                                "GPU Device [Platform {}, Device {}]: {}",
+                                p_idx, d_idx, name
+                            );
                         }
                     }
                 }
