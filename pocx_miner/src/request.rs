@@ -22,7 +22,7 @@ use crate::callback::{with_callback, AcceptedDeadline};
 use crate::com::api::{FetchError, MiningInfo, NonceSubmission, PoolError, SubmissionParameters};
 use crate::com::protocol_client::ProtocolClient;
 use crate::future::prio_retry::PrioRetry;
-use crate::miner::SubmissionMode;
+use crate::miner::{RpcAuth, SubmissionMode};
 use futures::channel::mpsc;
 use futures::StreamExt;
 use std::collections::HashMap;
@@ -47,10 +47,11 @@ impl RequestHandler {
         url: Url,
         timeout: u64,
         auth_token: Option<String>,
+        auth_source: RpcAuth,
         submission_mode: SubmissionMode,
         token: CancellationToken,
     ) -> RequestHandler {
-        let client = ProtocolClient::new(url, timeout, auth_token)
+        let client = ProtocolClient::new(url, timeout, auth_token, auth_source)
             .expect("Failed to create protocol client");
 
         let (tx_submit_data, rx_submit_nonce_data) = mpsc::unbounded();

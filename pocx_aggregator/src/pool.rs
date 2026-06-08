@@ -86,6 +86,9 @@ impl PoolManager {
         if let Some(token) = upstream.get_auth_token_or_exit().map_err(Error::Config)? {
             client = client.with_auth_token(token);
         }
+        // Retain the auth source so a rotated cookie file can be re-read and the
+        // request retried after an HTTP 401 (e.g. upstream node restart).
+        client = client.with_auth_source(upstream.rpc_auth.clone());
 
         // Create submission handler based on mode
         let submission_handler = match upstream.submission_mode {

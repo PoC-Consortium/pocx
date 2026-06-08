@@ -2,7 +2,7 @@
 
 use crate::com::api::*;
 use pocx_protocol::{
-    JsonRpcClient, MiningInfo as JsonRpcMiningInfo, ProtocolError,
+    JsonRpcClient, MiningInfo as JsonRpcMiningInfo, ProtocolError, RpcAuth,
     SubmitNonceParams as JsonRpcSubmitParams, SubmitNonceResult,
 };
 use std::time::Duration;
@@ -16,10 +16,15 @@ pub struct ProtocolClient {
 
 impl ProtocolClient {
     /// Create a new JSON-RPC protocol client with HTTP/HTTPS URL.
+    ///
+    /// `auth_token` is the credential resolved at startup; `auth_source` is the
+    /// original auth configuration, retained so a rotated cookie file can be
+    /// re-read and the request retried after an HTTP 401.
     pub fn new(
         url: Url,
         timeout: u64,
         auth_token: Option<String>,
+        auth_source: RpcAuth,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let timeout_duration = Duration::from_millis(timeout);
 
@@ -28,6 +33,7 @@ impl ProtocolClient {
         if let Some(token) = auth_token {
             client = client.with_auth_token(token);
         }
+        client = client.with_auth_source(auth_source);
 
         Ok(Self {
             jsonrpc_client: client,
