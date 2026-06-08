@@ -377,6 +377,7 @@ mod tests {
             hdd_use_direct_io: default_hdd_use_direct_io(),
             hdd_wakeup_after: default_hdd_wakeup_after(),
             hdd_read_cache_in_warps: default_hdd_read_cache_in_warps(),
+            hdd_read_buffer_count: default_hdd_read_buffer_count(),
             cpu_threads: 0,
             cpu_thread_pinning: default_cpu_thread_pinning(),
             show_progress: default_show_progress(),
