@@ -37,7 +37,7 @@ simd = []
 
 [dependencies]
 crossbeam-channel = { workspace = true }
-opencl3 = { version = "0.10", features = ["dynamic"], optional = true }
+opencl3 = { version = "0.12", features = ["dynamic"], optional = true }
 clap = { workspace = true }
 sysinfo = "0.32"
 num_cpus = { workspace = true }

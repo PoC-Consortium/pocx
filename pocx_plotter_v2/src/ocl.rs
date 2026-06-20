@@ -29,6 +29,9 @@ use crate::plotter::NONCE_SIZE;
 use opencl3::command_queue::CommandQueue;
 use opencl3::context::Context;
 use opencl3::device::{Device, CL_DEVICE_TYPE_GPU};
+use opencl3::error_codes::{
+    error_text, ClError, DLOPEN_FUNCTION_NOT_AVAILABLE, DLOPEN_RUNTIME_LOAD_FAILED,
+};
 use opencl3::event::Event;
 use opencl3::kernel::{ExecuteKernel, Kernel};
 use opencl3::memory::{Buffer, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE};
@@ -61,6 +64,37 @@ fn gcd(mut a: u64, mut b: u64) -> u64 {
         a = t;
     }
     a
+}
+
+/// One-line summary of an OpenCL error: symbolic name plus numeric code.
+fn opencl_error_summary(e: ClError) -> String {
+    format!("{} ({})", error_text(e.0), e.0)
+}
+
+/// Actionable explanation for a failed OpenCL platform query.
+///
+/// Distinguishes "the loader itself could not be loaded" (the common
+/// runtime-not-installed case) from "a loader is present but reports no usable
+/// platform", since the fixes differ.
+fn opencl_failure_help(e: ClError) -> String {
+    match e.0 {
+        DLOPEN_RUNTIME_LOAD_FAILED | DLOPEN_FUNCTION_NOT_AVAILABLE => format!(
+            "the OpenCL loader could not be loaded [{}].\n\
+             No ICD loader (libOpenCL.so.1) is reachable. Install one plus a GPU runtime:\n  \
+             Debian/Ubuntu: sudo apt install ocl-icd-libopencl1\n  \
+             Fedora/RHEL:   sudo dnf install ocl-icd\n  \
+             Arch:          sudo pacman -S ocl-icd\n\
+             For a loader at a non-standard path: OPENCL_DYLIB_PATH=/path/to/libOpenCL.so.1",
+            opencl_error_summary(e)
+        ),
+        _ => format!(
+            "OpenCL returned an error [{}].\n\
+             A loader is present but no usable platform was found. Verify a GPU OpenCL\n\
+             runtime is installed and registered under /etc/OpenCL/vendors, and that\n\
+             `clinfo` lists your device.",
+            opencl_error_summary(e)
+        ),
+    }
 }
 
 pub struct GpuRingContext {
@@ -97,8 +131,12 @@ impl GpuRingContext {
         cores: usize,
         kws_override: usize,
     ) -> Result<GpuRingContext, String> {
-        let platforms =
-            get_platforms().map_err(|e| format!("Failed to get OpenCL platforms: {:?}", e))?;
+        let platforms = get_platforms().map_err(|e| {
+            format!(
+                "Failed to query OpenCL platforms: {}",
+                opencl_failure_help(e)
+            )
+        })?;
         let platform = platforms[gpu_platform];
 
         let devices = platform
@@ -671,8 +709,11 @@ pub fn platform_info() {
             return;
         }
         Err(e) => {
-            println!("Failed to query OpenCL platforms: {:?}", e);
-            println!("OpenCL runtime may not be installed.\n");
+            println!(
+                "Failed to query OpenCL platforms: {}",
+                opencl_failure_help(e)
+            );
+            println!();
             return;
         }
     };
@@ -897,7 +938,11 @@ pub fn get_gpu_device_info() -> Vec<GpuDeviceInfo> {
 
     let platforms = match get_platforms() {
         Ok(p) if !p.is_empty() => p,
-        _ => return devices,
+        Ok(_) => return devices,
+        Err(e) => {
+            eprintln!("Warning: OpenCL unavailable: {}", opencl_error_summary(e));
+            return devices;
+        }
     };
 
     for (i, platform) in platforms.iter().enumerate() {
@@ -963,7 +1008,12 @@ pub fn gpu_get_info(
 ) -> Result<(u64, u64, u64), String> {
     let platforms = match get_platforms() {
         Ok(p) => p,
-        Err(_) => return Ok((0, 0, 0)),
+        Err(e) => {
+            if !quiet {
+                eprintln!("Warning: OpenCL unavailable: {}", opencl_error_summary(e));
+            }
+            return Ok((0, 0, 0));
+        }
     };
 
     let parts: Vec<&str> = gpu.split(':').collect();
@@ -1070,7 +1120,12 @@ pub fn gpu_get_info(
 pub fn gpu_ring_init(gpu: &str, kws_override: usize) -> Result<GpuRingContext, String> {
     let platforms = match get_platforms() {
         Ok(p) => p,
-        Err(e) => return Err(format!("Failed to get OpenCL platforms: {:?}", e)),
+        Err(e) => {
+            return Err(format!(
+                "Failed to query OpenCL platforms: {}",
+                opencl_failure_help(e)
+            ))
+        }
     };
 
     let parts: Vec<&str> = gpu.split(':').collect();
