@@ -462,7 +462,13 @@ impl Miner {
         let reader_thread_pool =
             Arc::new(new_thread_pool(plots.disks.len(), cfg.cpu_thread_pinning));
 
-        let num_write_buffers = plots.disks.len() * 2;
+        // Each buffer maps 1:1 to a concurrent hasher task, so the pool size caps
+        // how many cores can hash at once. Size it for whichever stage can be the
+        // bottleneck: one reader thread per disk (I/O bound) or one hasher task per
+        // core (compute bound, e.g. fast storage). Capping at 2*disks would starve
+        // the hasher pool when cores > disks. Lower `cpu_threads` to reduce the
+        // buffer count (and memory) if needed.
+        let num_write_buffers = 2 * cpu_threads.max(plots.disks.len());
         let (tx_empty_buffer, rx_empty_buffer) = bounded(num_write_buffers);
         for _ in 0..num_write_buffers {
             tx_empty_buffer
