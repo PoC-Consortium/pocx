@@ -434,6 +434,7 @@ impl Miner {
                 auth_token,
                 chain.rpc_auth.clone(),
                 cfg.chains[i].submission_mode.clone(),
+                cfg.miner_tag.clone(),
                 shutdown_token.clone(),
             );
             request_handler.push(handler);

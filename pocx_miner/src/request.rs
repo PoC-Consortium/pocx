@@ -49,9 +49,10 @@ impl RequestHandler {
         auth_token: Option<String>,
         auth_source: RpcAuth,
         submission_mode: SubmissionMode,
+        miner_tag: Option<String>,
         token: CancellationToken,
     ) -> RequestHandler {
-        let client = ProtocolClient::new(url, timeout, auth_token, auth_source)
+        let client = ProtocolClient::new(url, timeout, auth_token, auth_source, miner_tag)
             .expect("Failed to create protocol client");
 
         let (tx_submit_data, rx_submit_nonce_data) = mpsc::unbounded();

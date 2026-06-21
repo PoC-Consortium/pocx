@@ -116,6 +116,11 @@ hdd_read_cache_in_warps: 16      # Read buffer size in warps (default: 16)
 # Mining settings
 enable_on_the_fly_compression: true  # Compress uncompressed plots while mining (default: true)
 
+# Machine identifier (optional). When set, sent as the `X-Miner` HTTP header on
+# every request so a pool/aggregator can attribute submissions to this machine
+# (e.g. to alert when a specific rig stops submitting). Omitted entirely if unset.
+# miner_tag: 'rig-01'           # any printable-ASCII label, e.g. a hostname
+
 # CPU settings
 cpu_threads: 0                   # 0 = auto-detect (default: all logical cores)
 cpu_thread_pinning: true         # Pin threads to cores (default: true)
