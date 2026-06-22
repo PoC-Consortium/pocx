@@ -25,6 +25,7 @@ impl ProtocolClient {
         timeout: u64,
         auth_token: Option<String>,
         auth_source: RpcAuth,
+        miner_tag: Option<String>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let timeout_duration = Duration::from_millis(timeout);
 
@@ -34,6 +35,10 @@ impl ProtocolClient {
             client = client.with_auth_token(token);
         }
         client = client.with_auth_source(auth_source);
+
+        if let Some(tag) = miner_tag.filter(|t| !t.trim().is_empty()) {
+            client = client.with_miner_tag(tag);
+        }
 
         Ok(Self {
             jsonrpc_client: client,

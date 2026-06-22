@@ -92,6 +92,12 @@ pub struct Cfg {
 
     #[serde(default = "default_enable_on_the_fly_compression")]
     pub enable_on_the_fly_compression: bool,
+
+    /// Optional machine identifier sent as the `X-Miner` HTTP header on every
+    /// request, letting a pool/aggregator attribute submissions to a specific
+    /// machine (e.g. to detect when a rig goes silent). Omitted when unset.
+    #[serde(default)]
+    pub miner_tag: Option<String>,
 }
 
 impl<'de> Deserialize<'de> for Benchmark {
@@ -212,6 +218,7 @@ pub struct CfgBuilder {
     timeout: u64,
     enable_on_the_fly_compression: bool,
     line_progress: bool,
+    miner_tag: Option<String>,
 }
 
 impl Default for CfgBuilder {
@@ -235,6 +242,7 @@ impl CfgBuilder {
             timeout: default_timeout(),
             enable_on_the_fly_compression: default_enable_on_the_fly_compression(),
             line_progress: true, // GUI mode uses line progress
+            miner_tag: None,
         }
     }
 
@@ -316,6 +324,12 @@ impl CfgBuilder {
         self
     }
 
+    /// Set the machine identifier sent as the `X-Miner` header (None = unset)
+    pub fn miner_tag(mut self, tag: Option<String>) -> Self {
+        self.miner_tag = tag;
+        self
+    }
+
     /// Build the configuration
     ///
     /// Note: This does NOT validate plot directories. Call `validate_cfg()`
@@ -341,6 +355,7 @@ impl CfgBuilder {
             console_log_pattern: default_console_log_pattern(),
             logfile_log_pattern: default_logfile_log_pattern(),
             enable_on_the_fly_compression: self.enable_on_the_fly_compression,
+            miner_tag: self.miner_tag,
         }
     }
 }
@@ -373,6 +388,7 @@ mod tests {
             console_log_pattern: default_console_log_pattern(),
             logfile_log_pattern: default_logfile_log_pattern(),
             enable_on_the_fly_compression: default_enable_on_the_fly_compression(),
+            miner_tag: None,
         };
 
         // Add mix of valid and invalid paths

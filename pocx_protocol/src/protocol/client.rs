@@ -59,6 +59,9 @@ pub struct JsonRpcClient {
     /// file rotated by a node restart). Only `Cookie` is re-read on auth failure.
     auth_source: Option<RpcAuth>,
     timeout: Duration,
+    /// Optional `X-Miner` header value sent on every request, identifying this
+    /// miner instance to a pool/aggregator. `None` = header omitted.
+    miner_tag: Option<header::HeaderValue>,
 }
 
 impl std::fmt::Debug for JsonRpcClient {
@@ -93,6 +96,7 @@ impl JsonRpcClient {
             auth_token: Arc::new(RwLock::new(None)),
             auth_source: None,
             timeout: Duration::from_secs(30),
+            miner_tag: None,
         })
     }
 
@@ -122,6 +126,22 @@ impl JsonRpcClient {
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
+        self
+    }
+
+    /// Attach an `X-Miner` header to every request, identifying this miner
+    /// instance to a pool/aggregator (e.g. a hostname or operator-defined rig
+    /// tag). An invalid value (non-printable-ASCII) is ignored with a warning,
+    /// leaving the header unset.
+    pub fn with_miner_tag(mut self, tag: impl AsRef<str>) -> Self {
+        let tag = tag.as_ref();
+        match header::HeaderValue::from_str(tag) {
+            Ok(value) => self.miner_tag = Some(value),
+            Err(_) => warn!(
+                "Ignoring invalid X-Miner tag {:?}: must be printable ASCII",
+                tag
+            ),
+        }
         self
     }
 
@@ -212,6 +232,10 @@ impl JsonRpcClient {
             .timeout(self.timeout)
             .header(header::CONTENT_TYPE, "application/json")
             .json(body);
+
+        if let Some(tag) = &self.miner_tag {
+            req_builder = req_builder.header("X-Miner", tag.clone());
+        }
 
         // Use Basic auth with base64 encoding (required for Bitcoin Core RPC)
         // Token format: "username:password" (e.g., cookie content "__cookie__:randomhex")
@@ -607,5 +631,49 @@ mod tests {
 
         mock.assert_async().await;
         let _ = std::fs::remove_file(&path);
+    }
+
+    // With a miner tag configured, every request carries the `X-Miner` header.
+    #[tokio::test]
+    async fn test_miner_tag_sets_x_miner_header() {
+        let mut server = Server::new_async().await;
+
+        let mock = server
+            .mock("POST", "/jsonrpc")
+            .match_header("x-miner", "rig-01")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(mining_info_body())
+            .expect(1)
+            .create_async()
+            .await;
+
+        let client = JsonRpcClient::new(server.url() + "/jsonrpc")
+            .unwrap()
+            .with_miner_tag("rig-01");
+
+        client.get_mining_info().await.unwrap();
+        mock.assert_async().await;
+    }
+
+    // Without a miner tag, no `X-Miner` header is sent.
+    #[tokio::test]
+    async fn test_no_miner_tag_omits_x_miner_header() {
+        let mut server = Server::new_async().await;
+
+        let mock = server
+            .mock("POST", "/jsonrpc")
+            .match_header("x-miner", mockito::Matcher::Missing)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(mining_info_body())
+            .expect(1)
+            .create_async()
+            .await;
+
+        let client = JsonRpcClient::new(server.url() + "/jsonrpc").unwrap();
+
+        client.get_mining_info().await.unwrap();
+        mock.assert_async().await;
     }
 }
