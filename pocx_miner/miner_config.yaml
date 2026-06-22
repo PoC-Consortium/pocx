@@ -115,6 +115,7 @@ hdd_read_cache_in_warps: 16      # Read buffer size in warps (default: 16)
 
 # Mining settings
 enable_on_the_fly_compression: true  # Compress uncompressed plots while mining (default: true)
+validate_deadlines: false        # Recalculate each new best deadline and reject faulty ones (guards against failing disks; small CPU cost; default: false)
 
 # CPU settings
 cpu_threads: 0                   # 0 = auto-detect (default: all logical cores)

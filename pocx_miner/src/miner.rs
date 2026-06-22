@@ -23,7 +23,7 @@ use crate::callback::{
     with_callback, BlockInfo as CallbackBlockInfo, CapacityInfo, MinerStartedInfo, QueueItem,
     ScanStartedInfo, ScanStatus,
 };
-use crate::com::api::{MiningInfo, SubmissionParameters};
+use crate::com::api::{MiningInfo, NonceSubmission, SubmissionParameters};
 use crate::config::{Benchmark, Cfg};
 use crate::control::is_stop_requested;
 use crate::hasher::calc_qualities;
@@ -68,6 +68,83 @@ fn default_rpc_host() -> String {
 
 fn default_rpc_port() -> u16 {
     8080
+}
+
+/// Independently re-derives a candidate's deadline through the scalar code path and
+/// compares it against the value computed from on-disk plot data.
+///
+/// Returns `true` when the deadline is confirmed and may be trusted, `false` when it
+/// must be rejected. A mismatch indicates the on-disk scoop was read back incorrectly
+/// (e.g. a failing disk); such a bogus low deadline would otherwise overshadow a
+/// genuine solution locally, so it is discarded rather than submitted.
+fn revalidate_deadline(ns: &NonceSubmission) -> bool {
+    let address_payload: [u8; 20] = match hex::decode(&ns.account_id)
+        .ok()
+        .and_then(|b| b.try_into().ok())
+    {
+        Some(payload) => payload,
+        None => {
+            log::error!(
+                "validate_deadlines: cannot decode account_id '{}'; rejecting candidate",
+                ns.account_id
+            );
+            return false;
+        }
+    };
+
+    let seed: [u8; 32] = match hex::decode(&ns.seed).ok().and_then(|b| b.try_into().ok()) {
+        Some(seed) => seed,
+        None => {
+            log::error!(
+                "validate_deadlines: cannot decode seed for account {}; rejecting candidate",
+                ns.account_id
+            );
+            return false;
+        }
+    };
+
+    let gensig = match pocx_hashlib::decode_generation_signature(&ns.generation_signature) {
+        Ok(gensig) => gensig,
+        Err(e) => {
+            log::error!(
+                "validate_deadlines: cannot decode generation signature: {}; rejecting candidate",
+                e
+            );
+            return false;
+        }
+    };
+
+    match pocx_hashlib::calculate_quality_from_height_scalar(
+        &address_payload,
+        &seed,
+        ns.nonce,
+        ns.compression,
+        ns.block_height,
+        &gensig,
+    ) {
+        Ok(expected) if expected == ns.raw_quality => true,
+        Ok(expected) => {
+            log::warn!(
+                "validate_deadlines: rejected faulty deadline for account {} nonce {} \
+                 (on-disk quality {} != recomputed {}); possible disk corruption",
+                ns.account_id,
+                ns.nonce,
+                ns.raw_quality,
+                expected
+            );
+            false
+        }
+        Err(e) => {
+            log::error!(
+                "validate_deadlines: regeneration failed for account {} nonce {}: {}; \
+                 rejecting candidate",
+                ns.account_id,
+                ns.nonce,
+                e
+            );
+            false
+        }
+    }
 }
 
 /// Per-account configuration overrides.
@@ -1056,6 +1133,7 @@ impl Miner {
         let chain_states = self.chain_states.clone();
         let nonce_rx = self.rx_nonce_data.take().unwrap();
         let token = self.shutdown_token.clone();
+        let validate_deadlines = self.cfg.validate_deadlines;
         task::spawn(async move {
             let mut nonce_rx = nonce_rx;
             loop {
@@ -1113,6 +1191,14 @@ impl Miner {
 
                     // Check: 1) Better than our best, 2) Better than target quality
                     if adjusted_quality < best_quality && adjusted_quality < target_quality {
+                        // Optionally re-derive the deadline independently and discard it if
+                        // the on-disk data does not reproduce it (e.g. failing disk). This
+                        // prevents a bogus low deadline from overshadowing a genuine one.
+                        if validate_deadlines
+                            && !revalidate_deadline(&submission_parameter.nonce_submission)
+                        {
+                            continue;
+                        }
                         chain_state.account_id_to_best_quality.insert(
                             submission_parameter.nonce_submission.account_id.clone(),
                             adjusted_quality,
