@@ -66,6 +66,14 @@ pub struct PlotterTask {
     pub quiet: bool,
     pub benchmark: bool,
     pub kws_override: usize,
+    /// Skip the pre-flight host-memory check and attempt plotting anyway.
+    ///
+    /// The check compares the configured host-memory requirement against the
+    /// memory the OS reports as available, which on Android is structurally
+    /// conservative (see the gate in `run`). When `true`, a shortfall is logged
+    /// as a warning instead of aborting, letting the caller proceed at the risk
+    /// of an allocation failure or the OS terminating plotting under pressure.
+    pub skip_mem_check: bool,
 }
 
 impl Default for Plotter {
@@ -228,13 +236,28 @@ impl Plotter {
 
         let available_mem = sys.available_memory();
 
+        // Memory available to satisfy the host-buffer requirement.
+        //
+        // On Android, `MemAvailable` is structurally low (often ~2-3 GiB)
+        // regardless of total RAM, because the OS keeps memory full of cached
+        // apps that it will reclaim under pressure. Include free swap (zram and
+        // vendor memory-extension) in the budget so devices that can genuinely
+        // back the working set are not falsely rejected. Desktop swap is
+        // typically a disk swapfile where spilling the random-access scatter
+        // buffer would be catastrophically slow, so swap is excluded there and
+        // behavior is unchanged.
+        #[cfg(target_os = "android")]
+        let mem_budget = available_mem.saturating_add(sys.free_swap());
+        #[cfg(not(target_os = "android"))]
+        let mem_budget = available_mem;
+
         // 1 buffer per output path, +1 if async write enabled
         let num_write_buffers =
             task.output_paths.len() as u64 + if task.async_write { 1 } else { 0 };
 
         let total_host_mem = mem_write * num_write_buffers + mem_scatter;
-        if available_mem < total_host_mem {
-            return Err(PoCXPlotterError::Memory(format!(
+        if mem_budget < total_host_mem {
+            let msg = format!(
                 "Insufficient host memory!\nRAM: Available={:.2} GiB, Need={:.2} GiB ({} x {:.2} GiB write buffers{})\nGPU-RAM: {:.2} GiB",
                 available_mem as f64 / 1024.0 / 1024.0 / 1024.0,
                 total_host_mem as f64 / 1024.0 / 1024.0 / 1024.0,
@@ -242,7 +265,14 @@ impl Plotter {
                 mem_write as f64 / 1024.0 / 1024.0 / 1024.0,
                 if cpu_mode { " + 2 GiB scatter" } else { "" },
                 mem_gpu as f64 / 1024.0 / 1024.0 / 1024.0,
-            )));
+            );
+            if task.skip_mem_check {
+                eprintln!(
+                    "WARNING: {msg}\nProceeding anyway (skip_mem_check enabled): allocation may fail or the OS may terminate plotting if memory runs out."
+                );
+            } else {
+                return Err(PoCXPlotterError::Memory(msg));
+            }
         }
 
         let total_planned_warps: u64 = task

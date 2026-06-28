@@ -154,6 +154,7 @@ pub struct PlotterTaskBuilder {
     async_write: bool,
     quiet: bool,
     benchmark: bool,
+    skip_mem_check: bool,
     #[cfg(feature = "opencl")]
     kws_override: usize,
 }
@@ -237,6 +238,17 @@ impl PlotterTaskBuilder {
         self
     }
 
+    /// Skip the pre-flight host-memory check and attempt plotting anyway.
+    ///
+    /// Intended for memory-constrained platforms (notably Android) where the
+    /// OS-reported available memory understates what is actually allocatable. A
+    /// shortfall is logged as a warning instead of aborting. Use with care: the
+    /// allocation may still fail or the OS may terminate plotting under pressure.
+    pub fn skip_mem_check(mut self, enabled: bool) -> Self {
+        self.skip_mem_check = enabled;
+        self
+    }
+
     #[cfg(feature = "opencl")]
     pub fn kws_override(mut self, size: usize) -> Self {
         self.kws_override = size;
@@ -299,6 +311,7 @@ impl PlotterTaskBuilder {
             async_write: self.async_write,
             quiet: self.quiet,
             benchmark: self.benchmark,
+            skip_mem_check: self.skip_mem_check,
             kws_override: self.kws_override,
         })
     }

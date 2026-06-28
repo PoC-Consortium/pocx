@@ -417,6 +417,7 @@ fn run() -> Result<()> {
         async_write: matches.get_flag("async-write"),
         quiet: matches.get_flag("non-verbosity"),
         benchmark: matches.get_flag("benchmark"),
+        skip_mem_check: false,
         kws_override,
     })?;
 
