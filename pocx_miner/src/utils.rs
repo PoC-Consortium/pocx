@@ -72,15 +72,13 @@ pub fn new_thread_pool(num_threads: usize, thread_pinning: bool) -> rayon::Threa
 cfg_if! {
     if #[cfg(unix)] {
         pub fn get_device_id(path: &str) -> String {
-            use std::ffi::CString;
-            let c_path = CString::new(path).expect("invalid path");
-            unsafe {
-                let mut stat_buf: libc::stat = std::mem::zeroed();
-                if libc::stat(c_path.as_ptr(), &mut stat_buf) == 0 {
-                    format!("{:x}", stat_buf.st_dev)
-                } else {
-                    String::new()
-                }
+            // Use std metadata (statx/stat64 under the hood) rather than a raw
+            // libc::stat: on 32-bit targets the bare stat() returns EOVERFLOW for
+            // files >2 GiB, which would collapse every large plot onto one device.
+            use std::os::unix::fs::MetadataExt;
+            match std::fs::metadata(path) {
+                Ok(meta) => format!("{:x}", meta.dev()),
+                Err(_) => String::new(),
             }
         }
 
